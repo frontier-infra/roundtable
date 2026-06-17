@@ -113,10 +113,19 @@ install_engine() {
 
   info "Installing engine → $SHARE_DIR"
   mkdir -p "$SHARE_DIR"
-  rm -rf "$SHARE_DIR/bin" "$SHARE_DIR/lib"
+  rm -rf "$SHARE_DIR/bin" "$SHARE_DIR/lib" "$SHARE_DIR/skill"
   cp -R "$SRC/bin" "$SHARE_DIR/bin"
   cp -R "$SRC/lib" "$SHARE_DIR/lib"
   [ -e "$SHARE_DIR/bin/roundtable" ] && chmod +x "$SHARE_DIR/bin/roundtable" 2>/dev/null || true
+
+  # Ship the Claude Code skill next to the engine so `roundtable install` can drop
+  # it even when the install dir isn't a full repo checkout. lib/install.sh looks
+  # for it at <engine>/skill/SKILL.md (REPO_ROOT being the parent of lib/).
+  SKILL_IN_SRC="$SRC/plugins/roundtable/skills/roundtable/SKILL.md"
+  if [ -f "$SKILL_IN_SRC" ]; then
+    mkdir -p "$SHARE_DIR/skill"
+    cp "$SKILL_IN_SRC" "$SHARE_DIR/skill/SKILL.md"
+  fi
 
   info "Linking command → $SYMLINK"
   mkdir -p "$BIN_DIR"

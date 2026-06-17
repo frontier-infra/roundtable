@@ -36,6 +36,10 @@ Issues = "https://github.com/frontier-infra/roundtable/issues"
 # (built by other workers); force-include copies them into the package as
 # data, preserving the bin/ + lib/ sibling layout under _engine/ so the
 # dispatcher's relative `../lib` lookup keeps working once installed.
+#
+# The Claude Code skill (canonical source: plugins/roundtable/skills/roundtable/
+# SKILL.md) is also force-included as _engine/skill/SKILL.md so `roundtable
+# install` can drop it; lib/install.sh resolves it at <engine>/skill/SKILL.md.
 # ---------------------------------------------------------------------------
 [tool.hatch.build.targets.wheel]
 packages = ["roundtable_cli"]
@@ -43,12 +47,15 @@ packages = ["roundtable_cli"]
 [tool.hatch.build.targets.wheel.force-include]
 "bin" = "roundtable_cli/_engine/bin"
 "lib" = "roundtable_cli/_engine/lib"
+"plugins/roundtable/skills/roundtable/SKILL.md" = "roundtable_cli/_engine/skill/SKILL.md"
 
 [tool.hatch.build.targets.sdist]
 include = [
   "/roundtable_cli",
   "/bin",
   "/lib",
+  "/plugins",
+  "/.claude-plugin",
   "/README.md",
   "/AGENTS.md",
   "/LICENSE",

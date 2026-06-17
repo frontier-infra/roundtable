@@ -26,7 +26,24 @@ set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SELF_DIR/.." && pwd)"
-SKILL_SRC="${ROUNDTABLE_SKILL_SRC:-$REPO_ROOT/skill/SKILL.md}"
+
+# Resolve the SKILL.md to drop into Claude Code. Search order:
+#   1) $ROUNDTABLE_SKILL_SRC                                  (explicit override)
+#   2) plugins/roundtable/skills/roundtable/SKILL.md          (repo checkout — canonical source)
+#   3) skill/SKILL.md                                         (engine-local copy shipped next to
+#                                                              bin/+lib/ by the curl installer & pip wheel)
+# Falls back to the canonical repo path (for the not-found warning) when none exist.
+resolve_skill_src() {
+  local c
+  for c in \
+    "${ROUNDTABLE_SKILL_SRC:-}" \
+    "$REPO_ROOT/plugins/roundtable/skills/roundtable/SKILL.md" \
+    "$REPO_ROOT/skill/SKILL.md"; do
+    [[ -n "$c" && -f "$c" ]] && { printf '%s\n' "$c"; return 0; }
+  done
+  printf '%s\n' "${ROUNDTABLE_SKILL_SRC:-$REPO_ROOT/plugins/roundtable/skills/roundtable/SKILL.md}"
+}
+SKILL_SRC="$(resolve_skill_src)"
 
 CMD="roundtable"
 SERVER_KEY="roundtable"

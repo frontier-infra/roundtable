@@ -112,6 +112,20 @@ The MCP server config any harness can use:
 { "command": "roundtable", "args": ["mcp", "serve"] }
 ```
 
+## Use in Claude Code (plugin)
+
+Roundtable is also importable as a **Claude Code plugin** (the `roundtable` skill). Add it
+from the marketplace:
+
+```text
+/plugin marketplace add frontier-infra/roundtable
+/plugin install roundtable@roundtable
+```
+
+The skill drives the globally-installed `roundtable` CLI, so install the CLI first
+(`curl -fsSL https://roundtable.sh/install.sh | bash`). Alternatively, `roundtable install`
+auto-wires both the skill and the MCP server into Claude Code in one step.
+
 ## Keep it current
 
 `roundtable version` · `roundtable update`.

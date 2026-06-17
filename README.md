@@ -132,6 +132,28 @@ Wires **Claude Code** (skill + MCP), **Cursor** (`~/.cursor/mcp.json`),
 { "command": "roundtable", "args": ["mcp", "serve"] }
 ```
 
+## Use in Claude Code
+
+Roundtable ships as a **Claude Code plugin** — a `roundtable` skill that drives the CLI.
+Two ways to add it:
+
+**A — Plugin marketplace** (inside Claude Code):
+
+```text
+/plugin marketplace add frontier-infra/roundtable
+/plugin install roundtable@roundtable
+```
+
+The skill calls the **globally-installed `roundtable` CLI**, so install that first:
+`curl -fsSL https://roundtable.sh/install.sh | bash`.
+
+**B — `roundtable install`** — auto-wires the skill **and** the MCP server into Claude
+Code (plus Cursor / Codex) in one step:
+
+```bash
+roundtable install
+```
+
 ## Commands
 
 ```
