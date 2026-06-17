@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "roundtable"
+version = "0.1.0"
+description = "A council of frontier models — for the decisions that matter. (a Frontier Infra project)"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "Frontier Infra" }]
+keywords = ["llm", "ai", "council", "deliberation", "cli", "mcp", "claude", "grok", "gemini", "openai"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: Utilities",
+]
+# No runtime deps: the engine is bash + python3 stdlib only.
+dependencies = []
+
+[project.scripts]
+roundtable = "roundtable_cli:main"
+
+[project.urls]
+Homepage = "https://roundtable.sh"
+Repository = "https://github.com/frontier-infra/roundtable"
+Issues = "https://github.com/frontier-infra/roundtable/issues"
+
+# ---------------------------------------------------------------------------
+# Bundle the bash engine. The repo-root bin/ and lib/ dirs are sibling-owned
+# (built by other workers); force-include copies them into the package as
+# data, preserving the bin/ + lib/ sibling layout under _engine/ so the
+# dispatcher's relative `../lib` lookup keeps working once installed.
+# ---------------------------------------------------------------------------
+[tool.hatch.build.targets.wheel]
+packages = ["roundtable_cli"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"bin" = "roundtable_cli/_engine/bin"
+"lib" = "roundtable_cli/_engine/lib"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/roundtable_cli",
+  "/bin",
+  "/lib",
+  "/README.md",
+  "/AGENTS.md",
+  "/LICENSE",
+]

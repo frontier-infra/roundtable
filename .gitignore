@@ -1,0 +1,15 @@
+# Roundtable tool repo
+*.log
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+# never commit user secrets / local config
+config.env
+.api_keys
+# orchestration/session tooling state (not project files)
+.omx/
