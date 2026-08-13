@@ -79,7 +79,16 @@ roundtable ask -q "..." --out /tmp/rt.md                           # also save t
 ```
 
 Flags: `-q/--question`, `-c/--context <file>`, `--heads ...`, `--rounds N`, `--research`,
-`--timeout <secs>`, `--out <file>`. Exit 0 if ≥1 head answered.
+`--timeout <secs>`, `--out <file>`, `--verdict <file>`, `--sign`. Exit 0 if ≥1 head answered.
+
+**Signed verdicts.** `--verdict FILE` emits a machine-consumable record of the run
+(question + sha256, per-head answer hashes and status, chair verdict + bullets) so a
+ratifier or gate can consume the council's ruling instead of parsing prose. `--sign`
+additionally wraps it as an Ed25519-signed
+[Agent Attestation Record](https://agentscontrolplane.org); `roundtable sign verdict.json`
+signs one after the fact. Both are opt-in and fail-open — an unconfigured signer never
+costs you the run or the record. Schema, verdict mapping (CONSENSUS→verified,
+CONTINUE→unclear) and key-management options: [docs/signed-verdicts.md](docs/signed-verdicts.md).
 
 **Output discipline:** always return the per-head results table **and** the judge's
 decision (chair verdict + your own moderator call). Never summarize without the table.

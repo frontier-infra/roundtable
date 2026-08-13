@@ -89,9 +89,26 @@ roundtable ask -q "Should we rewrite the billing service in Go?" --rounds 3
 
 `-q/--question` · `-c/--context <file>` (shared background for every head) ·
 `--heads grok,codex,openai,glm,minimax,claude,gemini` · `--rounds N` (deliberation) ·
-`--research` (web on, multi-step) · `--timeout <secs>` · `--out <file>`.
+`--research` (web on, multi-step) · `--timeout <secs>` · `--out <file>` ·
+`--verdict <file>` (structured verdict record) · `--sign` (wrap it as a signed AAR).
 
 Exit 0 if at least one head answered.
+
+### Signed verdicts
+
+The chair's ruling is prose, which nothing downstream can consume. `--verdict FILE` also
+writes a machine-readable record of the run — question + sha256, which heads answered /
+were missing / timed out, per-head answer hashes, the chair's verdict and its bullets:
+
+```bash
+roundtable ask -q "..." --rounds 3 --verdict ./verdict.json          # structured record
+roundtable ask -q "..." --rounds 3 --verdict ./verdict.json --sign   # ...Ed25519-signed
+roundtable sign ./verdict.json                                       # sign one later
+```
+
+`--sign` wraps the record as an [Agent Attestation Record](https://agentscontrolplane.org)
+and needs a configured key; without one the run still lands the unsigned record. Schema,
+verdict mapping, and key-management options: [docs/signed-verdicts.md](docs/signed-verdicts.md).
 
 ## The heads
 
