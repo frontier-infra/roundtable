@@ -8,6 +8,11 @@
 #   3. `--heads bogus` warns about the unknown head and does not crash.
 #   4. (bonus) `~/.config/roundtable/config.env` is sourced — an ROUNDTABLE_*_MODEL
 #      override there shows up in the printed header (offline proof of sourcing).
+#   5. `--verdict FILE` writes a structured verdict record for an advisory run.
+#   6. `--rounds 2 --verdict FILE` records an unreachable chair as CONTINUE.
+#   7. `--sign` with no key configured still lands the unsigned record (fail-open).
+#
+# The chair/head parsing itself is covered separately by lib/verdict.selftest.sh.
 #
 # Run:  bash lib/core.selftest.sh
 set -uo pipefail
@@ -79,6 +84,65 @@ else
   bad "config.env override not honored (rc=$rc); out=[$(snip "$out")]"
 fi
 rm -rf "$T4"
+
+# ── verdict artifact wiring (offline; no keys, so no head or chair ever answers) ──
+jget() {
+  python3 - "$1" "$2" <<'PY'
+import json, sys
+node = json.load(open(sys.argv[1]))
+for key in sys.argv[2].split("."):
+    node = node[int(key)] if key.isdigit() else (node or {}).get(key)
+sys.stdout.write("" if node is None else str(node))
+PY
+}
+
+# ── Test 5: --verdict emits a structured record for an advisory run ──────────
+echo "[5] --verdict writes a structured record (advisory)"
+T5="$(mktemp -d)"
+out="$(run_core "$T5" -q "does the record land" --heads claude --verdict "$T5/v.json" 2>&1)"; rc=$?
+if [[ $rc -eq 0 && -f "$T5/v.json" ]]; then
+  v="$(jget "$T5/v.json" verdict)"; qt="$(jget "$T5/v.json" question.text)"
+  st="$(jget "$T5/v.json" heads.0.status)"
+  if [[ "$v" = "NO_CHAIR" && "$qt" = "does the record land" && "$st" = "empty" ]]; then
+    ok "advisory run emits verdict.json (verdict=$v, head=$st)"
+  else
+    bad "unexpected record: verdict=[$v] question=[$qt] head=[$st]"
+  fi
+  printf '%s' "$out" | grep -q "Verdict record" && ok "transcript points at the record" \
+                                                || bad "transcript does not mention the record"
+else
+  bad "--verdict run rc=$rc, record present: $([[ -f "$T5/v.json" ]] && echo yes || echo no); out=[$(snip "$out")]"
+fi
+rm -rf "$T5"
+
+# ── Test 6: unreachable chair is recorded honestly, not as consensus ─────────
+echo "[6] --rounds 2 --verdict with no chair key"
+T6="$(mktemp -d)"
+out="$(run_core "$T6" -q "x" --heads claude --rounds 2 --verdict "$T6/v.json" 2>&1)"; rc=$?
+if [[ $rc -eq 0 && -f "$T6/v.json" ]]; then
+  v="$(jget "$T6/v.json" verdict)"; cs="$(jget "$T6/v.json" chair.status)"; rr="$(jget "$T6/v.json" run.rounds_run)"
+  if [[ "$v" = "CONTINUE" && "$cs" = "unreachable" && "$rr" = "2" ]]; then
+    ok "keyless chair recorded as unreachable/CONTINUE after $rr rounds"
+  else
+    bad "unexpected record: verdict=[$v] chair.status=[$cs] rounds_run=[$rr]"
+  fi
+else
+  bad "deliberation --verdict run rc=$rc; out=[$(snip "$out")]"
+fi
+rm -rf "$T6"
+
+# ── Test 7: --sign is fail-open — the unsigned record still lands ────────────
+echo "[7] --sign with no signing key configured"
+T7="$(mktemp -d)"
+out="$(run_core "$T7" -q "x" --heads claude --verdict "$T7/v.json" --sign 2>&1)"; rc=$?
+if [[ $rc -eq 0 && -f "$T7/v.json" ]] && [[ ! -f "$T7/v.aar.json" ]]; then
+  ok "unsigned verdict record still lands; no AAR written; run exit 0"
+else
+  bad "fail-open broke: rc=$rc record=$([[ -f "$T7/v.json" ]] && echo yes || echo no) aar=$([[ -f "$T7/v.aar.json" ]] && echo yes || echo no)"
+fi
+[[ -f "$T7/v.transcript.md" ]] && ok "--sign retains the transcript (AAR evidence custody)" \
+                               || bad "--sign did not retain a transcript for evidence custody"
+rm -rf "$T7"
 
 echo
 echo "── result: $PASS passed, $FAIL failed ──"
