@@ -3,6 +3,17 @@
 Status: **draft, implemented behind opt-in flags.** Key management below is a set of
 **options for the operator to choose from**, not a decision this document makes.
 
+## Doctrine
+
+The council advises and ratifies; it never verifies. Machine-internal, high-frequency
+verification stays deterministic (verify_cmd exit codes, warden checks, local judges) and
+never depends on external frontier models. The council is convened by the operator for
+low-frequency, high-stakes judgment: architecture calls, migrations, adversarial plan
+review, and ratification of major contracts when stakes warrant the spend. Its verdicts
+become evidence only because the operator chose to sign them. Consensus is correlated
+opinion, not a check against reality, which is why ground_truth stays unchecked. Nothing
+may place a council call on an automated path. Ratified by Jason 2026-08-13.
+
 ## 1. The gap
 
 The chair's verdict is prose. It reads well and nothing downstream can consume it:
