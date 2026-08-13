@@ -23,6 +23,15 @@
 #   core.sh -q "..." -c context.md                   # shared context file for every head
 #   core.sh -q "..." --research                      # web ON + multi-step (current/external facts)
 #   core.sh -q "..." --out /tmp/rt.md                # also save the transcript
+#   core.sh -q "..." --rounds 3 --verdict /tmp/v.json # also emit the structured verdict record
+#   core.sh -q "..." --rounds 3 --sign                # ...and wrap it as a signed AAR (if a key is configured)
+#
+# VERDICT ARTIFACT: --verdict FILE writes a machine-consumable record of the run
+#   (question + sha256, heads that answered/missed/timed out, per-head answer hashes,
+#   chair model + verdict, AGREED / REMAINING DISAGREEMENTS bullets). --sign additionally
+#   asks lib/verdict.py to wrap it as an Ed25519-signed Agent Attestation Record. Both are
+#   FAIL-OPEN: a broken emitter or an unconfigured signer never fails the council run.
+#   See docs/signed-verdicts.md.
 #
 # ENV OVERRIDES: ROUNDTABLE_{GROK,OPENAI,GLM,MINIMAX,GEMINI,CLAUDE,CHAIR}_MODEL ·
 #                ROUNDTABLE_{GROK_XAI,OPENAI,GLM,MINIMAX,GEMINI}_URL
@@ -36,6 +45,14 @@ RESEARCH=0
 CONTEXT_FILE=""
 OUT_FILE=""
 QUESTION=""
+VERDICT_FILE=""
+AAR_FILE=""
+SIGN=0
+
+HERE="$(cd -P "$(dirname "${BASH_SOURCE[0]:-$0}")" >/dev/null 2>&1 && pwd)"
+VERDICT_PY="$HERE/verdict.py"
+now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+STARTED_AT="$(now_utc)"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -46,10 +63,26 @@ while [[ $# -gt 0 ]]; do
     --timeout)     TIMEOUT="$2"; shift 2 ;;
     --research)    RESEARCH=1; shift ;;
     --out)         OUT_FILE="$2"; shift 2 ;;
+    --verdict)     VERDICT_FILE="$2"; shift 2 ;;
+    --aar)         AAR_FILE="$2"; shift 2 ;;
+    --sign)        SIGN=1; shift ;;
     -h|--help)     grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)             QUESTION="${QUESTION:+$QUESTION }$1"; shift ;;
   esac
 done
+
+# --sign with no --verdict still needs somewhere to put the record.
+if [[ "$SIGN" -eq 1 && -z "$VERDICT_FILE" ]]; then
+  if [[ -n "$OUT_FILE" ]]; then VERDICT_FILE="${OUT_FILE%.md}.verdict.json"
+  else VERDICT_FILE="$PWD/roundtable-verdict.json"; fi
+  echo "roundtable: --sign without --verdict — writing the record to $VERDICT_FILE" >&2
+fi
+# The AAR commits to hashes of the head answers, and the AAR spec (§3.2) makes the
+# issuer responsible for retaining that preimage. Keep the transcript when signing.
+if [[ "$SIGN" -eq 1 && -z "$OUT_FILE" ]]; then
+  OUT_FILE="${VERDICT_FILE%.json}.transcript.md"
+  echo "roundtable: retaining the transcript at $OUT_FILE (AAR evidence custody)" >&2
+fi
 
 [[ -z "$TIMEOUT" ]] && { if [[ "$RESEARCH" -eq 1 ]]; then TIMEOUT=360; else TIMEOUT=300; fi; }
 [[ -z "$QUESTION" ]] && { echo "ERROR: no question. Use -q \"...\"." >&2; exit 2; }
@@ -115,6 +148,22 @@ label_for() {
     claude) echo "🔵 Claude ($CLAUDE_MODEL, Anthropic)";;
     gemini) echo "✨ Gemini ($GEMINI_MODEL, Google)";;
     *) echo "$1";;
+  esac
+}
+
+# The configured model id per head, for the verdict record. Codex runs the local
+# CLI's own default, and grok can fall back to its CLI — so this is the id the
+# council *asked for*, which is what the record claims.
+model_for() {
+  case "$1" in
+    grok) echo "$GROK_MODEL";;
+    codex) echo "(codex CLI default)";;
+    openai) echo "$OPENAI_MODEL";;
+    glm) echo "$GLM_MODEL";;
+    minimax) echo "$MINIMAX_MODEL";;
+    claude) echo "$CLAUDE_MODEL";;
+    gemini) echo "$GEMINI_MODEL";;
+    *) echo "";;
   esac
 }
 
@@ -318,9 +367,11 @@ say ""
 say "_Question:_ ${QUESTION}"
 say ""
 
+ROUNDS_RUN=1
 if [[ "$ROUNDS" -le 1 ]]; then
   printf '%s' "$BASE_PROMPT" > "$PFILE"
   run_all_heads
+  now_utc > "$WORK/r1.finished"
   for h in "${ACTIVE[@]}"; do say "---"; say "## $(label_for "$h")"; say ""; say "$(body_of_file "$WORK/$h.out")"; say ""; done
   say "---"
   say "_Advisory mode — independent answers, no cross-talk. Use \`--rounds N\` for deliberation-to-consensus._"
@@ -336,6 +387,8 @@ else
       } > "$PFILE"
     fi
     run_all_heads
+    ROUNDS_RUN=$r
+    now_utc > "$WORK/r$r.finished"
     for h in "${ACTIVE[@]}"; do cp "$WORK/$h.out" "$WORK/$h.r$r.out" 2>/dev/null; done
     say "## ─────── Round $r ───────"; say ""
     for h in "${ACTIVE[@]}"; do say "### $(label_for "$h")"; say ""; say "$(body_of_file "$WORK/$h.r$r.out")"; say ""; done
@@ -344,15 +397,73 @@ else
       printf -- '--- YOUR JOB ---\nLine 1 must be EXACTLY one of: "VERDICT: CONSENSUS" (the councilors substantively agree on the core recommendation) or "VERDICT: CONTINUE" (material disagreement remains). Then give: **AGREED** (bullets) and **REMAINING DISAGREEMENTS** (bullets — name who holds what). Be strict: consensus means real convergence on the answer, not mere overlap.\n'
     } > "$WORK/chair.prompt"
     CHAIR_OUT="$(anthropic_call "$CHAIR_MODEL" "$WORK/chair.prompt")"
-    [[ -z "$CHAIR_OUT" ]] && CHAIR_OUT="VERDICT: CONTINUE"$'\n'"_(chair unavailable — ANTHROPIC_API_KEY missing/error)_"
+    CHAIR_STATUS="ok"
+    [[ -z "$CHAIR_OUT" ]] && { CHAIR_STATUS="unreachable"; CHAIR_OUT="VERDICT: CONTINUE"$'\n'"_(chair unavailable — ANTHROPIC_API_KEY missing/error)_"; }
     say "### 🪑 Chair verdict — round $r"; say ""; say "$CHAIR_OUT"; say ""
+    # Record what the chair said AND the decision the engine actually acted on, so the
+    # verdict artifact reports real behaviour instead of a second, possibly divergent parse.
+    printf '%s' "$CHAIR_OUT" >"$WORK/chair.r$r.out"
+    printf '%s\n' "$CHAIR_STATUS" >"$WORK/chair.r$r.status"
+    now_utc > "$WORK/chair.r$r.finished"
     if printf '%s' "$CHAIR_OUT" | head -1 | grep -qi "VERDICT: *CONSENSUS"; then
+      printf 'CONSENSUS\n' >"$WORK/chair.r$r.decision"
       CONS=1; say "**→ Consensus reached at round $r.**"; say ""; break
     fi
+    printf 'CONTINUE\n' >"$WORK/chair.r$r.decision"
   done
   say "---"
   if [[ $CONS -eq 1 ]]; then say "_Deliberation converged. The chair's final verdict above is the council consensus._"
   else say "_Reached the round cap ($ROUNDS) without full consensus — the chair's last verdict lists the remaining disagreements._"; fi
+fi
+
+# ══════════════════════════════════════════════════════════════════════════
+#  Structured verdict artifact (opt-in via --verdict/--sign) — FAIL-OPEN.
+#  Nothing below may fail the council run: the transcript is already complete
+#  and every failure path here is a warning on stderr.
+# ══════════════════════════════════════════════════════════════════════════
+if [[ -n "$VERDICT_FILE" ]]; then
+  emit_ok=0
+  if [[ ! -f "$VERDICT_PY" ]]; then
+    echo "roundtable: verdict emitter not found ($VERDICT_PY) — transcript unaffected" >&2
+  elif ! command -v python3 >/dev/null 2>&1; then
+    echo "roundtable: python3 not found — cannot emit the verdict record; transcript unaffected" >&2
+  else
+    printf '%s' "$QUESTION" > "$WORK/question.txt"
+    : > "$WORK/heads.tsv"
+    for h in "${ACTIVE[@]}"; do
+      printf '%s\t%s\t%s\n' "$h" "$(label_for "$h")" "$(model_for "$h")" >> "$WORK/heads.tsv"
+    done
+    RT_VERSION="0.1.0"
+    [[ -f "$HERE/../VERSION" ]] && RT_VERSION="$(head -n1 "$HERE/../VERSION" 2>/dev/null | tr -d '[:space:]')"
+    if python3 "$VERDICT_PY" emit \
+         --run-dir "$WORK" --out "$VERDICT_FILE" \
+         --question-file "$WORK/question.txt" --heads-file "$WORK/heads.tsv" \
+         --mode "$([[ $ROUNDS -le 1 ]] && echo advisory || echo deliberation)" \
+         --rounds-max "$ROUNDS" --rounds-run "$ROUNDS_RUN" \
+         --chair-model "$CHAIR_MODEL" --research "$RESEARCH" \
+         --started-at "$STARTED_AT" --finished-at "$(now_utc)" \
+         --context-file "$CONTEXT_FILE" --transcript "$OUT_FILE" \
+         --tool-version "${RT_VERSION:-0.1.0}" --quiet; then
+      emit_ok=1
+      say "---"; say "_Verdict record: \`$VERDICT_FILE\`_"
+    else
+      echo "roundtable: verdict emission failed — transcript unaffected" >&2
+    fi
+  fi
+  if [[ "$SIGN" -eq 1 ]]; then
+    if [[ $emit_ok -eq 0 ]]; then
+      echo "roundtable: nothing to sign (no verdict record was written)" >&2
+    else
+      SIGN_ARGS=(sign "$VERDICT_FILE")
+      [[ -n "$AAR_FILE" ]] && SIGN_ARGS+=(--out "$AAR_FILE")
+      if AAR_OUT="$(python3 "$VERDICT_PY" "${SIGN_ARGS[@]}")" && [[ -n "$AAR_OUT" ]]; then
+        say "_Signed attestation (AAR): \`$AAR_OUT\`_"
+      else
+        echo "roundtable: verdict left UNSIGNED — the record at $VERDICT_FILE is still valid" >&2
+      fi
+    fi
+  fi
+  say ""
 fi
 
 [[ -n "$OUT_FILE" ]] && cp "$OUT" "$OUT_FILE"

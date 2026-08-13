@@ -9,6 +9,7 @@
 #   roundtable auth|models|heads|doctor|config|version|update
 #   roundtable mcp ...               MCP server (lib/mcp.py)
 #   roundtable install ...           harness auto-wire (lib/install.sh)
+#   roundtable sign <verdict.json>   sign a verdict record as an AAR (lib/verdict.py)
 
 # ── resolve the real script dir (follow symlinks, portable) ────────────────
 SOURCE="${BASH_SOURCE[0]:-$0}"
@@ -41,6 +42,7 @@ Commands:
   config     Show (masked) or edit the config file ('config edit')
   mcp        Run the MCP server (e.g. 'roundtable mcp serve')
   install    Auto-wire Roundtable into detected harnesses
+  sign       Wrap a verdict record as a signed AAR ('roundtable sign verdict.json')
   version    Print the version
   update     Re-run the installer to upgrade
   help       Show this help
@@ -53,6 +55,9 @@ Engine flags (passed through to 'ask'):
       --timeout S       Per-head timeout, seconds
       --research        Allow web/tool use where heads support it
       --out FILE        Also save the transcript to FILE
+      --verdict FILE    Also emit the structured verdict record (JSON)
+      --sign            Wrap that record as an Ed25519-signed AAR (needs a key)
+      --aar FILE        Where the signed AAR lands (default: <verdict>.aar.json)
 
 Config: $RT_CONFIG_FILE
 Docs:   https://roundtable.sh
@@ -103,6 +108,17 @@ case "$cmd" in
     shift
     if [ -f "$LIBDIR/install.sh" ]; then exec bash "$LIBDIR/install.sh" "$@"; fi
     echo "roundtable: installer not available ($LIBDIR/install.sh missing)" >&2; exit 1 ;;
+
+  sign)
+    shift
+    if [ ! -f "$LIBDIR/verdict.py" ]; then
+      echo "roundtable: verdict tooling not available ($LIBDIR/verdict.py missing)" >&2; exit 1
+    fi
+    if [ $# -eq 0 ]; then
+      echo "usage: roundtable sign <verdict.json> [--out FILE] [--aar-tool F] [--aar-priv F] [--subject DID] [--principal DID]" >&2
+      exit 2
+    fi
+    exec python3 "$LIBDIR/verdict.py" sign "$@" ;;
 
   ask)
     shift; exec_engine "$@" ;;
