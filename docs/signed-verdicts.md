@@ -277,8 +277,12 @@ silent pass — when it does not.
   not protected against retroactive rewrite after a key compromise.
 - **The prompt each head saw is not hashed** — only its answer. Hashing the per-round
   prompt would make a round fully reproducible.
-- **The MCP tool does not emit verdicts.** `roundtable(question, …)` still returns only a
-  transcript. Wiring `--verdict` through it needs a decision this change did not make:
-  where the file should land for a client that has no cwd of its own.
+- **MCP verdict emission — settled by the Doctrine, not pending work.** `roundtable(question, …)`
+  returns a transcript only, and that is not a gap waiting to be filled. Auto-emission of
+  verdicts by an MCP client is the forbidden automated path and will not be built. A human
+  operator deliberately invoking the roundtable tool via MCP is still operator-convened, so
+  *if* verdict emission is ever exposed over MCP it must be an explicit per-call operator
+  opt-in — a `verdict`/`sign` parameter the client passes deliberately — never a default,
+  and nothing downstream may trigger it programmatically.
 - **Nothing consumes this yet.** The Machine's Box-0 ratifier still needs wiring to read
   `verdict.json` / the AAR; that is a separate change in a separate repo.
