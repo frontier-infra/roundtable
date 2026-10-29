@@ -13,3 +13,6 @@ config.env
 .api_keys
 # orchestration/session tooling state (not project files)
 .omx/
+
+# Graft local cache (directory or symlink)
+/graft
