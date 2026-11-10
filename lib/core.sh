@@ -35,6 +35,9 @@
 #   core.sh -q "..." --no-clarify                    # skip the check for missing key facts (no brief: the chair
 #                                                    # opens with 2 or 3 questions when the pick depends on them)
 #   core.sh -q "..." --no-blind                      # round 1 open: each seat reads the seats before it
+#   core.sh -q "..." --mode deep                     # Deep Think: the coach first, up to 4 rounds, long answers
+#                                                    # and a long verdict. --mode quick (the default): one round,
+#                                                    # about 250 words a seat, a verdict under 200 words
 #   core.sh -q "..." --attach notes.pdf --attach URL # material every seat reads (long ones summarized once)
 #   core.sh -q "..." --follow-up last.md             # a follow-up: the earlier transcript comes first
 #
@@ -48,7 +51,8 @@
 set -uo pipefail
 
 HEADS="grok,codex,openai,glm,minimax,claude,gemini"
-ROUNDS=1
+ROUNDS=""
+MODE="quick"
 TIMEOUT=""
 RESEARCH=0
 CONTEXT_FILE=""
@@ -73,6 +77,9 @@ while [[ $# -gt 0 ]]; do
     -c|--context)  CONTEXT_FILE="$2"; shift 2 ;;
     --heads)       HEADS="$2"; shift 2 ;;
     --rounds)      ROUNDS="$2"; shift 2 ;;
+    --mode)        MODE="$2"; shift 2 ;;
+    --deep)        MODE="deep"; shift ;;
+    --quick)       MODE="quick"; shift ;;
     --personas)    PERSONAS="$2"; shift 2 ;;
     --timeout)     TIMEOUT="$2"; shift 2 ;;
     --research)    RESEARCH=1; shift ;;
@@ -95,9 +102,14 @@ done
 
 [[ -z "$TIMEOUT" ]] && { if [[ "$RESEARCH" -eq 1 ]]; then TIMEOUT=360; else TIMEOUT=300; fi; }
 [[ -z "$QUESTION" ]] && { echo "ERROR: no question. Use -q \"...\"." >&2; exit 2; }
+COACH_PY="$(dirname "$0")/coach.py"
+MODE="$(python3 "$COACH_PY" mode "$MODE")" || exit 2
+# The mode's rounds unless --rounds says otherwise: Quick 1, Deep Think up to 4.
+[[ -z "$ROUNDS" ]] && { if [[ "$MODE" == "deep" ]]; then ROUNDS=4; else ROUNDS=1; fi; }
 [[ "$ROUNDS" =~ ^[0-9]+$ ]] || { echo "ERROR: --rounds needs a number" >&2; exit 2; }
 [[ "$ROUNDS" -lt 1 ]] && ROUNDS=1
 [[ "$ROUNDS" -gt 4 ]] && { echo "NOTE: --rounds is at most 4. Running 4." >&2; ROUNDS=4; }
+[[ "$MODE" == "deep" ]] && echo "NOTE: $(python3 "$COACH_PY" estimate "$MODE" "$ROUNDS")" >&2
 case "$(printf '%s' "$VERDICT" | tr '[:upper:]' '[:lower:]')" in
   ""|none|off) VERDICT="" ;;
   decision) VERDICT="decision" ;;
@@ -387,7 +399,8 @@ run_claude() {
 }
 
 # ── COACH, FOLLOW-UP, ATTACHMENTS, BRIEF (lib/coach.py builds the text; the chair answers) ──
-COACH_PY="$(dirname "$0")/coach.py"
+# Deep Think: the coach always runs (unless a brief came with the run).
+[[ "$MODE" == "deep" ]] && COACH=1
 # chair_say <promptfile>: the chair's answer, or nothing.
 chair_say() { local t; t="$TIMEOUT"; TIMEOUT=180; anthropic_call "$CHAIR_MODEL" "$1"; TIMEOUT="$t"; }
 
@@ -464,6 +477,7 @@ if [[ "$COACH" -eq 1 && -z "$BRIEF" ]]; then
       echo "NOTE: The coach did not answer. Connect Claude, or skip the coach. Asking the question as typed." >&2
     else
       BRIEF="$(printf '%s' "$_r" | python3 "$COACH_PY" parse-brief "$COACH_TEXT")"
+      [[ "$MODE" == "quick" ]] && printf '%s' "$_r" | python3 "$COACH_PY" deep-hint >&2
       if [[ $_tty -eq 1 ]]; then
         printf '\nThe brief the table will read:\n%s\n\nPress Enter to use it, or type s and Enter to skip it: ' "$BRIEF" >&2
         IFS= read -r _a </dev/tty || _a=""
@@ -529,11 +543,15 @@ seat_label() {
 
 # Every seat runs in its own subshell and folder, so two seats on one AI never share files.
 # Each seat reads its brief (empty on a Generic seat), then the round's prompt.
+# Every seat's prompt ends with the mode's LENGTH section (lib/coach.py seat-rule).
+SEAT_RULE="$(python3 "$COACH_PY" seat-rule "$MODE")"
+# with_rule <file>: the file's text without its trailing newlines, then the LENGTH section.
+with_rule() { printf '%s\n\n%s\n' "$(cat "$1")" "$SEAT_RULE"; }
 run_all_seats() {
   local i
   for ((i=0; i<NSEATS; i++)); do
     ( WORK="$WORK/s$i"; mkdir -p "$WORK"; PFILE="$WORK/round.prompt"
-      { [[ -f "$WORK/../brief.$i" ]] && cat "$WORK/../brief.$i"; cat "$ROUND_PFILE"; } > "$PFILE"
+      { [[ -f "$WORK/../brief.$i" ]] && cat "$WORK/../brief.$i"; with_rule "$ROUND_PFILE"; } > "$PFILE"
       "run_${SEAT_HEAD[$i]}" ) &
   done
   wait
@@ -548,8 +566,7 @@ run_open_seats() {
   local i j
   for ((i=0; i<NSEATS; i++)); do
     mkdir -p "$WORK/s$i"
-    { [[ -f "$WORK/brief.$i" ]] && cat "$WORK/brief.$i"
-      cat "$ROUND_PFILE"
+    { cat "$ROUND_PFILE"
       _seen=0
       for ((j=0; j<i; j++)); do
         answered "$WORK/s$j/${SEAT_HEAD[$j]}.out" || continue
@@ -557,11 +574,18 @@ run_open_seats() {
         printf '### %s\n%s\n\n' "$(seat_label "$j")" "$(cat "$WORK/s$j/${SEAT_HEAD[$j]}.out")"
       done
       [[ $_seen -eq 1 ]] && printf '## YOUR TASK\nGive your own answer. You may build on these answers or disagree with them; say which.\n'
-    } > "$WORK/s$i/round.prompt"
+    } > "$WORK/s$i/open.prompt"
+    { [[ -f "$WORK/brief.$i" ]] && cat "$WORK/brief.$i"; with_rule "$WORK/s$i/open.prompt"; } > "$WORK/s$i/round.prompt"
     ( WORK="$WORK/s$i"; PFILE="$WORK/round.prompt"; "run_${SEAT_HEAD[$i]}" )
   done
 }
-first_round() { if [[ "$OPEN_FIRST" -eq 1 ]]; then run_open_seats; else run_all_seats; fi; }
+first_round() {
+  local _cp=""
+  if [[ "$ALONGSIDE" -eq 1 ]]; then ask_clarify & _cp=$!; fi
+  if [[ "$OPEN_FIRST" -eq 1 ]]; then run_open_seats; else run_all_seats; fi
+  if [[ -n "$_cp" ]]; then wait "$_cp" 2>/dev/null; mv "$WORK/open.late" "$WORK/open.q" 2>/dev/null; fi
+  return 0
+}
 
 # A table of two seats or more gets a decision verdict unless --verdict says otherwise.
 [[ "$VERDICT_GIVEN" -eq 0 && "$NSEATS" -ge 2 ]] && VERDICT="decision"
@@ -569,11 +593,18 @@ first_round() { if [[ "$OPEN_FIRST" -eq 1 ]]; then run_open_seats; else run_all_
 # Clarify first: with no brief and no earlier turns, the chair checks the question for missing
 # key facts. When the pick flips on them, the seats and the verdict open with its questions.
 : > "$WORK/open.q"
-if [[ "$CLARIFY" -eq 1 && "$NSEATS" -ge 2 && -z "${BRIEF//[[:space:]]/}" && -z "${PRIOR//[[:space:]]/}" ]]; then
+# Quick asks the chair alongside round 1 (first_round waits for it), so nobody waits; then only the
+# verdict reads the open questions. Deep Think asks first and every seat reads them.
+ALONGSIDE=0
+ask_clarify() {
   python3 "$COACH_PY" clarify-prompt "$QUESTION" > "$WORK/clarify.prompt"
-  _t="$TIMEOUT"; [[ "$TIMEOUT" -gt 180 ]] && TIMEOUT=180
-  anthropic_call "$CHAIR_MODEL" "$WORK/clarify.prompt" | python3 "$COACH_PY" clarify-questions > "$WORK/open.q"
+  local _t="$TIMEOUT"; [[ "$TIMEOUT" -gt 180 ]] && TIMEOUT=180
+  anthropic_call "$CHAIR_MODEL" "$WORK/clarify.prompt" | python3 "$COACH_PY" clarify-questions > "$WORK/open.late"
   TIMEOUT="$_t"
+}
+if [[ "$CLARIFY" -eq 1 && "$NSEATS" -ge 2 && -z "${BRIEF//[[:space:]]/}" && -z "${PRIOR//[[:space:]]/}" ]]; then
+  if [[ "$MODE" == "quick" ]]; then ALONGSIDE=1
+  else ask_clarify; mv "$WORK/open.late" "$WORK/open.q"; fi
 fi
 _part "OPEN QUESTIONS" "$(python3 "$COACH_PY" open-section "$WORK/open.q")"
 if [[ -n "$BASE_PROMPT" ]]; then BASE_PROMPT+=$'\n\n'"## QUESTION"$'\n'"$QUESTION"; else BASE_PROMPT="$QUESTION"; fi
@@ -597,7 +628,7 @@ verdict_text() {
   printf '%s' "$BRIEF" > "$WORK/brief.md"
   # The chair reads the same files and links as every seat, or it doubts what they quote.
   printf '%s' "$ATTACHMENTS" > "$WORK/material.md"
-  python3 "$COACH_PY" verdict-prompt "$VERDICT" "$QUESTION" "$WORK/brief.md" "$WORK/open.q" "$WORK/final.pos" "$WORK/material.md" > "$WORK/verdict.prompt"
+  python3 "$COACH_PY" verdict-prompt "$VERDICT" "$QUESTION" "$WORK/brief.md" "$WORK/open.q" "$WORK/final.pos" "$WORK/material.md" "$MODE" > "$WORK/verdict.prompt"
   text="$(anthropic_call "$CHAIR_MODEL" "$WORK/verdict.prompt")"
   [[ -z "${text//[[:space:]]/}" ]] && text="_(verdict unavailable: the chair did not answer)_"
   printf '## 🪑 Verdict (%s)\n\n%s\n' "$title" "$text" > "$WORK/verdict.md"
@@ -625,7 +656,7 @@ seat_body() {
   body_of_file "$2"
 }
 
-{ echo "# 🪑 Round Table — $NSEATS $([[ $PERSONA_SEATS -eq 1 ]] && echo seats || echo heads) — $([[ $ROUNDS -le 1 ]] && echo 'advisory' || echo "deliberation (≤$ROUNDS rounds)")"
+{ echo "# 🪑 Round Table — $NSEATS $([[ $PERSONA_SEATS -eq 1 ]] && echo seats || echo heads) — $([[ $ROUNDS -le 1 ]] && echo 'advisory' || echo "deliberation (≤$ROUNDS rounds)") — $([[ "$MODE" == "deep" ]] && echo 'Deep Think' || echo 'Quick')"
   echo ""
   echo "_Question:_ ${QUESTION}"
   echo ""
@@ -656,6 +687,8 @@ else
     for ((i=0; i<NSEATS; i++)); do cp "$WORK/s$i/${SEAT_HEAD[$i]}.out" "$WORK/s$i.r$r.out" 2>/dev/null; done
     say "## ─────── Round $r ───────"; say ""
     for ((i=0; i<NSEATS; i++)); do say "### $(seat_label "$i")"; say ""; say "$(seat_body "$i" "$WORK/s$i.r$r.out")"; say ""; done
+    # Quick: no ruling between rounds; the next round starts at once and the verdict weighs the last.
+    [[ "$MODE" == "quick" ]] && continue
     positions ".r$r.out" > "$WORK/round.pos"
     python3 "$COACH_PY" chair-prompt "$QUESTION" "$r" "$WORK/round.pos" > "$WORK/chair.prompt"
     CHAIR_OUT="$(anthropic_call "$CHAIR_MODEL" "$WORK/chair.prompt")"
@@ -668,7 +701,8 @@ else
     fi
   done
   [[ -n "$VERDICT" ]] && verdict_text ".r$LAST_R.out"
-  if [[ $CONS -eq 1 ]]; then FOOTER="_Deliberation converged. The chair's final verdict above is the council consensus._"
+  if [[ "$MODE" == "quick" ]]; then FOOTER="_Quick: $ROUNDS_RUN rounds back to back, with no chair ruling between them. The verdict weighs the last round._"
+  elif [[ $CONS -eq 1 ]]; then FOOTER="_Deliberation converged. The chair's final verdict above is the council consensus._"
   else FOOTER="_Reached the round cap ($ROUNDS) without full consensus — the chair's last verdict lists the remaining disagreements._"; fi
 fi
 

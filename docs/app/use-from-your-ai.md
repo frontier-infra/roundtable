@@ -1,7 +1,7 @@
 ---
 title: Use Roundtable from your AI
 description: Ask the roundtable from inside Claude.
-order: 6
+order: 7
 online: https://roundtable.sh/docs/mcp-and-harness/
 ---
 

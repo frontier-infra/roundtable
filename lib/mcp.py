@@ -82,6 +82,13 @@ TOOL = {
                 "minimum": 1,
                 "maximum": 4,
             },
+            "mode": {
+                "type": "string",
+                "enum": ["quick", "deep"],
+                "description": (
+                    "Optional. quick (the default): one round, short seat answers and a short verdict (the pick, confidence, what would change it, three next steps, one minority view), about 2 minutes. deep: Deep Think, for complex asks (several stakeholders, money or legal stakes, more than three options, missing facts): the coach first, up to 4 rounds that argue against the leading pick, long seat answers and a long verdict (reasoning by theme, trade-offs, risks, unknowns and how to resolve them, a step plan, the minority view in full). It takes about 14 minutes. rounds, when given, overrides the mode's rounds."
+                ),
+            },
             "personas": {
                 "type": "string",
                 "description": (
@@ -163,10 +170,12 @@ def _log(msg):
 
 # ── engine bridge ───────────────────────────────────────────────────────────
 
-def _engine_timeout(rounds, research):
+def _engine_timeout(rounds, research, mode=None):
     """Generous wall-clock budget; core.sh enforces its own per-head timeouts."""
     per_round = 360 if research else 300
-    return per_round * max(1, int(rounds or 1)) + 120
+    if rounds is None:
+        rounds = 4 if mode == "deep" else 1
+    return per_round * max(1, int(rounds)) + 120
 
 
 def _strings(v):
@@ -198,13 +207,19 @@ def coach_questions(question):
 
 
 def run_engine(question, heads=None, rounds=None, research=False, personas=None,
-               coach=False, coach_answers=None, verdict=None, blind=None, attach=None):
+               coach=False, coach_answers=None, verdict=None, blind=None, attach=None, mode=None):
     """Subprocess core.sh and return (transcript_text, is_error)."""
     if not os.path.exists(CORE_SH):
         return ("Roundtable engine not found at %s — is the install complete?" % CORE_SH, True)
 
     cmd = ["bash", CORE_SH, "-q", question]
-    if coach:
+    if mode:
+        mode = str(mode).strip().lower()
+        if mode not in ("quick", "deep"):
+            return ("Unknown mode '%s'. Use quick or deep." % mode, True)
+        cmd += ["--mode", mode]
+    # Deep Think always coaches: questions first, unless the caller brings the answers.
+    if coach or mode == "deep":
         answers = [a for a in (coach_answers or [])]
         if answers:
             for a in answers:
@@ -236,7 +251,7 @@ def run_engine(question, heads=None, rounds=None, research=False, personas=None,
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
-            timeout=_engine_timeout(rounds, research) + (600 if coach or attach else 0) + (240 if verdict else 0),
+            timeout=_engine_timeout(rounds, research, mode) + (600 if coach or attach or mode == "deep" else 0) + (240 if verdict else 0),
         )
     except subprocess.TimeoutExpired:
         return ("Roundtable timed out while convening the council.", True)
@@ -305,6 +320,7 @@ def handle_tools_call(req_id, params):
         verdict=args.get("verdict") or None,
         blind=args.get("blind") if isinstance(args.get("blind"), bool) else None,
         attach=_strings(args.get("attach")),
+        mode=args.get("mode") or None,
     )
     _result(req_id, {"content": [{"type": "text", "text": text}], "isError": is_error})
 

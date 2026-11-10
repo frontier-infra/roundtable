@@ -4,7 +4,7 @@
 import { decisionMarkdown } from "./decision";
 import type { Attachment, Brief, VerdictShape } from "./api";
 import { providerName } from "./providers";
-import { cleanAnswer, splitVerdict, type RunView, type SeatPick } from "./state";
+import { cleanAnswer, depthTitle, splitVerdict, type RunView, type SeatPick } from "./state";
 
 export const VERDICT_SHAPES: { id: VerdictShape; label: string; hint: string }[] = [
   { id: "decision", label: "Decision", hint: "One answer, with how sure the table is." },
@@ -23,7 +23,7 @@ export function verdictHint(shape: VerdictShape | string): string {
 
 // ---- The coach's brief ----
 
-export const BRIEF_FIELDS: { key: keyof Brief; label: string; md: string; placeholder: string }[] = [
+export const BRIEF_FIELDS: { key: "goal" | "context" | "constraints" | "good_answer"; label: string; md: string; placeholder: string }[] = [
   { key: "goal", label: "Goal", md: "Goal", placeholder: "What you want to decide or achieve." },
   { key: "context", label: "Context", md: "Context", placeholder: "The facts that matter." },
   { key: "constraints", label: "Constraints", md: "Constraints", placeholder: "Limits on money, time, people or risk." },
@@ -97,7 +97,7 @@ export function splitFinalVerdict(text: string): { body: string; minority?: stri
     else if (hb) heldBy = hb[1].trim();
     else keep.push(line);
   }
-  const none = (v?: string) => (!v || /^["']?(none|nobody)["'.]?$/i.test(v) ? undefined : v);
+  const none = (v?: string) => (!v || /^["']?(none|nobody( at the table)?)["'.]?$/i.test(v) ? undefined : v);
   return { body: keep.join("\n").trim(), minority: none(minority), heldBy: none(heldBy) };
 }
 
@@ -193,6 +193,7 @@ export function runMarkdown(run: RunView, opts: { title?: string; date?: Date | 
   if (opts.date !== null) out.push(`_${(opts.date ?? new Date()).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}_`, "");
   if (opts.title) out.push(`**Question:** ${run.question}`, "");
   if (run.target && run.target !== "table") out.push(`_Asked of one seat: ${seatName(run, run.target)}._`, "");
+  out.push(`**Mode:** ${depthTitle(run.depth)}${run.rounds > 1 ? `, up to ${run.rounds} rounds` : ", one round"}`, "");
   if (run.brief) out.push("## Brief", "", run.brief.trim(), "");
   out.push("## Seats", "", tableRow(["Seat", "Persona", "AI"]), "|---|---|---|");
   run.heads.forEach((k, i) => {

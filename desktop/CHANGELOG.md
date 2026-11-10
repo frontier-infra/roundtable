@@ -9,7 +9,7 @@ Each release adds a section here. The app, the GitHub release and roundtable.sh/
 
 - Roundtable finds the AI apps already on your computer, such as Claude Code, Codex and Gemini CLI. It uses the plans you are signed in to. An API key is only a backup.
 - Personas. Give each seat a role, such as CFO, Head of Sales or Security reviewer. Packs cover business roles, expert panels and simulated views of the big AI labs. You can write your own.
-- Rounds. Choose 1 to 4 rounds. In later rounds each AI reads the others and changes its mind or holds its ground.
+- Quick and Deep Think. Quick is the default: short answers and a short verdict in about 2 minutes. Deep Think is for complex decisions. The coach sharpens the question, the table argues for up to 4 rounds, and the chair writes a long verdict with the reasoning, risks, unknowns, a step plan and the full case against. It tells you first how long it takes, about 14 minutes. The coach suggests Deep Think when a question looks complex.
 - The question coach. One AI asks up to three short questions, then writes a brief for the table. You can edit it or skip it.
 - A suggested panel. From your brief, Roundtable proposes 2 to 4 seats. Keep them, change them or use your own.
 - Blind first round. In round 1 each AI answers without seeing the others, so nobody copies the first answer.
@@ -21,7 +21,7 @@ Each release adds a section here. The app, the GitHub release and roundtable.sh/
 - Other providers. Add OpenRouter, Ollama, LM Studio, Groq, Together or any compatible service. Each model you tick gets its own seat.
 - Updates. Roundtable checks for a new version when it opens and every 6 hours, and shows what changed. Settings, Updates has the switches.
 - What's new. This list, in the app after an update and from Settings.
-- A Help menu on Mac and Windows. Roundtable Help opens built-in pages that work offline: getting started, connecting your AIs, personas and rounds, the decision model, using Roundtable from Claude, and keyboard shortcuts. Each page has a search box and a link to the same page online. Help also has What's new, Online docs, Report a problem and About.
+- A Help menu on Mac and Windows. Roundtable Help opens built-in pages that work offline: getting started, connecting your AIs, personas and rounds, Deep Think and Quick, the decision model, using Roundtable from Claude, and keyboard shortcuts. Each page has a search box and a link to the same page online. Help also has What's new, Online docs, Report a problem and About.
 - A full menu bar on a Mac (About, Check for updates, Settings, Edit, View, Window and Help), and File, View and Help on Windows.
 
 ### Improved

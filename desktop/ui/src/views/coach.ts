@@ -4,7 +4,7 @@ import type { App } from "../app";
 import { button, h } from "../dom";
 import { providerName } from "../providers";
 import { BRIEF_FIELDS } from "../session";
-import { allPersonas, findPersona, labLabel, tableHeads, type CoachView, type SeatPick } from "../state";
+import { allPersonas, depthLine, findPersona, labLabel, tableHeads, type CoachView, type SeatPick } from "../state";
 import { headLogo } from "../brand";
 import { select, withGlyph } from "./main";
 
@@ -119,6 +119,7 @@ function brief(app: App, c: CoachView): HTMLElement {
         ),
       ),
     ),
+    deepSuggestion(app, c),
     panel(app, c),
     h(
       "div",
@@ -131,6 +132,27 @@ function brief(app: App, c: CoachView): HTMLElement {
         button("Skip the coach", () => app.skipCoach(), "btn ghost"),
         button("Ask the table", () => void app.acceptBrief(), "btn primary large"),
       ),
+    ),
+  );
+}
+
+/** The coach suggests Deep Think on a complex brief. The person takes it or keeps Quick. */
+export function deepSuggestion(app: App, c: CoachView): HTMLElement | null {
+  const deep = app.state.ask.depth === "deep";
+  if (deep) {
+    return h("p", { class: "small muted", attrs: { "data-deep-on": "" }, text: `${depthLine("deep", app.state.ask.rounds)} The table argues it out over up to ${app.state.ask.rounds} rounds and the chair writes a long verdict.` });
+  }
+  if (!c.brief.deep || c.deepAnswered) return null;
+  return h(
+    "section",
+    { class: "deep-suggest", attrs: { "aria-label": "The coach suggests Deep Think" } },
+    h("span", { class: "field-label", text: "The coach suggests Deep Think" }),
+    h("p", { text: `${c.brief.deep_why?.trim() || "This one looks complex."} ${depthLine("deep")}` }),
+    h(
+      "div",
+      { class: "actions left" },
+      button("Use Deep Think", () => app.answerDeep(true), "btn small primary"),
+      button("Keep Quick", () => app.answerDeep(false), "btn small ghost"),
     ),
   );
 }

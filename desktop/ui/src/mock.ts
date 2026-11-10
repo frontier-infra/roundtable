@@ -308,6 +308,7 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[]; menu(id: 
     },
     async askStart(req, onEvent) {
       calls.push(`askStart:${req.heads.join(",")}:${req.rounds}${req.personas ? `:${req.personas}` : ""}`);
+      if (req.mode) calls.push(`mode:${req.mode}`);
       if (req.brief) calls.push(`brief:${req.brief}`);
       if (req.verdict) calls.push(`verdict:${req.verdict}`);
       if (req.openFirstRound) calls.push("open-first-round");
@@ -331,7 +332,7 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[]; menu(id: 
       };
       lastEmit = emit;
       const run = async () => {
-        emit({ event: "run_started", heads: req.heads, rounds: req.rounds, mode: req.rounds > 1 ? "deliberation" : "advisory", seats });
+        emit({ event: "run_started", heads: req.heads, rounds: req.rounds, mode: req.rounds > 1 ? "deliberation" : "advisory", seats, depth: req.mode ?? "quick" });
         // Clarify first: a question with no facts behind it (the preview asks about a database).
         if (seats.length > 1 && !req.brief && !req.prior && /database/i.test(req.question)) {
           emit({ event: "clarify", questions: ["What is the workload: reads, writes, and how much data?", "Which cloud and databases does your team already run?"] });
@@ -450,6 +451,8 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[]; menu(id: 
         context: said || "None given",
         constraints: "None given",
         good_answer: "One clear pick, the main risk, and the first step.",
+        // The coach suggests Deep Think on a complex ask (the preview: contracts, layoffs, legal).
+        ...(/contract|layoff|legal|restructur|lawsuit/i.test(question) ? { deep: true, deep_why: "Money and legal stakes, and several people affected." } : {}),
       };
       return { ok: true, brief, markdown: "" };
     },

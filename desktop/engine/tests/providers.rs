@@ -260,7 +260,7 @@ fn cli_add_list_models_ask_remove() {
     assert_eq!(v["models"].as_array().unwrap().len(), 2);
     assert_eq!(v["ticked"], json!(["small-a", "small-b"]));
     // ask with --seats: two seats, plain chat calls, labels name the model and the provider.
-    let o = engine(d.path()).args(["ask", "-q", "Pick one?", "--seats", "fake-proxy:small-a,fake-proxy:small-b", "--no-history", "--no-clarify", "--verdict", "none"]).output().unwrap();
+    let o = engine(d.path()).args(["ask", "-q", "Pick one?", "--seats", "fake-proxy:small-a,fake-proxy:small-b", "--rounds", "1", "--no-history", "--no-clarify", "--verdict", "none"]).output().unwrap();
     let out = String::from_utf8_lossy(&o.stdout);
     assert!(o.status.success(), "{out}\n{}", String::from_utf8_lossy(&o.stderr));
     assert!(out.contains("## \u{1f4bb} small-a (Fake Proxy)\n\nanswer from small-a"), "{out}");
@@ -373,7 +373,7 @@ fn a_ticked_seat_chairs_when_claude_cannot_be_asked() {
     let d = tempfile::tempdir().unwrap();
     let f = fake(Mode::Ok);
     run_json(engine(d.path()).args(["provider", "add", "custom", "--name", "Fake", "--url", &f.base, "--models", "small-a,small-b", "--json"]));
-    let o = engine(d.path()).args(["ask", "-q", "Pick?", "--rounds", "2", "--no-history", "--no-clarify", "--verdict", "none"]).output().unwrap();
+    let o = engine(d.path()).args(["ask", "-q", "Pick?", "--mode", "deep", "--rounds", "2", "--no-history", "--no-clarify", "--verdict", "none"]).output().unwrap();
     let out = String::from_utf8_lossy(&o.stdout);
     assert!(out.contains("### \u{1fa91} Chair verdict - round 1\n\nanswer from small-a"), "{out}");
     assert!(!out.contains("chair unavailable"), "{out}");

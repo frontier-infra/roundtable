@@ -23,10 +23,12 @@ import {
   planSeats,
   providerSeatsOn,
   roundsOf,
+  DEPTH_ROUNDS,
   seatInfos,
   seatSpec,
   tableHeads,
   TEST_TRIES,
+  type Depth,
   type Mode,
   type SeatPick,
   type State,
@@ -53,6 +55,8 @@ export interface AskExtra {
   target?: string;
   /** Ask only these AIs (a follow-up to one seat). */
   onlyHeads?: string[];
+  /** Quick (the default) or Deep Think. */
+  depth?: Depth;
 }
 
 export class App {
@@ -569,8 +573,10 @@ export class App {
     const personas = seatSpec(plan, heads);
     const infos = personas ? seatInfos(plan, this.state.personas) : undefined;
     const verdict = extra.verdict === undefined ? null : extra.verdict;
+    const depth: Depth = extra.depth ?? "quick";
     this.state.run = {
       ...newRun(question.trim(), heads, n, research, ctx, infos),
+      depth,
       brief: extra.brief ?? null,
       verdictShape: verdict,
       openFirstRound: !!extra.openFirstRound,
@@ -599,6 +605,7 @@ export class App {
           question: question.trim(),
           heads,
           rounds: n,
+          mode: depth,
           research,
           contextPath: context?.path ?? null,
           contextText: context?.text ?? null,
@@ -634,11 +641,23 @@ export class App {
     this.render();
   }
 
-  /** The ask box's main button: the coach first when it is on, else straight to the table. */
+  /** Quick or Deep Think: the mode sets the rounds. */
+  setDepth(depth: Depth) {
+    this.set({ ask: { ...this.state.ask, depth, rounds: DEPTH_ROUNDS[depth] } });
+  }
+
+  /** The coach's Deep Think suggestion: take it, or keep Quick. */
+  answerDeep(take: boolean) {
+    if (take) this.state.ask = { ...this.state.ask, depth: "deep", rounds: DEPTH_ROUNDS.deep };
+    const c = this.state.coach;
+    this.set({ coach: c ? { ...c, deepAnswered: true } : null });
+  }
+
+  /** The ask box's main button: the coach first when it is on (always in Deep Think), else straight to the table. */
   async startAsk() {
     const a = this.state.ask;
     if (flagOnly(a.question)) return;
-    if (a.coach) return this.openCoach(a.question.trim());
+    if (a.coach || a.depth === "deep") return this.openCoach(a.question.trim());
     return this.askTable(a.question.trim(), null);
   }
 
@@ -653,6 +672,7 @@ export class App {
       attached: attachmentsBlock(a.attachments) || null,
       attachments: a.attachments.map(attachmentLabel),
       prior: a.contextText ? null : this.state.priorFromHistory,
+      depth: a.depth,
     });
     this.state.priorFromHistory = null;
   }
@@ -801,6 +821,7 @@ export class App {
       verdict: table.verdictShape ?? a.verdict,
       openFirstRound: this.state.settings.blind_first_round === false,
       target: "table",
+      depth: table.depth ?? "quick",
     });
   }
 

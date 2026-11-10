@@ -1,7 +1,7 @@
 ---
 title: Keyboard shortcuts
 description: Every key the app knows.
-order: 7
+order: 8
 online: https://roundtable.sh/docs/get-started/
 ---
 

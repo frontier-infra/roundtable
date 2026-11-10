@@ -1,7 +1,7 @@
 ---
 title: Decision model and Jebadiah
 description: A second opinion on the table's verdict.
-order: 5
+order: 6
 online: https://roundtable.sh/docs/how-it-works/
 ---
 

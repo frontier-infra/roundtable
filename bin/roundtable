@@ -50,7 +50,11 @@ Engine flags (passed through to 'ask'):
   -q, --question TEXT   The question (also accepted as a positional)
   -c, --context FILE    Prepend a shared context file
       --heads CSV       Subset: claude,openai,grok,glm,minimax,gemini,codex
-      --rounds N        1 to 4. 2 to 4 -> deliberation to consensus (default 1 = advisory)
+      --mode MODE       quick (default): one round, short answers, a short verdict.
+                        deep: Deep Think. The coach first, up to 4 rounds, long
+                        answers and a long verdict. It says how long first
+      --rounds N        1 to 4, instead of the mode's. Deep Think: a chair rules each
+                        round and stops on consensus. Quick: rounds run back to back
       --personas SPEC   Seat roles: a preset (pricing), a pack (business-roles),
                         or names (cfo,ceo@claude). generic = plain seats.
                         auto = suggest seats from the question or brief

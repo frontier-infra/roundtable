@@ -539,6 +539,7 @@ pub fn ask_start(
     question: String,
     heads: Vec<String>,
     rounds: u32,
+    mode: Option<String>,
     research: bool,
     context_path: Option<String>,
     context_text: Option<String>,
@@ -565,6 +566,9 @@ pub fn ask_start(
     let csv = heads.join(",");
     let rounds_s = rounds.clamp(1, roundtable_engine::council::MAX_ROUNDS).to_string();
     let mut args: Vec<&str> = vec!["ask", "--events", "--source", source, "--rounds", &rounds_s];
+    // Quick or Deep Think: the answer length and the verdict. The rounds above come from the mode too.
+    let depth = roundtable_engine::mode::Mode::parse(mode.as_deref().unwrap_or("")).map_err(|e| e.to_string())?;
+    args.extend(["--mode", depth.id()]);
     if !csv.is_empty() {
         args.extend(["--heads", &csv]);
     }

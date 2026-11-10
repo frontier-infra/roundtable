@@ -17,8 +17,6 @@ The help pages inside the Roundtable desktop app. One source: the app bundles th
 2. To show it in the Help menu, add `("help:<id>", "<Title>")` to `HELP_PAGES` in `desktop/core/src/menu.rs`. A Rust test fails if a menu page has no file, and a UI test fails if a file has no title.
 3. `node desktop/scripts/check-links.mjs` checks every `online` link.
 
-The Deep Think lane adds `deep-think.md` and its menu line when Deep Think merges.
-
 ## How roundtable.sh imports these pages
 
 The site is Docusaurus (`frontier-infra/roundtable.sh`). Add a second docs instance that reads this folder:

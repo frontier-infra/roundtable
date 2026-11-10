@@ -13,6 +13,7 @@ pub const HELP_PAGES: &[(&str, &str)] = &[
     ("help:getting-started", "Getting started"),
     ("help:connect-your-ais", "Connect your AIs"),
     ("help:personas-and-rounds", "Personas and rounds"),
+    ("help:deep-think", "Deep Think and Quick"),
     ("help:decision-model", "Decision model and Jebadiah"),
     ("help:use-from-your-ai", "Use Roundtable from your AI"),
     ("help:keyboard-shortcuts", "Keyboard shortcuts"),

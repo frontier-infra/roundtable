@@ -81,7 +81,9 @@ high-stakes calls, a **multi-round deliberation** lets every head read the whole
 revise until a **Claude chair** declares `CONSENSUS` or names the remaining disagreement.
 Disagreement is signal, not noise.
 
-- **🗳️ Advisory** *(default)* — every head answers once, blind to the others. Raw, independent reads.
+- **⚡ Quick** *(default, `--mode quick`)*: every head answers once, blind, in about 250 words, and the chair gives a short verdict: the pick, how sure, what would change it, three next steps and one minority view. About 2 minutes.
+- **🧠 Deep Think** (`--mode deep`): for complex asks. The coach sharpens the question first, then up to 4 rounds where the seats argue against the leading pick, answers of up to about 800 words, and a long verdict: the reasoning by theme, the trade-offs, the risks, the unknowns and how to resolve them, a step plan and the minority view in full. It says how long it takes before it asks.
+- **🗳️ Advisory**: every head answers once, blind to the others. Raw, independent reads.
 - **⚖️ Deliberation** (`--rounds N`) — heads see each other and revise; a neutral chair rules `CONSENSUS` / `CONTINUE` and stops early on agreement.
 - **🔑 API keys are enough** — no local CLIs required. Missing heads are skipped; the council runs on whatever subset you've configured.
 - **📦 One package, everywhere:** a Claude Code plugin, a CLI, and an MCP server from the same code.
@@ -123,7 +125,7 @@ roundtable ask -q "And if a competitor cuts prices?" --follow-up /tmp/rt.md --pe
 ### Flags
 
 `-q/--question` · `-c/--context <file>` (shared background for every head) ·
-`--heads grok,codex,openai,glm,minimax,claude,gemini` · `--rounds N` (1 to 4, deliberation) · `--personas SPEC` (seat roles, see `personas/README.md`) ·
+`--heads grok,codex,openai,glm,minimax,claude,gemini` · `--mode quick|deep` (Quick, the default, or Deep Think) · `--rounds N` (1 to 4, instead of the mode's rounds) · `--personas SPEC` (seat roles, see `personas/README.md`) ·
 `--research` (web on, multi-step) · `--timeout <secs>` · `--out <file>` ·
 `--coach` (up to three clarifying questions, then a brief; `--coach-answer A` answers in order, `--brief FILE` brings your own) ·
 `--verdict decision|pros-cons|plan|vote|none` (on a table of two or more, a decision by default: the pick, its confidence, what would change it and three next steps lead the transcript, the seat answers fold under it, and it names the minority view and who held it) · `--no-clarify` (skip the missing-facts check: with no brief, the chair opens with two or three questions when the pick depends on facts you did not give) ·
