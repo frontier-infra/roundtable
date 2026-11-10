@@ -391,6 +391,11 @@ jobs:
             || { gh release edit "$TAG" --notes-file notes.md && gh release upload "$TAG" out/* latest.json --clobber; }
           # The rolling release every app checks, so a CLI release never looks like a desktop update.
           gh release view desktop-latest >/dev/null 2>&1 || gh release create desktop-latest --title "Roundtable Desktop (latest)" --notes "Updater manifest for Roundtable Desktop." --latest=false
+          # Fixed names, so the roundtable.sh download buttons never need an edit:
+          # releases/download/desktop-latest/Roundtable.dmg and Roundtable-Setup.exe.
+          cp "out/Roundtable_${VERSION}_universal.dmg" Roundtable.dmg
+          cp "out/Roundtable_${VERSION}_x64-setup.exe" Roundtable-Setup.exe
+          gh release upload desktop-latest Roundtable.dmg Roundtable-Setup.exe --clobber
           gh release upload desktop-latest latest.json --clobber
           # A stable release is newer than every test build of it, so Test builds get it too.
           gh release view desktop-test >/dev/null 2>&1 && gh release upload desktop-test latest.json --clobber || true

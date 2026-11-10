@@ -96,7 +96,7 @@ A tag runs `.github/workflows/desktop-release.yml` on Blacksmith runners only (t
 | Tag | Channel | Where it goes |
 |---|---|---|
 | `desktop-v0.1.2-rc.1` | Test builds | The rolling pre-release `desktop-test` and its `latest.json`. Only apps with Settings, Updates, **Test builds** on read it. It keeps the newest two test builds. |
-| `desktop-v0.1.2` | Stable | The release `desktop-v0.1.2`, the rolling `desktop-latest` manifest every app reads, and `desktop-test` too. Jason approves every stable tag. |
+| `desktop-v0.1.2` | Stable | The release `desktop-v0.1.2`, the rolling `desktop-latest` manifest every app reads, and `desktop-test` too. `desktop-latest` also holds `Roundtable.dmg` and `Roundtable-Setup.exe`, the fixed names the roundtable.sh download buttons use. Jason approves every stable tag. |
 
 ### Updates in the app
 
