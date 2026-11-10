@@ -239,7 +239,8 @@ Each is reversible. Each lists the options, the pick, the reason and the undo st
 ### D4. Installer format
 
 - Mac: one universal `.dmg` (Apple silicon and Intel). Drag to Applications.
-  - The disk image window is branded: the Roundtable lockup and one arrow to Applications (`core/dmg/background.png`).
+  - The disk image window is branded: the Roundtable lockup and one arrow to Applications (`core/dmg/background.png`, laid out by dmgbuild from `scripts/dmg-settings.py`).
+  - The Windows installer shows the Roundtable sidebar and header (`core/nsis/`).
   - Signed with Developer ID, notarized and stapled.
 - Windows: NSIS `.exe`, per-user install, no admin prompt.
   - It installs WebView2 if missing (Tauri's download bootstrapper). Signed with Azure Trusted Signing.

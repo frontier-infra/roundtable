@@ -180,8 +180,9 @@ jobs:
           tauri signer sign "$OUT"
           test -s "$OUT.sig" || { echo "::error::tauri signer made no .sig"; exit 1; }
 
-      # hdiutil, not the tauri DMG bundler: the DMG must hold the stapled app,
-      # and this keeps AppleScript out of a headless runner.
+      # dmgbuild, not the tauri DMG bundler: the DMG must hold the stapled app,
+      # and dmgbuild writes the branded window layout (.DS_Store) itself, so no
+      # Finder or AppleScript runs on a headless runner.
       - name: DMG from the stapled app, signed, notarized and stapled
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
@@ -190,11 +191,19 @@ jobs:
         run: |
           set -euo pipefail
           DMG="$PWD/dist/Roundtable_${VERSION}_universal.dmg"
-          STAGE="$(mktemp -d "$RUNNER_TEMP/dmg-stage.XXXX")"
           KEY="$RUNNER_TEMP/AuthKey.p8"
-          ditto "$BUNDLE/$APP_NAME" "$STAGE/$APP_NAME"
-          ln -s /Applications "$STAGE/Applications"
-          hdiutil create -volname "Roundtable" -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov "$DMG"
+          python3 -m venv "$RUNNER_TEMP/dmgbuild"
+          "$RUNNER_TEMP/dmgbuild/bin/pip" install --quiet dmgbuild==1.6.7
+          "$RUNNER_TEMP/dmgbuild/bin/dmgbuild" -s desktop/scripts/dmg-settings.py \
+            -D app="$BUNDLE/$APP_NAME" -D background=desktop/core/dmg/background.png \
+            "Roundtable" "$DMG"
+          # The app inside the image must still be the signed, stapled one.
+          MNT="$(mktemp -d "$RUNNER_TEMP/dmg-check.XXXX")"
+          hdiutil attach -nobrowse -readonly -mountpoint "$MNT" "$DMG"
+          codesign --verify --deep --strict "$MNT/$APP_NAME"
+          xcrun stapler validate "$MNT/$APP_NAME"
+          test -f "$MNT/.DS_Store" && test -f "$MNT/.background.png"
+          hdiutil detach "$MNT"
           codesign --force --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$DMG"
           codesign --verify --verbose=2 "$DMG"
           echo "$APPLE_API_KEY_P8" | base64 --decode > "$KEY"

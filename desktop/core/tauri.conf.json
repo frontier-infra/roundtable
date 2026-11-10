@@ -45,7 +45,13 @@
       }
     },
     "windows": {
-      "nsis": { "installMode": "currentUser", "displayLanguageSelector": false },
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "nsis/header.bmp",
+        "sidebarImage": "nsis/sidebar.bmp"
+      },
       "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true }
     }
   },
