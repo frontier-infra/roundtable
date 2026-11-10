@@ -240,7 +240,7 @@ export function keyCard(app: App, p: Provider, opts: { removable?: boolean } = {
 }
 
 /** The Test button and its result line (Settings), or just the line (setup). */
-function testRow(app: App, head: string, via: "app" | "key", name: string, showButton = true): HTMLElement | null {
+export function testRow(app: App, head: string, via: "app" | "key", name: string, showButton = true): HTMLElement | null {
   const t = app.state.tests[`${via}:${head}`];
   const line = testLine(t);
   if (!line && !showButton) return null;

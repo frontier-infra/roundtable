@@ -9,6 +9,7 @@ import {
   allFailed,
   allPersonas,
   cleanAnswer,
+  costLine,
   estimateLine,
   filterHistory,
   findPersona,
@@ -157,6 +158,9 @@ function askBox(app: App): HTMLElement {
   const n = heads.length;
   const plan = planSeats(ask, heads, s.personas);
   const est = h("p", { class: "estimate small muted", text: estimateLine(n, ask.rounds, plan.length) });
+  // The cost line, when a provider seat sits: published prices, free on this computer, else unknown.
+  const costText = costLine(plan.map((p) => p.head), ask.rounds, s.providers.list);
+  const cost = costText ? h("p", { class: "estimate cost small muted", attrs: { "data-cost": "" }, text: costText }) : null;
   const go = button(ask.coach ? "Sharpen and ask" : "Ask the table", () => void app.startAsk(), "btn primary large", n === 0 || !ask.question.trim());
   const chairMissing = s.keys.claude.status !== "connected" && !app.cliHeads().includes("claude");
   return h(
@@ -194,7 +198,7 @@ function askBox(app: App): HTMLElement {
         "div",
         { class: "seat-row", attrs: { "aria-label": n ? `At the table: ${heads.map(providerName).join(", ")}` : "No AI at the table yet" } },
         n ? h("span", { class: "seat-logos" }, heads.map((hd) => headLogo(hd, "sm"))) : null,
-        est,
+        h("span", { class: "estimate-lines" }, est, cost),
       ),
       h("div", { class: "actions" }, n === 0 ? button("Open Settings", () => void app.openSettings(), "btn") : null, go),
     ),

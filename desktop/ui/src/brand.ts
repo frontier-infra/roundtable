@@ -2,7 +2,7 @@
 // The rules behind them are in desktop/BRAND.md.
 
 import { h } from "./dom";
-import { providerName } from "./providers";
+import { PRESET_NAMES, providerName, splitSeat } from "./providers";
 
 import claudeLogo from "./assets/logos/claude.svg";
 import codexLogo from "./assets/logos/codex.svg";
@@ -87,7 +87,12 @@ export function headLogo(head: string, size: "sm" | "md" | "lg" = "md"): HTMLEle
   const src = LOGOS[head];
   const tile = h("span", { class: `head-logo ${size}`, attrs: { "data-logo": head } });
   if (src) tile.appendChild(h("img", { attrs: { src, alt: "", width: "20", height: "20", draggable: "false" } }));
-  else tile.appendChild(h("span", { class: "head-initial", text: providerName(head).slice(0, 1) }));
+  else {
+    // A provider seat (`provider:model`) shows its provider's initial; the label names the model.
+    const seat = splitSeat(head);
+    const name = seat ? providerName(seat.provider) : providerName(head);
+    tile.appendChild(h("span", { class: "head-initial", text: seat || PRESET_NAMES[head] ? name.slice(0, 1).toUpperCase() : name.slice(0, 1) }));
+  }
   return tile;
 }
 

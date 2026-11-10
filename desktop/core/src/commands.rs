@@ -180,6 +180,71 @@ pub async fn doctor(online: bool) -> Result<Value, String> {
     .await?
 }
 
+// ---- Providers the person adds (OpenRouter, Ollama, LM Studio, Groq, Together, Custom) ----
+
+/// Added providers, their ticked seats and whether each has its key. Never a key.
+#[tauri::command]
+pub async fn providers_list() -> Result<Value, String> {
+    blocking(|| engine_json(&["provider", "list", "--json"])).await?
+}
+
+/// Ollama and LM Studio running on this computer, with their models. Sends no prompt.
+#[tauri::command]
+pub async fn providers_detect() -> Result<Value, String> {
+    blocking(|| engine_json(&["provider", "detect", "--json"])).await?
+}
+
+/// The models a provider lists, with prices where it publishes them.
+#[tauri::command]
+pub async fn provider_models(id: String) -> Result<Value, String> {
+    blocking(move || engine_json(&["provider", "models", &id, "--json"])).await?
+}
+
+/// Add or change a provider. The key, when given, goes straight to the engine's stdin
+/// and from there to the keychain; `models` sets the ticked models (each one a seat).
+#[tauri::command]
+pub async fn provider_add(preset: String, id: Option<String>, name: Option<String>, url: Option<String>, key: Option<String>, models: Option<Vec<String>>, check: bool) -> Result<Value, String> {
+    blocking(move || {
+        let mut a: Vec<String> = vec!["provider".into(), "add".into(), preset, "--json".into()];
+        for (flag, v) in [("--id", id), ("--name", name), ("--url", url)] {
+            if let Some(v) = v.filter(|v| !v.trim().is_empty()) {
+                a.push(flag.into());
+                a.push(v);
+            }
+        }
+        if let Some(m) = models {
+            a.push("--models".into());
+            a.push(m.join(","));
+        }
+        let key = key.filter(|k| !k.trim().is_empty());
+        if key.is_some() {
+            a.push("--key-stdin".into());
+        }
+        if check {
+            a.push("--check".into());
+        }
+        let args: Vec<&str> = a.iter().map(String::as_str).collect();
+        let mut c = engine_cmd(&args)?;
+        c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+        let mut child = c.spawn().map_err(|e| e.to_string())?;
+        if let Some(mut i) = child.stdin.take() {
+            if let Some(k) = &key {
+                let _ = i.write_all(k.as_bytes());
+            }
+        }
+        drop(key);
+        let o = child.wait_with_output().map_err(|e| e.to_string())?;
+        serde_json::from_slice::<Value>(&o.stdout).map_err(|_| "The engine gave an unexpected answer.".to_string())
+    })
+    .await?
+}
+
+/// Remove a provider, its seats and its saved key.
+#[tauri::command]
+pub async fn provider_remove(id: String) -> Result<Value, String> {
+    blocking(move || engine_json(&["provider", "remove", &id, "--json"])).await?
+}
+
 // ---- AI tools already on this computer ----
 
 /// Find Claude Code, Codex, Gemini CLI and the rest, and whether each is signed in.
@@ -587,7 +652,7 @@ pub fn ask_retry(
     if let Some(c) = ctx.as_deref() {
         args.extend(["-c", c]);
     }
-    let extra = extra_args(&format!("retry-{run}-{}-", seat.replace(['@', '#', '/', '\\'], "_")), brief, prior, attached)?;
+    let extra = extra_args(&format!("retry-{run}-{}-", seat.replace(['@', '#', '/', '\\', ':'], "_")), brief, prior, attached)?;
     args.extend(extra.iter().map(String::as_str));
     args.extend(["-q", &question]);
     let mut cmd = engine_cmd(&args)?;
@@ -698,6 +763,10 @@ pub fn settings_get() -> Settings {
 
 #[tauri::command]
 pub fn settings_set(settings: Settings) -> Result<(), String> {
+    // Added providers belong to `roundtable provider`: a settings save from the screen never
+    // drops or rolls back one it added a moment ago.
+    let mut settings = settings;
+    settings.providers = Settings::load().providers;
     settings.save().map_err(|e| e.to_string())
 }
 
