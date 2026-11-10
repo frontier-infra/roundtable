@@ -2,7 +2,7 @@
 
 **An open System One decision model.** Typed questions in, calibrated choices out. It does not write text.
 
-The 27B is ranked **8th (tied)** on the Jev Decision Index 0.4.1, ahead of Jev itself.
+The 27B holds rank 8 (tied) on the Jev Decision Index 0.4.1. That rank is a score group it shares with six other models (row 41 of 275). It scores 4.16 points above Jev 1.14.
 
 > Needs a recent Ollama. Tested on Ollama 0.40.16. Ollama 0.13.5 downloads the model but cannot load it.
 
@@ -56,7 +56,7 @@ Which one to pick:
 - **9b**: the default. Machines with 16 GB or more.
 - **27b**: the strongest. Machines with 32 GB or more.
 
-"Loaded in Ollama" is what `ollama ps` reported at the default 8,192-token context. Leave room for your other apps. The last column counts how often the Q4_K_M build picks the same top answer as the full bf16 weights, on a fixed sample of 260 questions. The 4B was checked on an older sample than the 9B and 27B. If you need the full-weight answers, use the Q8_0 or bf16 builds on Hugging Face.
+"Loaded in Ollama" is what `ollama ps` reported at an 8,192-token context. Leave room for your other apps. The last column counts how often the Q4_K_M build picks the same top answer as the full bf16 weights, on a fixed sample of 260 questions. The 4B was checked on an older sample than the 9B and 27B. For answers closest to the full weights, use the Q8_0 build; for the full weights themselves, use bf16. Both are on Hugging Face.
 
 ## How to prompt it
 
@@ -161,18 +161,19 @@ What the scores cover:
 
 - The board ran the full bf16 weights with the T1e inference recipe on one NVIDIA RTX PRO 6000.
 - The Ollama builds are Q4_K_M quants of the same weights. They have no board score of their own.
+- Ollama and jeb serve use the standard read, not the T1e recipe.
 - The 4B has never been submitted to the board.
 - Ranks move as new models are added. See the [27B report](https://multimodalart-jev-decision-index.static.hf.space/index.html?model=jebadiah-27b-v2.1-t1e) for the live position.
 
 ## Use it in Roundtable
 
-[Roundtable](https://roundtable.sh) seats several AI models at one table to argue a question to a verdict. Jebadiah can rate that verdict on your own computer. It lists the options the table argued and gives each one a probability. Nothing leaves your machine.
+[Roundtable](https://roundtable.sh) seats several AI models at one table to argue a question to a verdict. Jebadiah can rate that verdict on your own computer. Roundtable's chair lists the options the table argued. Jebadiah gives each one a probability on your own computer. That rating step runs locally.
 
 1. `ollama pull frontierinfra/jebadiah`
 2. `jeb serve --model frontierinfra/jebadiah`
 3. In Roundtable, open Settings, then Decision model, and pick Jebadiah. From the command line: `roundtable ask "..." --decision jebadiah`.
 
-Roundtable only counts our builds: `frontierinfra/jebadiah` on Ollama and `frontier-infra/jebadiah-*` on Hugging Face. Another account with a similar name holds unrelated models.
+Roundtable only counts our builds: `frontierinfra/jebadiah` on Ollama and `frontier-infra/jebadiah-*` on Hugging Face, also as `hf.co/frontier-infra/jebadiah-*`. Another account with a similar name holds unrelated models.
 
 ## Limits
 
