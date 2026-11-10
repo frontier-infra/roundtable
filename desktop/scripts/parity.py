@@ -2,8 +2,10 @@
 """Parity test: the bash engine (lib/core.sh) and the Rust engine against one fake provider.
 
 Runs both engines offline, with the OpenAI-compatible heads pointed at a local fake
-server, in advisory mode and in a 2-round deliberation (no chair key, so both report
-the chair as unavailable). Compares every head section and body. Exit 0 on a match.
+server and a fake `codex` CLI script first on PATH (a CLI head: both engines must call
+it headless with the same flags), in advisory mode and in a 2-round deliberation (no
+chair key, so both report the chair as unavailable). Compares every head section and
+body. Exit 0 on a match.
 
 Usage: python3 desktop/scripts/parity.py <path to the Rust engine binary>
 """
@@ -12,7 +14,20 @@ import http.server, json, os, re, subprocess, sys, tempfile, threading
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 CORE = os.path.join(REPO, "lib", "core.sh")
-HEADS = "grok,openai,glm,minimax,gemini"
+HEADS = "grok,codex,openai,glm,minimax,gemini"
+
+# A fake codex CLI. It answers in the -o file, as `codex exec -o FILE` does, and echoes
+# the flags it got so a flag drift between the engines fails the comparison.
+FAKE_CODEX = r"""#!/bin/sh
+out=""; flags=""
+while [ $# -gt 1 ]; do
+  if [ "$1" = "-o" ]; then out="$2"; shift 2; continue; fi
+  flags="$flags $1"; shift
+done
+case "$1" in *"COUNCIL DELIBERATION"*) tag=revised;; *) tag=first;; esac
+printf '%s answer from codex (flags:%s)\n' "$tag" "$flags" > "$out"
+echo "codex progress on stderr" >&2
+"""
 
 
 class Fake(http.server.BaseHTTPRequestHandler):
@@ -35,8 +50,15 @@ class Fake(http.server.BaseHTTPRequestHandler):
 
 
 def env_for(home, url):
-    e = {"HOME": home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "TMPDIR": tempfile.gettempdir(),
-         "ROUNDTABLE_KEYSTORE": "memory", "ROUNDTABLE_DATA_DIR": os.path.join(home, "data")}
+    fakebin = os.path.join(home, "fakebin")
+    os.makedirs(fakebin, exist_ok=True)
+    codex = os.path.join(fakebin, "codex")
+    with open(codex, "w") as f:
+        f.write(FAKE_CODEX)
+    os.chmod(codex, 0o755)
+    e = {"HOME": home, "PATH": fakebin + ":/usr/bin:/bin:/usr/sbin:/sbin", "TMPDIR": tempfile.gettempdir(),
+         "ROUNDTABLE_KEYSTORE": "memory", "ROUNDTABLE_DATA_DIR": os.path.join(home, "data"),
+         "ROUNDTABLE_NO_SHELL_PATH": "1"}
     for k in ("XAI_API_KEY", "OPENAI_API_KEY", "ZAI_API_KEY", "MINIMAX_API_KEY", "GEMINI_API_KEY"):
         e[k] = "test"
     for k in ("GROK_XAI", "OPENAI", "GLM", "MINIMAX", "GEMINI"):
@@ -85,6 +107,10 @@ def main():
             a = subprocess.run(["bash", CORE, *args], env=env, capture_output=True, text=True, timeout=120).stdout
             b = subprocess.run([rust, "ask", "--no-history", *args], env=env, capture_output=True, text=True, timeout=120).stdout
         sa, sb = sections(a), sections(b)
+        codex = [x for x in sa if "Codex" in x[0]]
+        if not codex or "answer from codex (flags: exec --skip-git-repo-check -s read-only -c tools.web_search=false)" not in codex[0][1]:
+            ok = False
+            print(f"parity rounds={rounds}: FAIL, the codex CLI head did not answer through the fake CLI: {codex}")
         if sa == sb and sa:
             print(f"parity rounds={rounds}: PASS ({len(sa)} sections)")
         else:

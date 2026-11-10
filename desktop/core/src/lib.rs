@@ -24,6 +24,8 @@ pub fn run() {
             commands::key_remove,
             commands::keys_import,
             commands::doctor,
+            commands::clis_detect,
+            commands::cli_login,
             commands::claude_status,
             commands::claude_connect_app,
             commands::claude_connect_code,

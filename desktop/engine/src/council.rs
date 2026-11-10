@@ -4,14 +4,14 @@
 //! Deliberation (`rounds >= 2`): round 1 blind; later rounds see the whole table;
 //! a Claude chair says CONSENSUS or CONTINUE after each round and the run stops early on consensus.
 
+use crate::clis;
 use crate::http::{self, ErrorClass};
 use crate::keys::Keys;
 use crate::providers::{self, Head, Kind, HEADS};
 use crate::settings::Settings;
 use serde::Serialize;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct AskOptions {
@@ -134,12 +134,13 @@ pub fn default_heads(settings: &Settings, keys: &Keys) -> Vec<&'static Head> {
         }
     }
     let (all, _) = parse_heads(providers::DEFAULT_HEADS);
-    let ready: Vec<_> = all
+    let chosen = |h: &Head| settings.cli_heads.iter().any(|c| c == h.id);
+    let ready: Vec<_> = HEADS
         .iter()
-        .copied()
         .filter(|h| match h.kind {
-            Kind::CodexCli => find_exe("codex").is_some(),
-            _ => keys.key(h).is_some() || (h.id == "grok" && find_exe("grok").is_some()),
+            // codex sits by default when installed, as in the bash engine; other tools when chosen.
+            Kind::Cli => (h.id == "codex" || chosen(h)) && cli_found(h),
+            _ => keys.key(h).is_some() || ((chosen(h) || h.id == "grok") && cli_found(h)),
         })
         .collect();
     if ready.is_empty() {
@@ -189,64 +190,7 @@ pub fn is_consensus(chair: &str) -> bool {
 
 /// Look for an executable on PATH and in the usual per-user folders.
 pub fn find_exe(name: &str) -> Option<PathBuf> {
-    let exts: Vec<String> = if cfg!(windows) {
-        vec![".exe".into(), ".cmd".into(), ".bat".into(), String::new()]
-    } else {
-        vec![String::new()]
-    };
-    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).collect())
-        .unwrap_or_default();
-    let home = crate::paths::home();
-    for extra in [".local/bin", ".bun/bin", ".npm-global/bin", ".claude/local"] {
-        dirs.push(home.join(extra));
-    }
-    if cfg!(target_os = "macos") {
-        dirs.push("/opt/homebrew/bin".into());
-        dirs.push("/usr/local/bin".into());
-    }
-    for d in dirs {
-        for e in &exts {
-            let p = d.join(format!("{name}{e}"));
-            if p.is_file() {
-                return Some(p);
-            }
-        }
-    }
-    None
-}
-
-/// Run a local tool with a time limit. Returns (exit code, stdout) or None on timeout.
-fn run_with_timeout(mut cmd: Command, timeout: Duration) -> Result<Option<(i32, String)>, String> {
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-    let mut out = child.stdout.take();
-    let reader = std::thread::spawn(move || {
-        let mut s = String::new();
-        if let Some(o) = out.as_mut() {
-            use std::io::Read;
-            let _ = o.read_to_string(&mut s);
-        }
-        s
-    });
-    let start = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(st)) => return Ok(Some((st.code().unwrap_or(-1), reader.join().unwrap_or_default()))),
-            Ok(None) if start.elapsed() > timeout => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Ok(None);
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(100)),
-            Err(e) => return Err(e.to_string()),
-        }
-    }
+    clis::find_exe(name)
 }
 
 fn openai_compat(head: &Head, key: &str, prompt: &str, research: bool, settings: &Settings, timeout: Duration) -> Outcome {
@@ -287,56 +231,31 @@ pub fn anthropic(key: &str, model: &str, prompt: &str, timeout: Duration) -> Out
     }
 }
 
-fn grok_cli(prompt: &str, research: bool, timeout: Duration) -> Outcome {
-    let Some(exe) = find_exe("grok") else {
-        return Outcome::Missing("no XAI_API_KEY or grok CLI".into());
+/// Ask a head through the person's own tool (codex, grok, Claude Code, ...).
+fn via_cli(head: &Head, prompt: &str, research: bool, timeout: Duration) -> Outcome {
+    let Some(cli) = clis::for_head(head.id) else {
+        return Outcome::Missing(format!("no tool for {}", head.id));
     };
-    let model = std::env::var("ROUNDTABLE_GROK_CLI_MODEL").unwrap_or_else(|_| "grok-composer-2.5-fast".into());
-    let mut c = Command::new(exe);
-    c.args(["-p", prompt, "-m", &model, "--max-turns", if research { "8" } else { "6" }]);
-    if !research {
-        c.arg("--disable-web-search");
-    }
-    match run_with_timeout(c, timeout) {
-        Ok(None) => Outcome::Timeout,
-        Ok(Some((_, out))) if !out.trim().is_empty() => Outcome::Answered(out.trim().to_string()),
-        Ok(Some((rc, _))) => Outcome::Empty(format!("grok cli rc={rc}")),
-        Err(e) => Outcome::Empty(e),
+    match clis::ask(cli, prompt, research, timeout) {
+        clis::CliResult::Answered(t) => Outcome::Answered(t),
+        clis::CliResult::Missing => Outcome::Missing(format!("no {} CLI", cli.exes[0])),
+        clis::CliResult::Timeout => Outcome::Timeout,
+        clis::CliResult::Empty(m) => Outcome::Empty(m),
     }
 }
 
-fn codex_cli(prompt: &str, research: bool, timeout: Duration) -> Outcome {
-    let Some(exe) = find_exe("codex") else {
-        return Outcome::Missing("no codex CLI".into());
-    };
-    let dir = std::env::temp_dir().join(format!("roundtable-codex-{}-{}", std::process::id(), nanos()));
-    let _ = std::fs::create_dir_all(&dir);
-    let last = dir.join("last.md");
-    let mut c = Command::new(exe);
-    c.args(["exec", "--skip-git-repo-check", "-s", "read-only"]);
-    if !research {
-        c.args(["-c", "tools.web_search=false"]);
-    }
-    c.arg("-o").arg(&last).arg(prompt);
-    let r = run_with_timeout(c, timeout);
-    let text = std::fs::read_to_string(&last).unwrap_or_default();
-    let _ = std::fs::remove_dir_all(&dir);
-    match r {
-        Ok(None) => Outcome::Timeout,
-        _ if !text.trim().is_empty() => Outcome::Answered(text.trim().to_string()),
-        Ok(Some((rc, _))) => Outcome::Empty(format!("codex rc={rc}")),
-        Err(e) => Outcome::Empty(e),
-    }
+fn cli_found(head: &Head) -> bool {
+    clis::for_head(head.id).is_some_and(|c| clis::find_cli(c).is_some())
 }
 
-fn nanos() -> u128 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
-}
-
-/// Ask one head.
+/// Ask one head. A head the person set to use their own tool runs through it;
+/// otherwise the key, with the bash engine's grok CLI fallback.
 pub fn run_head(head: &Head, prompt: &str, opts: &AskOptions, keys: &Keys, settings: &Settings) -> Outcome {
+    if providers::uses_cli(head, settings) && (head.kind == Kind::Cli || cli_found(head) || keys.key(head).is_none()) {
+        return via_cli(head, prompt, opts.research, opts.timeout);
+    }
     match head.kind {
-        Kind::CodexCli => codex_cli(prompt, opts.research, opts.timeout),
+        Kind::Cli => via_cli(head, prompt, opts.research, opts.timeout),
         Kind::Anthropic => match keys.key(head) {
             Some(k) => anthropic(&k, &providers::model_for(head, settings), prompt, opts.timeout),
             None => Outcome::Missing("no ANTHROPIC_API_KEY".into()),
@@ -344,14 +263,28 @@ pub fn run_head(head: &Head, prompt: &str, opts: &AskOptions, keys: &Keys, setti
         Kind::OpenAiCompat => match keys.key(head) {
             Some(k) => {
                 let o = openai_compat(head, &k, prompt, opts.research, settings, opts.timeout);
-                if head.id == "grok" && !matches!(o, Outcome::Answered(_)) && find_exe("grok").is_some() {
-                    return grok_cli(prompt, opts.research, opts.timeout);
+                if head.id == "grok" && !matches!(o, Outcome::Answered(_)) && cli_found(head) {
+                    return via_cli(head, prompt, opts.research, opts.timeout);
                 }
                 o
             }
-            None if head.id == "grok" => grok_cli(prompt, opts.research, opts.timeout),
+            None if head.id == "grok" => via_cli(head, prompt, opts.research, opts.timeout),
             None => Outcome::Missing(format!("no {}", head.env_keys.join("/"))),
         },
+    }
+}
+
+/// The chair: the Anthropic key, else Claude Code when the person chose it.
+fn chair(keys: &Keys, settings: &Settings, prompt: &str, timeout: Duration) -> String {
+    let claude = providers::find("claude").unwrap();
+    let out = match keys.key(claude) {
+        Some(k) => anthropic(&k, &providers::chair_model(settings), prompt, timeout),
+        None if providers::uses_cli(claude, settings) => via_cli(claude, prompt, false, timeout),
+        None => return String::new(),
+    };
+    match out {
+        Outcome::Answered(t) => t,
+        _ => String::new(),
     }
 }
 
@@ -422,8 +355,6 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
         say("---");
         say("_Advisory mode: independent answers, no cross-talk. Use `--rounds N` for deliberation to consensus._");
     } else {
-        let chair_key = keys.key(providers::find("claude").unwrap());
-        let chair_model = providers::chair_model(settings);
         let mut prev: Vec<(String, String)> = Vec::new();
         let mut cons = false;
         for r in 1..=opts.rounds {
@@ -440,13 +371,7 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
                 say(body);
                 say("");
             }
-            let chair = match &chair_key {
-                Some(k) => match anthropic(k, &chair_model, &chair_prompt(&opts.question, r, &prev), opts.timeout) {
-                    Outcome::Answered(t) => t,
-                    _ => String::new(),
-                },
-                None => String::new(),
-            };
+            let chair = chair(keys, settings, &chair_prompt(&opts.question, r, &prev), opts.timeout);
             let chair = if chair.is_empty() {
                 "VERDICT: CONTINUE\n_(chair unavailable: ANTHROPIC_API_KEY missing or error)_".to_string()
             } else {

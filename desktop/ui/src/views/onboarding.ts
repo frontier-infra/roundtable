@@ -1,12 +1,13 @@
 // The five first-run screens (spec section 4).
 
 import type { App } from "../app";
-import type { HeadId } from "../api";
+import type { CliDetection, HeadId } from "../api";
 import { button, h } from "../dom";
 import { PROVIDERS, CLAUDE_DOWNLOAD_URL, ISSUES_URL, type Provider } from "../providers";
 import {
   allFailed,
   canContinue,
+  cliCardText,
   canSkip,
   cardStatusText,
   firstFailure,
@@ -64,7 +65,7 @@ function footer(app: App): HTMLElement {
   const right: HTMLElement[] = [];
   if (canSkip(s.step) && s.step < 5) right.push(button("Skip for now", () => app.goNext(), "btn ghost"));
   if (s.step === 5) right.push(button("Skip for now", () => void app.finishOnboarding(), "btn ghost"));
-  if (s.step < 5) right.push(button("Continue", () => app.goNext(), "btn primary", !canContinue(s)));
+  if (s.step < 5) right.push(button("Continue", () => app.goNext(), "btn primary", !canContinue({ ...s, clis: s.clis, settings: s.settings })));
   return h(
     "footer",
     { class: "nav" },
@@ -217,14 +218,70 @@ export function keyCard(app: App, p: Provider, opts: { removable?: boolean } = {
   );
 }
 
-function keys(app: App): HTMLElement[] {
+/** One card per AI tool found on this computer. */
+export function cliCard(app: App, d: CliDetection): HTMLElement {
+  const s = app.state;
+  const on = app.cliHeads().includes(d.head);
+  const canTick = d.signed_in !== false;
+  const signing = s.clis.signingIn.includes(d.id);
+  const id = `cli-${d.id}`;
+  const line = signing && d.signed_in === false ? "Finish signing in in the new window, then click Check again." : cliCardText(d, s.os);
+  return h(
+    "div",
+    { class: `cli-card${on ? " on" : ""}${d.signed_in === false ? " signed-out" : ""}`, attrs: { "data-cli": d.id } },
+    h(
+      "label",
+      { class: "cli-main", for: id },
+      h("input", {
+        id,
+        type: "checkbox",
+        class: "cli-check",
+        checked: on,
+        disabled: !canTick,
+        attrs: { "aria-label": `Use ${d.name}` },
+        on: { change: (e) => void app.setCli(d.head, (e.target as HTMLInputElement).checked) },
+      }),
+      h(
+        "span",
+        { class: "cli-text" },
+        h("span", { class: "cli-name" }, h("strong", { text: d.name }), d.version ? h("span", { class: "cli-version", text: d.version, title: d.how }) : null),
+        h("span", { class: "cli-line", text: line }),
+      ),
+    ),
+    d.signed_in === false
+      ? h(
+          "div",
+          { class: "cli-actions" },
+          signing
+            ? button(s.clis.loading ? "Checking..." : "Check again", () => void app.refreshClis(), "btn small", s.clis.loading)
+            : button("Sign in", () => void app.cliSignIn(d.id), "btn small primary"),
+        )
+      : null,
+  );
+}
+
+/** The tools found on this computer, with a "Look again" button. */
+export function cliList(app: App, inSettings = false): HTMLElement[] {
+  const c = app.state.clis;
+  const found = c.list.filter((d) => d.found);
+  const out: HTMLElement[] = [];
+  if (!c.loaded) {
+    out.push(h("p", { class: "muted", role: "status", text: "Looking for AI apps on this computer..." }));
+    return out;
+  }
+  if (found.length) out.push(h("div", { class: "cards" }, found.map((d) => cliCard(app, d))));
+  else if (inSettings) out.push(h("p", { class: "muted", text: "No AI apps found on this computer." }));
+  if (c.error) out.push(h("p", { class: "status bad", role: "alert", text: c.error }));
+  out.push(h("div", { class: "actions left" }, button(c.loading ? "Looking..." : "Look again", () => void app.refreshClis(), "btn small ghost", c.loading)));
+  return out;
+}
+
+function keyCards(app: App, found: number): HTMLElement[] {
   const s = app.state;
   const primary = PROVIDERS.filter((p) => p.primary);
   const more = PROVIDERS.filter((p) => !p.primary);
   const moreConnected = more.filter((p) => s.keys[p.id].status === "connected").length;
   const out: (HTMLElement | null)[] = [
-    h("h1", { text: "Connect at least one AI" }),
-    h("p", { class: "lead", text: "Two or more make a real roundtable. You can add more later." }),
     h("div", { class: "cards" }, primary.map((p) => keyCard(app, p))),
     h(
       "button",
@@ -238,9 +295,45 @@ function keys(app: App): HTMLElement[] {
       h("span", { text: `More AIs${moreConnected ? ` (${moreConnected} connected)` : ""}` }),
     ),
     s.moreOpen ? h("div", { class: "cards" }, more.map((p) => keyCard(app, p))) : null,
-    h("p", { class: "small muted", text: "A Claude or ChatGPT chat plan is not an API key. Use the link to get a key." }),
+    h("p", {
+      class: "small muted plan-note",
+      text: found
+        ? "A chat plan like Claude Pro or ChatGPT Plus is not an API key. Your plan already works through the apps above."
+        : "A chat plan like Claude Pro or ChatGPT Plus is not an API key. Use the link on a card to get a key.",
+    }),
   ];
   return out.filter((x): x is HTMLElement => !!x);
+}
+
+function keys(app: App): HTMLElement[] {
+  const s = app.state;
+  const c = s.clis;
+  const found = c.list.filter((d) => d.found).length;
+  const keysOpen = s.keysOpen ?? (c.loaded && found === 0);
+  const keyed = PROVIDERS.filter((p) => s.keys[p.id].status === "connected").length;
+  const title = !c.loaded ? "Connect your AIs" : found ? "We found these on your computer" : "Connect at least one AI";
+  const lead = !c.loaded
+    ? "Looking for the AI apps you already use."
+    : found
+      ? "Roundtable can use them with the plans you already have. Two or more make a real roundtable."
+      : "We did not find Claude Code, Codex or Gemini CLI on this computer. Paste an API key instead.";
+  return [
+    h("h1", { text: title }),
+    h("p", { class: "lead", text: lead }),
+    ...(found || !c.loaded ? cliList(app) : []),
+    h(
+      "button",
+      {
+        class: "more-toggle keys-toggle",
+        type: "button",
+        attrs: { "aria-expanded": String(keysOpen) },
+        on: { click: () => app.set({ keysOpen: !keysOpen }) },
+      },
+      h("span", { text: keysOpen ? "▾ " : "▸ " }),
+      h("span", { text: `Or use an API key${keyed ? ` (${keyed} connected)` : ""}` }),
+    ),
+    ...(keysOpen ? [h("div", { class: "key-section" }, keyCards(app, found))] : []),
+  ];
 }
 
 // ---- Screen 4 ----

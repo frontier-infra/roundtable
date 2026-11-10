@@ -119,7 +119,108 @@ describe("screen 3, connect AI accounts", () => {
     const link = root.querySelector<HTMLAnchorElement>('[data-head="claude"] .how a')!;
     link.click();
     expect(api.calls).toContain("open:https://console.anthropic.com/settings/keys");
-    expect(text()).toContain("A Claude or ChatGPT chat plan is not an API key.");
+    expect(text()).toContain("A chat plan like Claude Pro or ChatGPT Plus is not an API key. Use the link on a card to get a key.");
+  });
+});
+
+describe("screen 3, AI apps found on this computer", () => {
+  const cards = () => [...root.querySelectorAll<HTMLElement>(".cli-card")];
+  const card = (id: string) => root.querySelector<HTMLElement>(`[data-cli="${id}"]`)!;
+  const box = (id: string) => card(id).querySelector<HTMLInputElement>("input.cli-check")!;
+
+  it("lists each tool found, ticks the signed-in ones, and allows Continue with no key", async () => {
+    const { app, api } = await start({ clis: "some" }, { screen: 3 });
+    expect(api.calls).toContain("clisDetect");
+    expect(root.querySelector("h1")?.textContent).toBe("We found these on your computer");
+    expect(cards().map((c) => c.getAttribute("data-cli"))).toEqual(["claude", "codex", "gemini", "grok", "cursor"]);
+    expect(card("claude").textContent).toContain("Claude Code, signed in. Uses your Claude plan.");
+    expect(box("claude").checked).toBe(true);
+    expect(box("codex").checked).toBe(true);
+    expect(box("grok").checked).toBe(false);
+    expect(box("grok").disabled).toBe(true);
+    expect(app.state.settings.cli_heads).toEqual(["claude", "codex", "gemini"]);
+    expect(buttonNamed("Continue")!.disabled).toBe(false);
+  });
+
+  it("keeps every card to two sentences at most, in plain words", async () => {
+    await start({ clis: "some" }, { screen: 3 });
+    for (const c of cards()) {
+      const line = c.querySelector(".cli-line")!.textContent!;
+      expect(line.split(/(?<=\.)\s/).length).toBeLessThanOrEqual(2);
+      expect(line).not.toMatch(/OAuth|CLI flag|token|\u2014/);
+    }
+  });
+
+  it("folds the API key cards under Or use an API key, with the reworded plan note", async () => {
+    await start({ clis: "some" }, { screen: 3 });
+    expect(root.querySelector(".ai-card")).toBeNull();
+    expect(text()).not.toContain("is not an API key");
+    await click("▸ Or use an API key");
+    expect(root.querySelectorAll(".ai-card").length).toBe(2);
+    expect(text()).toContain("A chat plan like Claude Pro or ChatGPT Plus is not an API key. Your plan already works through the apps above.");
+  });
+
+  it("Continue turns off when every tool is unticked and no key is set", async () => {
+    const { app } = await start({ clis: "some" }, { screen: 3 });
+    for (const id of ["claude", "codex", "gemini"]) {
+      box(id).checked = false;
+      box(id).dispatchEvent(new Event("change"));
+      await tick();
+    }
+    expect(app.state.settings.cli_heads).toEqual([]);
+    expect(app.state.settings.clis_chosen).toBe(true);
+    expect(buttonNamed("Continue")!.disabled).toBe(true);
+    box("gemini").checked = true;
+    box("gemini").dispatchEvent(new Event("change"));
+    await tick();
+    expect(buttonNamed("Continue")!.disabled).toBe(false);
+  });
+
+  it("Sign in opens the tool's own sign-in, then Check again ticks it", async () => {
+    const { app, api } = await start({ clis: "some" }, { screen: 3 });
+    expect(card("grok").textContent).toContain("Grok is installed but not signed in. Click Sign in to open it in Terminal.");
+    card("grok").querySelector<HTMLButtonElement>("button")!.click();
+    await tick();
+    expect(api.calls).toContain("cliLogin:grok");
+    expect(card("grok").textContent).toContain("Finish signing in in the new window, then click Check again.");
+    await click("Check again");
+    await tick();
+    expect(card("grok").textContent).toContain("Grok, signed in. Uses your Grok plan.");
+    expect(box("grok").checked).toBe(true);
+    expect(app.state.settings.cli_heads).toContain("grok");
+  });
+
+  it("asks the table through the ticked tools", async () => {
+    const { api } = await start({ clis: "some" }, { screen: 5 });
+    await click("Ask the table");
+    await tick(20);
+    expect(api.calls).toContain("askStart:claude,codex,gemini:1");
+    expect(root.querySelectorAll(".answer.answered")).toHaveLength(3);
+  });
+
+  it("with no tools, says so and opens the key cards", async () => {
+    await start({ clis: "none" }, { screen: 3 });
+    expect(root.querySelector("h1")?.textContent).toBe("Connect at least one AI");
+    expect(text()).toContain("We did not find Claude Code, Codex or Gemini CLI on this computer.");
+    expect(root.querySelectorAll(".ai-card").length).toBe(2);
+  });
+
+  it("says a terminal window on Windows", async () => {
+    await start({ clis: "some", os: "windows" }, { screen: 3 });
+    expect(card("cursor").textContent).toContain("Click Sign in to open it in a terminal window.");
+  });
+});
+
+describe("settings, AI accounts", () => {
+  it("shows the same list of apps, refreshable, and seats ticked tools at the table", async () => {
+    const { api } = await start({ clis: "some", keys: ["openai"], onboarded: true }, { view: "settings" });
+    expect(text()).toContain("Apps on this computer");
+    expect(root.querySelectorAll(".cli-card").length).toBe(5);
+    const before = api.calls.filter((c) => c === "clisDetect").length;
+    await click("Look again");
+    expect(api.calls.filter((c) => c === "clisDetect").length).toBe(before + 1);
+    const seats = [...root.querySelectorAll(".switch-row")].map((r) => r.textContent);
+    expect(seats).toEqual(expect.arrayContaining(["Claude", "Codex", "Gemini", "ChatGPT"]));
   });
 });
 

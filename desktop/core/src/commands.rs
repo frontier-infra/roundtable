@@ -3,7 +3,7 @@
 
 use crate::claude;
 use crate::engine_install::{self, RealProbe};
-use roundtable_engine::{history, paths, settings::Settings, VERSION};
+use roundtable_engine::{clis, history, paths, settings::Settings, VERSION};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
@@ -52,11 +52,15 @@ pub struct AppInfo {
     version: &'static str,
     os: &'static str,
     arch: &'static str,
+    /// Debug builds only: `ROUNDTABLE_START_SCREEN=3` or `settings` opens there (screenshots).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start: Option<String>,
 }
 
 #[tauri::command]
 pub fn app_info() -> AppInfo {
-    AppInfo { version: VERSION, os: std::env::consts::OS, arch: std::env::consts::ARCH }
+    let start = if cfg!(debug_assertions) { std::env::var("ROUNDTABLE_START_SCREEN").ok().filter(|v| !v.is_empty()) } else { None };
+    AppInfo { version: VERSION, os: std::env::consts::OS, arch: std::env::consts::ARCH, start }
 }
 
 #[derive(Serialize)]
@@ -158,6 +162,66 @@ pub async fn doctor(online: bool) -> Result<Value, String> {
         engine_json(&a)
     })
     .await?
+}
+
+// ---- AI tools already on this computer ----
+
+/// Find Claude Code, Codex, Gemini CLI and the rest, and whether each is signed in.
+/// Sends no prompt and reads no secret (see `clis.rs`).
+#[tauri::command]
+pub async fn clis_detect() -> Result<Vec<clis::Detection>, String> {
+    blocking(clis::detect_all).await
+}
+
+/// Open the tool's own sign-in in a terminal window.
+#[tauri::command]
+pub async fn cli_login(id: String) -> Result<Value, String> {
+    blocking(move || {
+        let cli = clis::find(&id).ok_or("Unknown app.")?;
+        let exe = clis::find_cli(cli).ok_or_else(|| format!("{} is not on this computer.", cli.name))?;
+        open_signin_terminal(cli, &exe)?;
+        Ok(json!({"ok": true, "message": "Finish signing in in the new window, then click Check again."}))
+    })
+    .await?
+}
+
+#[cfg(target_os = "macos")]
+fn open_signin_terminal(cli: &clis::Cli, exe: &std::path::Path) -> Result<(), String> {
+    let dir = paths::data_dir().join("tmp");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let script = dir.join(format!("sign-in-{}.command", cli.id));
+    std::fs::write(&script, clis::signin_script(cli, exe, &clis::child_path(exe))).map_err(|e| e.to_string())?;
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
+    }
+    let ok = Command::new("open").args(["-a", "Terminal"]).arg(&script).status().map_err(|e| e.to_string())?.success();
+    if ok {
+        Ok(())
+    } else {
+        Err("Could not open Terminal.".into())
+    }
+}
+
+#[cfg(windows)]
+fn open_signin_terminal(cli: &clis::Cli, exe: &std::path::Path) -> Result<(), String> {
+    // `start` opens a new console window that stays open (`cmd /k`) after the sign-in.
+    let mut c = Command::new("cmd");
+    c.args(["/c", "start", "Roundtable sign-in", "cmd", "/k"]).arg(exe).args(cli.login);
+    c.env("PATH", clis::child_path(exe));
+    engine_install::no_window(&mut c);
+    c.spawn().map(|_| ()).map_err(|e| format!("Could not open a terminal window: {e}"))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn open_signin_terminal(cli: &clis::Cli, exe: &std::path::Path) -> Result<(), String> {
+    let line = std::iter::once(exe.to_string_lossy().into_owned()).chain(cli.login.iter().map(|s| s.to_string())).collect::<Vec<_>>().join(" ");
+    for term in ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"] {
+        if Command::new(term).args(["-e", &line]).env("PATH", clis::child_path(exe)).spawn().is_ok() {
+            return Ok(());
+        }
+    }
+    Err(format!("Open a terminal and run: {line}"))
 }
 
 // ---- Claude ----

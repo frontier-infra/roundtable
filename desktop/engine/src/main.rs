@@ -4,7 +4,7 @@
 use roundtable_engine::council::{self, AskOptions, Event, RunResult};
 use roundtable_engine::keys::{self, KeyStore, Keys};
 use roundtable_engine::settings::Settings;
-use roundtable_engine::{history, mcp, paths, providers, verify, VERSION};
+use roundtable_engine::{clis, history, mcp, paths, providers, verify, VERSION};
 use serde_json::json;
 use std::io::{Read, Write};
 use std::process::ExitCode;
@@ -19,6 +19,8 @@ Usage:
 Commands:
   ask            Run the council
   auth           set <provider> (key on stdin) | remove <provider> | status | import
+  detect         Find AI tools on this computer (Claude Code, Codex, Gemini CLI, ...)
+                 and say if each is signed in. Sends no prompt. --json for the app.
   doctor         Show which AIs have a key (--online also checks each key)
   mcp            serve | selftest | config
   version        Print the version
@@ -26,7 +28,8 @@ Commands:
 Ask flags:
   -q, --question TEXT   The question (also accepted as a positional)
   -c, --context FILE    Background text every AI reads first
-      --heads CSV       Subset: claude,openai,grok,glm,minimax,gemini,codex
+      --heads CSV       Subset: claude,openai,grok,glm,minimax,gemini,codex,
+                        qwen,kimi,opencode,cursor
       --rounds N        N>=2: talk it through, up to N rounds (default 1)
       --timeout S       Seconds per AI
       --research        Let them search the web where supported
@@ -50,6 +53,7 @@ fn main() -> ExitCode {
         "mcp" => cmd_mcp(rest),
         "auth" => cmd_auth(rest),
         "doctor" => cmd_doctor(rest),
+        "detect" => cmd_detect(rest),
         _ => cmd_ask(&args),
     };
     ExitCode::from(code)
@@ -388,8 +392,13 @@ fn cmd_doctor(args: &[String]) -> u8 {
             "source": resolved.as_ref().map(|(_, s)| *s),
             "in_app": h.in_app,
         });
-        if h.kind == providers::Kind::CodexCli {
-            row["has_key"] = json!(council::find_exe("codex").is_some());
+        if let Some(c) = clis::for_head(h.id) {
+            let found = clis::find_cli(c).is_some();
+            row["cli"] = json!(found);
+            row["via_cli"] = json!(providers::uses_cli(h, &settings));
+            if h.kind == providers::Kind::Cli {
+                row["has_key"] = json!(found);
+            }
         }
         if online {
             if let Some((key, _)) = &resolved {
@@ -411,6 +420,24 @@ fn cmd_doctor(args: &[String]) -> u8 {
                 r["model"].as_str().unwrap_or(""),
                 if r["has_key"].as_bool() == Some(true) { "ready" } else { "no key" }
             );
+        }
+    }
+    0
+}
+
+fn cmd_detect(args: &[String]) -> u8 {
+    let found = clis::detect_all();
+    if has(args, "--json") {
+        println!("{}", json!({"clis": found}));
+    } else {
+        for d in &found {
+            let state = match (d.found, d.signed_in) {
+                (false, _) => "not found".to_string(),
+                (true, Some(true)) => "signed in".to_string(),
+                (true, Some(false)) => format!("not signed in (run: {})", d.login),
+                (true, None) => "found, sign-in unknown".to_string(),
+            };
+            println!("{:<9} {:<20} {}", d.id, d.version.as_deref().unwrap_or("-"), state);
         }
     }
     0

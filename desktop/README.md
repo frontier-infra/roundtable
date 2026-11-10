@@ -38,7 +38,10 @@ cd core && cargo tauri build
 ```
 
 `cargo tauri dev` runs the app against the Vite dev server. Opening `http://localhost:5173/` in a plain browser shows the UI on the fake backend.
-Preview query options: `screen=1..5`, `view=main|settings`, `claude=none|app|code|both|plugin`, `keys=claude,gemini`, `os=windows`, `history=1`, `run=setup|quick|talk`.
+Preview query options: `screen=1..5`, `view=main|settings`, `claude=none|app|code|both|plugin`, `keys=claude,gemini`, `os=windows`, `history=1`, `run=setup|quick|talk`, `clis=some|none` (AI apps found on the computer).
+
+`roundtable detect` lists the AI apps on this computer and whether each is signed in. It sends no prompt.
+A debug build opens on a given screen with `ROUNDTABLE_START_SCREEN=3` (or `settings`), for screenshots.
 
 ## Releases
 

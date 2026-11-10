@@ -7,6 +7,8 @@ export interface AppInfo {
   version: string;
   os: string;
   arch: string;
+  /** Debug builds only: the screen to open on ("3" or "settings"). */
+  start?: string;
 }
 
 export interface EngineStatus {
@@ -48,6 +50,25 @@ export interface ClaudeStatus {
   plugin_lines: [string, string];
 }
 
+/** An AI tool found on this computer (Claude Code, Codex, Gemini CLI, ...). */
+export interface CliDetection {
+  id: string;
+  /** The head it seats at the table. */
+  head: string;
+  name: string;
+  found: boolean;
+  path?: string | null;
+  version: string | null;
+  /** null when the tool gives no way to tell without sending a prompt. */
+  signed_in: boolean | null;
+  /** One sentence: whose account pays. */
+  note: string;
+  /** How Roundtable calls it. */
+  how: string;
+  /** The tool's own sign-in command. */
+  login: string;
+}
+
 export interface ActionResult {
   ok: boolean;
   message?: string;
@@ -71,6 +92,10 @@ export interface Settings {
   auto_update: boolean;
   onboarded: boolean;
   terminal_command: boolean;
+  /** Head ids that run through the person's own installed tool. */
+  cli_heads: string[];
+  /** The person ticked or unticked a tool, so detection stops choosing for them. */
+  clis_chosen: boolean;
 }
 
 export interface AskRequest {
@@ -105,6 +130,8 @@ export interface Api {
   keySave(head: string, key: string): Promise<KeySaveResult>;
   keyRemove(head: string): Promise<void>;
   keysImport(remove: boolean): Promise<{ ok: boolean; imported?: string[] }>;
+  clisDetect(): Promise<CliDetection[]>;
+  cliLogin(id: string): Promise<ActionResult>;
   claudeStatus(): Promise<ClaudeStatus>;
   claudeConnectApp(): Promise<ActionResult>;
   claudeConnectCode(): Promise<ActionResult>;
@@ -160,6 +187,8 @@ export async function tauriApi(): Promise<Api> {
       await invoke("key_remove", { head });
     },
     keysImport: (remove) => invoke("keys_import", { remove }),
+    clisDetect: () => invoke("clis_detect"),
+    cliLogin: (id) => invoke("cli_login", { id }),
     claudeStatus: () => invoke("claude_status"),
     claudeConnectApp: () => invoke("claude_connect_app"),
     claudeConnectCode: () => invoke("claude_connect_code"),

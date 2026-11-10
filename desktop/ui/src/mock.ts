@@ -1,7 +1,7 @@
 // A fake backend with the same shape as the Rust core. Used by the UI tests and by the
 // browser preview (`?mock=1`), so every screen can be seen without keys or network.
 
-import type { Api, ClaudeStatus, EngineEvent, HistoryEntry, KeysStatus, Settings } from "./api";
+import type { Api, ClaudeStatus, CliDetection, EngineEvent, HistoryEntry, KeysStatus, Settings } from "./api";
 import { defaultSettings } from "./state";
 import { PROVIDERS } from "./providers";
 
@@ -16,6 +16,26 @@ export interface MockOptions {
   history?: HistoryEntry[];
   /** Milliseconds between fake events. 0 runs them on the next tick. */
   delay?: number;
+  /** AI tools on the computer: "none" (default), "some", or a list. */
+  clis?: "none" | "some" | CliDetection[];
+}
+
+function tool(id: string, head: string, name: string, version: string | null, signed_in: boolean | null, note: string, login: string): CliDetection {
+  return { id, head, name, found: version !== null, version, signed_in: version === null ? null : signed_in, note, how: `${id} -p`, login };
+}
+
+/** A computer with Claude Code, Codex and Gemini signed in, Grok and Cursor signed out. */
+export function sampleClis(): CliDetection[] {
+  return [
+    tool("claude", "claude", "Claude Code", "2.1.321", true, "Uses your Claude plan.", "claude auth login"),
+    tool("codex", "codex", "Codex", "0.167.0", true, "Uses your ChatGPT plan.", "codex login"),
+    tool("gemini", "gemini", "Gemini CLI", "0.67.0", true, "Uses your Google account.", "gemini"),
+    tool("grok", "grok", "Grok", "1.0.77", false, "Uses your Grok plan.", "grok login"),
+    tool("qwen", "qwen", "Qwen Code", null, null, "Uses your Qwen account.", "qwen"),
+    tool("kimi", "kimi", "Kimi", null, null, "Uses your Kimi account.", "kimi login"),
+    tool("opencode", "opencode", "OpenCode", null, null, "Uses the accounts you set up in OpenCode.", "opencode auth login"),
+    tool("cursor", "cursor", "Cursor Agent", "2026.11.05", false, "Uses your Cursor plan.", "cursor-agent login"),
+  ];
 }
 
 const SAMPLE: Record<string, string> = {
@@ -44,6 +64,7 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
     plugin_ids: mode === "plugin" ? ["roundtable@frontier-infra"] : [],
     plugin_lines: ["/plugin marketplace add frontier-infra/roundtable", "/plugin install roundtable@frontier-infra"],
   };
+  const tools: CliDetection[] = o.clis === "some" ? sampleClis() : Array.isArray(o.clis) ? o.clis.map((d) => ({ ...d })) : [];
   const wait = (ms = delay) => new Promise<void>((r) => setTimeout(r, ms));
   let stopped = false;
 
@@ -79,6 +100,17 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
       keys.delete(head);
     },
     keysImport: async () => ({ ok: true, imported: [] }),
+    async clisDetect() {
+      calls.push("clisDetect");
+      return tools.map((d) => ({ ...d }));
+    },
+    async cliLogin(id) {
+      calls.push(`cliLogin:${id}`);
+      // The person finishes signing in in the terminal window.
+      const t = tools.find((d) => d.id === id);
+      if (t) t.signed_in = true;
+      return { ok: true };
+    },
     claudeStatus: async () => ({ ...claude }),
     async claudeConnectApp() {
       calls.push("claudeConnectApp");
@@ -115,7 +147,7 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
           for (const h of req.heads) emit({ event: "head_started", head: h, round: r });
           for (const h of req.heads) {
             await wait();
-            const ok = keys.has(h);
+            const ok = keys.has(h) || (settings.cli_heads.includes(h) && tools.some((t) => t.head === h && t.signed_in));
             if (ok) answered++;
             emit({
               event: "head_done",

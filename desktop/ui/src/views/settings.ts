@@ -2,9 +2,9 @@
 
 import type { App } from "../app";
 import { button, h, toggle } from "../dom";
-import { CHAIR_DEFAULT_MODEL, HELP_URL, ISSUES_URL, PROVIDERS } from "../providers";
+import { CHAIR_DEFAULT_MODEL, HEAD_ORDER, HELP_URL, ISSUES_URL, PROVIDERS, providerName } from "../providers";
 import { connectedHeads, helpUrl, keychainName } from "../state";
-import { claudeConnect, keyCard } from "./onboarding";
+import { claudeConnect, cliList, keyCard } from "./onboarding";
 
 function section(title: string, ...body: (HTMLElement | null)[]): HTMLElement {
   return h("section", { class: "card setting" }, h("h2", { text: title }), body);
@@ -12,20 +12,20 @@ function section(title: string, ...body: (HTMLElement | null)[]): HTMLElement {
 
 export function renderSettings(app: App): HTMLElement {
   const s = app.state;
-  const connected = connectedHeads(s.keys);
+  const connected = connectedHeads(s.keys, app.cliHeads());
   const seated = new Set(s.settings.default_heads.length ? s.settings.default_heads : connected);
 
-  const seats = PROVIDERS.filter((p) => connected.includes(p.id)).map((p) =>
-    toggle(p.name, seated.has(p.id), (on) => {
+  const seats = connected.map((id) =>
+    toggle(providerName(id), seated.has(id), (on) => {
       const next = new Set(seated);
-      if (on) next.add(p.id);
-      else next.delete(p.id);
+      if (on) next.add(id);
+      else next.delete(id);
       if (next.size === 0) {
         app.showToast("Keep at least one AI at the table.");
         app.render();
         return;
       }
-      void app.saveSettings({ default_heads: PROVIDERS.map((x) => x.id).filter((id) => next.has(id)) });
+      void app.saveSettings({ default_heads: HEAD_ORDER.filter((id) => next.has(id)) });
     }),
   );
 
@@ -65,6 +65,10 @@ export function renderSettings(app: App): HTMLElement {
       { class: "settings" },
       section(
         "AI accounts",
+        h("h3", { text: "Apps on this computer" }),
+        h("p", { class: "small muted", text: "Tick an app to use it with your own plan. Nothing is sent until you ask a question." }),
+        h("div", { class: "stack" }, cliList(app, true)),
+        h("h3", { text: "API keys" }),
         h("p", { class: "small muted", text: `Keys are saved in ${keychainName(s.os)}. Roundtable never shows a saved key again.` }),
         h("div", { class: "cards" }, PROVIDERS.map((p) => keyCard(app, p, { removable: true }))),
       ),
