@@ -2321,6 +2321,9 @@ details.pack summary {
 
   .step-body {
     padding-left: 0;
+  }
+}
+
 /* Decision model (decision.ts) */
 .decision {
   background: var(--surface);
