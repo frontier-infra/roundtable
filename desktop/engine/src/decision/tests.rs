@@ -269,29 +269,15 @@ fn council_run_carries_the_decision_into_transcript_and_events() {
 
 #[test]
 fn only_our_jebadiah_builds_count() {
-    for id in [
-        "frontier-infra/jebadiah-9b-v2",
-        "hf.co/frontier-infra/jebadiah-9b-v2-GGUF:Q4_K_M",
-        "huggingface.co/frontier-infra/jebadiah-27b",
-        "frontierinfra/jebadiah:9b",
-        "frontierinfra/jebadiah",
-        "jbrashearfrontierinfra/jebadiah:latest",
-        "registry.ollama.ai/frontierinfra/jebadiah:4b",
-        "Frontier-Infra/Jebadiah-4B-v2",
-    ] {
-        assert!(detect::is_ours(id), "{id} is ours");
+    let list: Value = serde_json::from_str(include_str!("jebadiah-ids.json")).unwrap();
+    let strs = |k: &str| list[k].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert_eq!(strs("namespaces"), detect::OURS, "OURS matches jebadiah-ids.json");
+    assert_eq!(strs("hosts"), detect::HOSTS, "HOSTS matches jebadiah-ids.json");
+    for id in strs("ours") {
+        assert!(detect::is_ours(&id), "{id} is ours");
     }
-    for id in [
-        "hf.co/Jebadiah/jebadiah-9b-uncensored-GGUF:Q4_K_M",
-        "Jebadiah/some-adult-model",
-        "jebadiah/jebadiah-9b",
-        "jebadiah-9b",
-        "jebadiah:latest",
-        "hf.co/someone/frontier-infra-jebadiah-9b",
-        "frontier-infra/jebadiahx-9b",
-        "frontier-infra-fan/jebadiah-9b",
-    ] {
-        assert!(!detect::is_ours(id), "{id} is not ours");
+    for id in strs("not_ours") {
+        assert!(!detect::is_ours(&id), "{id} is not ours");
     }
     let ids: Vec<String> = ["hf.co/Jebadiah/jebadiah-9b-x:Q4", "frontierinfra/jebadiah:4b"].iter().map(|s| s.to_string()).collect();
     assert_eq!(detect::pick(&ids).as_deref(), Some("frontierinfra/jebadiah:4b"), "a stranger's 9b never beats our 4b");

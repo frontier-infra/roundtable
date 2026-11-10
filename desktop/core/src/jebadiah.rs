@@ -4,7 +4,8 @@
 //! only when detection finds nothing.
 //!
 //! Only our builds count. A different Hugging Face account with a similar name holds
-//! unrelated models, so a model id must carry the frontier-infra address or our size tag.
+//! unrelated models, so a model id must carry one of our namespaces. The rule is the
+//! engine's `decision::detect::is_ours`; the list is `engine/src/decision/jebadiah-ids.json`.
 
 use roundtable_engine::http;
 use serde::Serialize;
@@ -51,17 +52,9 @@ pub fn served_from(v: &serde_json::Value) -> (Option<Served>, Option<String>, Ve
 
 const PROBE_TIMEOUT: Duration = Duration::from_millis(1200);
 
-/// True for our builds only (see `isOurModel` in ui/src/jebadiah.ts).
+/// True for our builds only: the engine's rule (see `isOurModel` in ui/src/jebadiah.ts).
 pub fn is_our_model(id: &str) -> bool {
-    let low = id.to_ascii_lowercase();
-    if low.contains("frontier-infra/jebadiah") || low.contains("frontierinfra/jebadiah") {
-        return true;
-    }
-    // jebadiah-9b..., jebadiah:27b, jebadiah-4b-v2...
-    let Some(at) = low.find("jebadiah") else { return false };
-    let rest = &low[at + "jebadiah".len()..];
-    let rest = rest.trim_start_matches(['-', '_', ':']);
-    ["4b", "9b", "27b"].iter().any(|s| rest.starts_with(s))
+    roundtable_engine::decision::detect::is_ours(id)
 }
 
 fn model_ids(v: &serde_json::Value) -> Vec<String> {
@@ -177,12 +170,20 @@ mod tests {
             "hf.co/frontier-infra/jebadiah-9b-v2-1-GGUF:Q4_K_M",
             "frontierinfra/jebadiah:27b",
             "frontierinfra/jebadiah:latest",
-            "jebadiah-4b-v2-mlx-8bit",
+            "jbrashearfrontierinfra/jebadiah:9b",
             "frontier-infra/jebadiah-27b-v2-1-MLX-4bit",
         ] {
             assert!(is_our_model(id), "{id}");
         }
-        for id in ["Jebadiah/Aria-7b-128k-v1", "jebadiah/hermes-lexi-fun-stone-l3-8b", "llama3:8b", "jebadiah"] {
+        // A stranger's account named Jebadiah, and bare names anyone could publish.
+        for id in [
+            "Jebadiah/Aria-7b-128k-v1",
+            "jebadiah/hermes-lexi-fun-stone-l3-8b",
+            "hf.co/Jebadiah/jebadiah-9b-uncensored-GGUF:Q4_K_M",
+            "jebadiah-4b-v2-mlx-8bit",
+            "llama3:8b",
+            "jebadiah",
+        ] {
             assert!(!is_our_model(id), "{id}");
         }
     }
@@ -191,8 +192,10 @@ mod tests {
     fn picks_from_ollama_and_lm_studio_shapes() {
         let ollama = serde_json::json!({"models": [{"name": "Jebadiah/Aria-7b-128k-v1"}, {"name": "hf.co/frontier-infra/jebadiah-9b-v2-1-GGUF:Q4_K_M"}]});
         assert_eq!(pick(&model_ids(&ollama)).as_deref(), Some("hf.co/frontier-infra/jebadiah-9b-v2-1-GGUF:Q4_K_M"));
-        let lms = serde_json::json!({"data": [{"id": "jebadiah-27b-v2-1-mlx-4bit"}]});
-        assert_eq!(pick(&model_ids(&lms)).as_deref(), Some("jebadiah-27b-v2-1-mlx-4bit"));
+        let lms = serde_json::json!({"data": [{"id": "jebadiah-9b-uncensored"}, {"id": "frontier-infra/jebadiah-27b-v2-1-mlx-4bit"}]});
+        assert_eq!(pick(&model_ids(&lms)).as_deref(), Some("frontier-infra/jebadiah-27b-v2-1-mlx-4bit"));
+        let stranger = serde_json::json!({"models": [{"name": "hf.co/Jebadiah/jebadiah-9b-uncensored-GGUF:Q4_K_M"}]});
+        assert_eq!(pick(&model_ids(&stranger)), None, "a stranger's Jebadiah is never offered");
         assert_eq!(pick(&model_ids(&serde_json::json!({"data": []}))), None);
     }
 
