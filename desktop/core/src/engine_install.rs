@@ -93,10 +93,34 @@ pub fn engine_version(exe: &Path, probe: &dyn Probe) -> Option<String> {
         .map(str::to_string)
 }
 
-/// True when there is no engine in place or it is another version.
+/// True when there is no engine in place, it is another version, or (given the
+/// app's own copy) its bytes differ. Release candidates share one version number,
+/// so the version alone let rc4 keep running an rc1 engine.
 pub fn needs_install(dir: &Path, expected: &str, probe: &dyn Probe) -> bool {
     let p = installed_path(dir);
     !p.is_file() || engine_version(&p, probe).as_deref() != Some(expected)
+}
+
+/// Same, and also true when the installed engine is not byte for byte the app's copy.
+pub fn needs_refresh(dir: &Path, src: Option<&Path>, expected: &str, probe: &dyn Probe) -> bool {
+    let p = installed_path(dir);
+    if !p.is_file() {
+        return false;
+    }
+    if let Some(src) = src.filter(|s| s.is_file()) {
+        if !same_bytes(src, &p) {
+            return true;
+        }
+    }
+    needs_install(dir, expected, probe)
+}
+
+/// True when both files hold the same bytes.
+pub fn same_bytes(a: &Path, b: &Path) -> bool {
+    match (std::fs::metadata(a), std::fs::metadata(b)) {
+        (Ok(x), Ok(y)) if x.len() == y.len() => matches!((std::fs::read(a), std::fs::read(b)), (Ok(p), Ok(q)) if p == q),
+        _ => false,
+    }
 }
 
 /// Copy `src` into `dir`, replacing any old engine, even one Claude has open.
@@ -250,6 +274,21 @@ mod tests {
         let src = sidecar(t.path());
         let e = install(Some(&src), &t.path().join("e"), "0.1.1", &probe("0.1.1", false), &|_| {}).unwrap_err();
         assert_eq!(e.code(), "E_SELFTEST");
+    }
+
+    #[test]
+    fn refresh_when_bytes_differ_even_at_the_same_version() {
+        let t = tempfile::tempdir().unwrap();
+        let src = sidecar(t.path());
+        let dir = t.path().join("engine");
+        let p = probe("0.1.1", true);
+        assert!(!needs_refresh(&dir, Some(&src), "0.1.1", &p), "nothing installed: setup screen does it");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(installed_path(&dir), b"engine-bytes-from-rc1").unwrap();
+        assert!(needs_refresh(&dir, Some(&src), "0.1.1", &p), "same version, other build");
+        install(Some(&src), &dir, "0.1.1", &p, &|_| {}).unwrap();
+        assert!(!needs_refresh(&dir, Some(&src), "0.1.1", &p));
+        assert!(needs_refresh(&dir, Some(&src), "0.1.2", &p));
     }
 
     #[test]

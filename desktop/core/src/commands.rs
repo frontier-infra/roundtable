@@ -16,6 +16,22 @@ use tauri::{AppHandle, Emitter, State};
 pub struct AppState {
     pub run: Mutex<Option<(u64, Child)>>,
     pub next_run: Mutex<u64>,
+    /// One-head retries, so Stop ends them too.
+    pub retries: std::sync::Arc<Mutex<Vec<Child>>>,
+}
+
+/// One install at a time (launch refresh and the status check can race).
+static INSTALL: Mutex<()> = Mutex::new(());
+
+/// Re-copy the engine when it is not the app's own build. Returns true when it did.
+fn refresh_engine() -> bool {
+    let _g = INSTALL.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = paths::engine_dir();
+    let src = engine_install::sidecar_path();
+    if engine_install::needs_refresh(&dir, src.as_deref(), VERSION, &RealProbe) {
+        return engine_install::install(src.as_deref(), &dir, VERSION, &RealProbe, &|_| {}).is_ok();
+    }
+    false
 }
 
 fn installed() -> PathBuf {
@@ -74,6 +90,7 @@ pub struct EngineStatus {
 #[tauri::command]
 pub async fn engine_status() -> Result<EngineStatus, String> {
     blocking(|| {
+        refresh_engine();
         let p = installed();
         let version = if p.is_file() { engine_install::engine_version(&p, &RealProbe) } else { None };
         EngineStatus { installed: p.is_file(), current: version.as_deref() == Some(VERSION), version, expected: VERSION }
@@ -92,6 +109,7 @@ pub struct SetupFailure {
 #[tauri::command]
 pub async fn engine_setup(app: AppHandle) -> Result<(), SetupFailure> {
     blocking(move || {
+        let _g = INSTALL.lock().unwrap_or_else(|e| e.into_inner());
         let src = engine_install::sidecar_path();
         engine_install::install(src.as_deref(), &paths::engine_dir(), VERSION, &RealProbe, &|i| {
             let _ = app.emit("setup-step", i);
@@ -104,12 +122,10 @@ pub async fn engine_setup(app: AppHandle) -> Result<(), SetupFailure> {
 }
 
 /// After an app update, quietly re-copy the engine when its version differs (spec 7.1).
+/// Compares bytes, not only the version: release candidates share a version number.
 pub fn refresh_engine_on_launch() {
     std::thread::spawn(|| {
-        let dir = paths::engine_dir();
-        if engine_install::installed_path(&dir).is_file() && engine_install::needs_install(&dir, VERSION, &RealProbe) {
-            let _ = engine_install::install(engine_install::sidecar_path().as_deref(), &dir, VERSION, &RealProbe, &|_| {});
-        }
+        refresh_engine();
     });
 }
 
@@ -222,6 +238,20 @@ fn open_signin_terminal(cli: &clis::Cli, exe: &std::path::Path) -> Result<(), St
         }
     }
     Err(format!("Open a terminal and run: {line}"))
+}
+
+/// Ask one AI a five-word question through the route a real run uses, and say how it went.
+/// `via`: "auto" (its app first, then the key), "app" or "key".
+#[tauri::command]
+pub async fn head_test(head: String, via: Option<String>) -> Result<Value, String> {
+    blocking(move || {
+        let via = via.unwrap_or_else(|| "auto".into());
+        let mut c = engine_cmd(&["test", &head, "--via", &via, "--timeout", "90", "--json"])?;
+        c.stdin(Stdio::null()).stderr(Stdio::null());
+        let o = c.output().map_err(|e| e.to_string())?;
+        serde_json::from_slice::<Value>(&o.stdout).map_err(|_| "The engine gave an unexpected answer.".to_string())
+    })
+    .await?
 }
 
 // ---- Claude ----
@@ -428,9 +458,65 @@ pub fn ask_start(
     Ok(id)
 }
 
+/// Ask one head again, alone, without touching the rest of the run. Its events
+/// arrive on `rt-event` with the same run id, plus `retry_done` with its transcript.
+#[tauri::command]
+pub fn ask_retry(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    run: u64,
+    head: String,
+    question: String,
+    research: bool,
+    context_path: Option<String>,
+) -> Result<(), String> {
+    if question.trim().is_empty() {
+        return Err("Type a question first.".into());
+    }
+    let mut args: Vec<&str> = vec!["ask", "--events", "--no-history", "--source", "app", "--rounds", "1", "--heads", &head];
+    if research {
+        args.push("--research");
+    }
+    // A follow-up run kept its background in tmp/follow-up.md.
+    let followup = paths::data_dir().join("tmp").join("follow-up.md").to_string_lossy().into_owned();
+    let ctx = context_path.filter(|c| !c.is_empty()).map(|c| if c == "follow-up" { followup.clone() } else { c });
+    if let Some(c) = ctx.as_deref() {
+        args.extend(["-c", c]);
+    }
+    args.extend(["-q", &question]);
+    let mut cmd = engine_cmd(&args)?;
+    cmd.stdout(Stdio::piped()).stderr(Stdio::null()).stdin(Stdio::null());
+    let mut child = cmd.spawn().map_err(|e| format!("Could not start Roundtable: {e}"))?;
+    let out = child.stdout.take().ok_or("no output")?;
+    let pid = child.id();
+    let retries = state.retries.clone();
+    retries.lock().unwrap().push(child);
+    std::thread::spawn(move || {
+        for line in BufReader::new(out).lines().map_while(Result::ok) {
+            let Ok(mut v) = serde_json::from_str::<Value>(&line) else { continue };
+            match v["event"].as_str() {
+                Some("head_started") | Some("head_done") => {}
+                Some("run_done") => v = json!({"event": "retry_done", "head": head, "transcript": v["transcript"]}),
+                _ => continue,
+            }
+            let _ = app.emit("rt-event", RunEvent { run, data: v });
+        }
+        let mut list = retries.lock().unwrap();
+        if let Some(i) = list.iter().position(|c| c.id() == pid) {
+            let mut c = list.remove(i);
+            let _ = c.wait();
+        }
+    });
+    Ok(())
+}
+
 #[tauri::command]
 pub fn ask_stop(state: State<'_, AppState>) {
     if let Some((_, mut c)) = state.run.lock().unwrap().take() {
+        let _ = c.kill();
+        let _ = c.wait();
+    }
+    for mut c in state.retries.lock().unwrap().drain(..) {
         let _ = c.kill();
         let _ = c.wait();
     }
