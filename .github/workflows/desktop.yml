@@ -3,10 +3,10 @@ name: desktop
 
 on:
   pull_request:
-    paths: ["desktop/**", ".github/workflows/desktop*.yml", ".claude-plugin/**", "lib/**", "personas/**"]
+    paths: ["desktop/**", "docs/app/**", ".github/workflows/desktop*.yml", ".claude-plugin/**", "lib/**", "personas/**"]
   push:
     branches: [main]
-    paths: ["desktop/**", ".github/workflows/desktop*.yml", ".claude-plugin/**", "lib/**", "personas/**"]
+    paths: ["desktop/**", "docs/app/**", ".github/workflows/desktop*.yml", ".claude-plugin/**", "lib/**", "personas/**"]
 
 permissions:
   contents: read
