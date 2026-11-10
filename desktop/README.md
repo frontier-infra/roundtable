@@ -59,5 +59,5 @@ Release secrets (GitHub repository secrets, values in Bitwarden):
 
 Windows signing also needs two things outside this repo:
 
-1. A federated credential on the Entra app `titanium-gh-signing`: issuer `https://token.actions.githubusercontent.com`, subject `repo:frontier-infra/roundtable:environment:desktop-release`, audience `api://AzureADTokenExchange`.
+1. A federated credential on the Entra app `titanium-gh-signing`: issuer `https://token.actions.githubusercontent.com`, subject `repo:frontier-infra@276834721/roundtable@1272416852:environment:desktop-release` (the immutable, ID-based form; the repo's OIDC subject setting has `use_immutable_subject` on), audience `api://AzureADTokenExchange`.
 2. The repository variable `WINDOWS_SIGNING` set to `on`. Until then the Windows job builds an artifact named `roundtable-desktop-windows-UNSIGNED`, and a release tag fails at publish.

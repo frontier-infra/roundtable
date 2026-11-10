@@ -229,10 +229,11 @@ jobs:
     runs-on: blacksmith-4vcpu-windows-2025
     timeout-minutes: 90
     # The Entra app titanium-gh-signing trusts this repo through a federated
-    # credential with subject repo:frontier-infra/roundtable:environment:desktop-release.
-    # Until that credential exists, leave the repo variable WINDOWS_SIGNING unset:
-    # the job then builds an UNSIGNED installer, names its artifact so, and the
-    # publish job refuses to release it. Set WINDOWS_SIGNING=on once it exists.
+    # credential (roundtable-desktop-release) with the immutable subject
+    # repo:frontier-infra@276834721/roundtable@1272416852:environment:desktop-release.
+    # The repo's OIDC subject setting has use_immutable_subject on, as Support-Phone.
+    # With the repo variable WINDOWS_SIGNING unset, the job builds an UNSIGNED
+    # installer, names its artifact so, and the publish job refuses to release it.
     environment: desktop-release
     permissions:
       id-token: write
