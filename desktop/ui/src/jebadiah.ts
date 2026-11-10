@@ -69,9 +69,21 @@ export function modelPage(size: JebSize, appleSilicon: boolean): string {
   return `https://huggingface.co/${lmStudioId(size, appleSilicon)}`;
 }
 
-/** True for our builds only, never for the other account's models. */
+/** Namespaces that publish our Jebadiah. Same list as engine/src/decision/jebadiah-ids.json. */
+export const OUR_NAMESPACES = ["frontier-infra", "frontierinfra", "jbrashearfrontierinfra"];
+/** Hosts dropped before the namespace is read. */
+export const OUR_HOSTS = ["hf.co/", "huggingface.co/", "registry.ollama.ai/"];
+
+/** True for our builds only, never for the other account's models (the engine's `is_ours`). */
 export function isOurModel(id: string): boolean {
-  return /frontier-?infra\/jebadiah|jebadiah[-_:]v?\d*[-_.]?(4|9|27)b/i.test(id);
+  let low = id.trim().toLowerCase().split(":")[0];
+  const host = OUR_HOSTS.find((h) => low.startsWith(h));
+  if (host) low = low.slice(host.length);
+  const slash = low.indexOf("/");
+  if (slash < 0) return false;
+  const ns = low.slice(0, slash);
+  const name = low.slice(slash + 1);
+  return OUR_NAMESPACES.includes(ns) && (name === "jebadiah" || name.startsWith("jebadiah-"));
 }
 
 // ---- The view ----

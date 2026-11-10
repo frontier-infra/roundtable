@@ -45,14 +45,17 @@ pub struct Detection {
 const PROBE_TIMEOUT: Duration = Duration::from_millis(1200);
 
 /// Namespaces that publish our Jebadiah: Hugging Face and AINode, then the Ollama library.
-const OURS: &[&str] = &["frontier-infra", "frontierinfra", "jbrashearfrontierinfra"];
+/// The one list is `jebadiah-ids.json`; tests here and in the UI check against it.
+pub const OURS: &[&str] = &["frontier-infra", "frontierinfra", "jbrashearfrontierinfra"];
+/// Hosts dropped before the namespace is read.
+pub const HOSTS: &[&str] = &["hf.co/", "huggingface.co/", "registry.ollama.ai/"];
 
 /// True for our builds only. Hosts (`hf.co/`, `huggingface.co/`, `registry.ollama.ai/`)
 /// and an Ollama tag (`:9b`) are ignored; the namespace must be ours.
 pub fn is_ours(id: &str) -> bool {
     let low = id.trim().to_ascii_lowercase();
     let low = low.split(':').next().unwrap_or("");
-    let low = ["hf.co/", "huggingface.co/", "registry.ollama.ai/"].iter().find_map(|h| low.strip_prefix(h)).unwrap_or(low);
+    let low = HOSTS.iter().find_map(|h| low.strip_prefix(h)).unwrap_or(low);
     let Some((ns, name)) = low.split_once('/') else { return false };
     OURS.contains(&ns) && (name == "jebadiah" || name.starts_with("jebadiah-"))
 }
