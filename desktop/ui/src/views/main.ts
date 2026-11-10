@@ -665,7 +665,7 @@ function finalVerdict(app: App, run: RunView): HTMLElement {
           { class: "minority" },
           h("span", { class: "field-label", text: "Minority view" }),
           minority
-            ? h("p", null, h("span", { text: minority }), h("span", { class: "held-by", text: ` Held by ${heldBy ?? "a seat the chair did not name"}.` }))
+            ? h("p", null, h("span", { text: minority }), h("span", { class: "held-by", text: heldBy ? ` Held by ${heldBy}.` : " No seat held it; the chair gives it as the best case against." }))
             : h("p", { class: "muted", text: "None. Every seat backed the verdict." }),
         ),
     h(

@@ -172,7 +172,8 @@ def seat_rule(mode):
         return ("## LENGTH\nTake up to about %d words. Lead with your pick and how sure you are. Then reason it through: what each serious option "
                 "costs and buys, the risks that could hurt this person, the facts you do not have and how to find them out, and the steps in order." % SEAT_WORDS[mode])
     return ("## LENGTH\nKeep your answer to about %d words. Lead with your pick and how sure you are. Then give the main trade-off, "
-            "the risks that could hurt this person, and the facts you do not have that would change the pick." % SEAT_WORDS["quick"])
+            "the risks that could hurt this person, and the facts you do not have that would change the pick. "
+            "End with one line, CASE AGAINST: the strongest reason your pick could be wrong for this person." % SEAT_WORDS["quick"])
 
 
 def estimate_minutes(mode, rounds):
@@ -208,8 +209,9 @@ VERDICT_DEEP = ("Then write the full verdict under these bold headings, in this 
                 "**PLAN**: every step in order, numbered, each with who and by when, and the checkpoint that would make the person stop or switch.\n")
 VERDICT_DEEP_END = ("**THE MINORITY VIEW IN FULL**: the strongest case against the pick, argued fairly on its own terms, and what would have to be true for it to win.\n"
                     "Use the seats' own numbers and add no new facts. Take the room this needs, up to about 1,200 words. The decision lines come first: the person reads them first.\n")
-VERDICT_ENDING = ("Then end with exactly these two lines:\nMINORITY VIEW: <the strongest view that differs from the verdict, in one sentence, or \"None\">\n"
-                  "HELD BY: <the seats that held it, by their names above, or \"Nobody\">\n")
+VERDICT_ENDING = ("Then end with exactly these two lines:\nMINORITY VIEW: <the strongest case against the pick, in one or two sentences: what it says and when it would be the right call. "
+                  "Never \"None\": when every seat agreed, give the best case for the strongest other option>\n"
+                  "HELD BY: <the seats that held it, by their names above, or \"Nobody at the table\">\n")
 VERDICT_CORE = ("Lead with one decision. Start with exactly these lines:\nDECISION: <the pick, in one sentence>\nCONFIDENCE: <high, medium or low> (<0 to 100>%)\n"
                 "WOULD CHANGE IT: <the fact or event that would change the pick, in one sentence>\nNEXT STEPS:\n1. <the first concrete step, one the person can start today>\n"
                 "2. <the second step>\n3. <the third step>\n")

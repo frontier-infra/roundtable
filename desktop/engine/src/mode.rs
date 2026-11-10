@@ -58,7 +58,7 @@ impl Mode {
     pub fn seat_rule(self) -> String {
         match self {
             Mode::Quick => format!(
-                "## LENGTH\nKeep your answer to about {} words. Lead with your pick and how sure you are. Then give the main trade-off, the risks that could hurt this person, and the facts you do not have that would change the pick.",
+                "## LENGTH\nKeep your answer to about {} words. Lead with your pick and how sure you are. Then give the main trade-off, the risks that could hurt this person, and the facts you do not have that would change the pick. End with one line, CASE AGAINST: the strongest reason your pick could be wrong for this person.",
                 self.seat_words()
             ),
             Mode::Deep => format!(

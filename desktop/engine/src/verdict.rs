@@ -115,7 +115,7 @@ pub fn prompt(shape: Shape, mode: Mode, question: &str, brief: Option<&str>, att
 pub const DEEP: &str = "Then write the full verdict under these bold headings, in this order:\n**REASONING**: why the pick holds, grouped by theme; give each theme a short bold label and name the seats behind it.\n**TRADE-OFFS**: what each serious option costs and buys.\n**RISKS**: what could hurt this person, how likely it is, and how to blunt each one.\n**UNKNOWNS**: the facts nobody has, why each one matters, and how to find it out (who, how, by when).\n**PLAN**: every step in order, numbered, each with who and by when, and the checkpoint that would make the person stop or switch.\n";
 pub const DEEP_END: &str = "**THE MINORITY VIEW IN FULL**: the strongest case against the pick, argued fairly on its own terms, and what would have to be true for it to win.\nUse the seats' own numbers and add no new facts. Take the room this needs, up to about 1,200 words. The decision lines come first: the person reads them first.\n";
 /// Every verdict ends with the minority view in one line and who held it.
-pub const ENDING: &str = "Then end with exactly these two lines:\nMINORITY VIEW: <the strongest view that differs from the verdict, in one sentence, or \"None\">\nHELD BY: <the seats that held it, by their names above, or \"Nobody\">\n";
+pub const ENDING: &str = "Then end with exactly these two lines:\nMINORITY VIEW: <the strongest case against the pick, in one or two sentences: what it says and when it would be the right call. Never \"None\": when every seat agreed, give the best case for the strongest other option>\nHELD BY: <the seats that held it, by their names above, or \"Nobody at the table\">\n";
 
 /// The verdict a run gets: the shape asked for, or a decision on any table of two seats
 /// or more when none was asked for. `none` (or `off`) turns it off.
@@ -202,7 +202,7 @@ pub fn parts(text: &str) -> Parts {
         if let Some(v) = after(line, "MINORITY VIEW:") {
             p.minority = Some(v).filter(|v| !v.is_empty() && !v.trim_matches(['"', '.']).eq_ignore_ascii_case("none"));
         } else if let Some(v) = after(line, "HELD BY:") {
-            p.held_by = Some(v).filter(|v| !v.is_empty() && !v.trim_matches(['"', '.']).eq_ignore_ascii_case("nobody"));
+            p.held_by = Some(v).filter(|v| !v.is_empty() && !v.trim_matches(['"', '.']).to_ascii_lowercase().starts_with("nobody"));
         } else if let Some(v) = after(line, "CONFIDENCE:") {
             let low = v.to_ascii_lowercase();
             p.confidence = ["high", "medium", "low"].iter().find(|w| low.starts_with(**w)).map(|w| w.to_string());

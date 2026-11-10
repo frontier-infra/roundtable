@@ -97,7 +97,7 @@ export function splitFinalVerdict(text: string): { body: string; minority?: stri
     else if (hb) heldBy = hb[1].trim();
     else keep.push(line);
   }
-  const none = (v?: string) => (!v || /^["']?(none|nobody)["'.]?$/i.test(v) ? undefined : v);
+  const none = (v?: string) => (!v || /^["']?(none|nobody( at the table)?)["'.]?$/i.test(v) ? undefined : v);
   return { body: keep.join("\n").trim(), minority: none(minority), heldBy: none(heldBy) };
 }
 
