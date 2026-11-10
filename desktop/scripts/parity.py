@@ -33,6 +33,13 @@ echo "codex progress on stderr" >&2
 """
 
 
+# What both engines run codex with: no instructions, memory, servers, commands or web (see clis.rs).
+CODEX_FLAGS = ("answer from codex (flags: exec --ignore-user-config --skip-git-repo-check --ephemeral --ignore-rules -s read-only -c project_doc_max_bytes=0 "
+               + " ".join(f"-c features.{f}=false" for f in ("shell_tool", "code_mode_host", "memories", "apps", "plugins", "hooks", "browser_use", "computer_use",
+                                                            "in_app_browser", "multi_agent", "multi_agent_v2", "skill_search", "tool_suggest", "sleep_tool"))
+               + ' -c tools.web_search=false -c web_search="disabled")')
+
+
 def sha8(s):
     return hashlib.sha256(s.encode()).hexdigest()[:8]
 
@@ -52,6 +59,8 @@ def chair_reply(prompt):
     if "Every councilor will read your summary" in prompt:
         src = re.search(r"^SOURCE: (.*)$", prompt, re.M).group(1)
         return f"- the gist of {src} p:{sha8(prompt)}"
+    if "decide whether the person must answer questions first" in prompt:
+        return "Q: What is the workload?\nQ: How many users?" if "database" in prompt else "NONE"
     if "Write the final verdict" in prompt:
         return f"DECISION: Start the garden.\nCONFIDENCE: High (80%)\n**WHY**\n- p:{sha8(prompt)}\nMINORITY VIEW: Bake bread first.\nHELD BY: GLM"
     return "VERDICT: CONTINUE\n**AGREED**\n- Both are cheap.\n\n**REMAINING DISAGREEMENTS**\n- Which first."
@@ -82,8 +91,11 @@ class Fake(http.server.BaseHTTPRequestHandler):
         if "ANSWERS SO FAR" in prompt:
             text += " (saw earlier seats)"
         # The new prompt sections: both engines must send the very same prompt.
-        if "COUNCIL DELIBERATION" not in prompt and any(k in prompt for k in ("## BRIEF", "## ATTACHMENTS", "EARLIER IN THIS SESSION", "ANSWERS SO FAR")):
+        if "COUNCIL DELIBERATION" not in prompt and any(k in prompt for k in ("## BRIEF", "## ATTACHMENTS", "EARLIER IN THIS SESSION", "ANSWERS SO FAR", "## OPEN QUESTIONS")):
             text += f" p:{sha8(prompt)}"
+        # Round 2 with a chair: both engines send the very same deliberation prompt.
+        if "THE CHAIR'S READING OF ROUND" in prompt:
+            text += f" d:{sha8(prompt)}"
         if body["model"].startswith("MiniMax"):
             text = "<think>hidden</think>" + text
         self._send("application/json", json.dumps({"choices": [{"message": {"content": text}}]}).encode())
@@ -129,6 +141,7 @@ def rc7_cases(rust, url, base):
             ("brief+auto seats+vote, 2 rounds", True, {}, ["--heads", "openai,glm", "--rounds", "2", "--brief", brief, "--verdict", "vote", "--personas", "auto", "-q", "Raise prices?"]),
             ("auto seats by words, no chair", False, {}, ["--heads", "openai,glm", "--personas", "auto", "-q", "Should we raise prices? Budget and revenue matter."]),
             ("pros-cons and plan, no chair", False, {}, ["--heads", "openai,glm", "--rounds", "2", "--verdict", "plan", "-q", "Bread or garden?"]),
+            ("clarify first, default verdict, 2 rounds", True, {}, ["--heads", "openai,glm", "--rounds", "2", "-q", "Which database for our app?"]),
         ]
         for name, chair, extra, args in runs:
             env = {**env_for(home, url, chair), **extra}
@@ -142,6 +155,8 @@ def rc7_cases(rust, url, base):
                 checks = [("## Brief", "Keep churn under 2%."), ("Verdict (vote)", "HELD BY: GLM"), ("CFO", "as CFO"), ("CEO", "as CEO")]
             elif name.startswith("auto"):
                 checks = [("CFO", "as CFO")]
+            elif name.startswith("clarify"):
+                checks = [("Verdict (decision)", "p:"), ("OpenAI", "p:"), ("OpenAI", "d:"), ("Round 2", "")]
             else:
                 checks = [("Verdict (action plan)", "verdict unavailable")]
             for head, want in checks:
@@ -223,7 +238,7 @@ def main():
             b = subprocess.run([rust, "ask", "--no-history", *args], env=env, capture_output=True, text=True, timeout=120).stdout
         sa, sb = sections(a), sections(b)
         codex = [x for x in sa if "Codex" in x[0]]
-        if not personas and (not codex or "answer from codex (flags: exec --skip-git-repo-check -s read-only -c tools.web_search=false)" not in codex[0][1]):
+        if not personas and (not codex or CODEX_FLAGS not in codex[0][1]):
             ok = False
             print(f"parity {name}: FAIL, the codex CLI head did not answer through the fake CLI: {codex}")
         want_rounds = int(rounds) if rounds != "1" else 0

@@ -126,7 +126,7 @@ roundtable ask -q "And if a competitor cuts prices?" --follow-up /tmp/rt.md --pe
 `--heads grok,codex,openai,glm,minimax,claude,gemini` · `--rounds N` (1 to 4, deliberation) · `--personas SPEC` (seat roles, see `personas/README.md`) ·
 `--research` (web on, multi-step) · `--timeout <secs>` · `--out <file>` ·
 `--coach` (up to three clarifying questions, then a brief; `--coach-answer A` answers in order, `--brief FILE` brings your own) ·
-`--verdict decision|pros-cons|plan|vote` (the chair's final verdict, always naming the minority view and who held it) ·
+`--verdict decision|pros-cons|plan|vote|none` (on a table of two or more, a decision by default: the pick, its confidence, what would change it and three next steps lead the transcript, the seat answers fold under it, and it names the minority view and who held it) · `--no-clarify` (skip the missing-facts check: with no brief, the chair opens with two or three questions when the pick depends on facts you did not give) ·
 `--no-blind` (round 1 open; blind is the default) · `--attach <file, PDF or link>` (read once; long ones summarized once and shared) ·
 `--follow-up <transcript>` · `--personas auto` (suggested seats).
 

@@ -92,8 +92,13 @@ seat in round 1 read the seats before it.
 
 Flags: `-q/--question`, `-c/--context <file>`, `--heads grok,codex,openai,glm,minimax,claude,gemini`,
 `--rounds N` (1 to 4), `--personas <preset, pack, names or auto>`, `--research`, `--timeout <secs>`, `--out <file>`,
-`--coach`, `--coach-answer A`, `--coach-questions`, `--brief FILE`, `--verdict decision|pros-cons|plan|vote`,
-`--no-blind`, `--attach SRC`, `--follow-up FILE`.
+`--coach`, `--coach-answer A`, `--coach-questions`, `--brief FILE`, `--verdict decision|pros-cons|plan|vote|none`,
+`--no-clarify`, `--no-blind`, `--attach SRC`, `--follow-up FILE`.
+
+A table of two or more seats gets a decision verdict by default. It leads the transcript: `DECISION`,
+`CONFIDENCE`, `WOULD CHANGE IT`, three `NEXT STEPS`, then the minority view and who held it; the seat
+answers fold under it. With no brief, the chair first checks for missing key facts; when the pick
+depends on them, the verdict opens with `QUESTIONS FIRST`. Lead your answer with the verdict.
 
 **MCP tool arguments:** `question`, `heads`, `rounds`, `personas`, `research`, `coach`,
 `coach_answers`, `verdict`, `blind`, `attach`. With `coach: true` and no `coach_answers`, the

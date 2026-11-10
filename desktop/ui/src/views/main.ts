@@ -447,13 +447,49 @@ function results(app: App, run: RunView): HTMLElement {
     progress,
     run.stopped ? h("p", { class: "status bad", text: "Stopped." }) : null,
     run.done && !run.stopped && allFailed(run) ? h("p", { class: "status bad", role: "alert", text: firstFailure(run) }) : null,
+    run.clarify?.length && !run.verdict ? clarifyCard(run.clarify) : null,
     run.verdict ? finalVerdict(app, run) : null,
-    chairCard,
     decisionPanel(run.decision),
-    h("div", { class: "answers grid" }, run.heads.map((k) => answerCard(run.cards[k] ?? { head: k, seat: k, status: "waiting", text: "", round: 1 }, app, run))),
-    run.rounds > 1 && run.steps.length ? roundSteps(run) : null,
+    seatAnswers(run, [
+      chairCard,
+      h("div", { class: "answers grid" }, run.heads.map((k) => answerCard(run.cards[k] ?? { head: k, seat: k, status: "waiting", text: "", round: 1 }, app, run))),
+      run.rounds > 1 && run.steps.length ? roundSteps(run) : null,
+    ]),
     h("p", { class: "small muted", text: `At the table: ${run.heads.map((k) => seatName(run, k)).join(", ")}.${run.openFirstRound ? " Round 1 was open: each seat read the seats before it." : ""}` }),
     run.done && !run.stopped && !allFailed(run) ? followUpBox(app, run) : null,
+  );
+}
+
+/** The seat answers: open while the table answers, folded under the verdict once it lands. */
+export function seatAnswers(run: RunView, body: (HTMLElement | null)[]): HTMLElement {
+  if (!run.verdict) return h("div", { class: "seat-answers" }, body);
+  const n = run.heads.length;
+  const rounds = run.steps.length > 1 ? `, ${run.steps.length} rounds` : "";
+  const fold = h(
+    "details",
+    { class: "seat-answers seat-fold" },
+    h("summary", null, h("span", { class: "field-label", text: "The seat answers" }), h("span", { class: "small muted", text: `${n} seat${n === 1 ? "" : "s"}${rounds}. The verdict above sums them up.` })),
+    body,
+  );
+  // Stays open across redraws once the person opens it.
+  fold.open = openFold === run.question;
+  fold.addEventListener("toggle", () => {
+    openFold = fold.open ? run.question : openFold === run.question ? null : openFold;
+  });
+  return fold;
+}
+
+/** The question whose folded seat answers the person opened. */
+let openFold: string | null = null;
+
+/** The question lacked key facts: what the chair asks first, while the table answers. */
+function clarifyCard(questions: string[]): HTMLElement {
+  return h(
+    "section",
+    { class: "clarify-card", attrs: { "aria-label": "The chair asks first" } },
+    h("span", { class: "field-label", text: "The chair asks first" }),
+    h("ol", null, questions.map((q) => h("li", { text: q }))),
+    h("small", { class: "muted", text: "The table answers with these open. Answer them in a follow-up to sharpen the pick." }),
   );
 }
 

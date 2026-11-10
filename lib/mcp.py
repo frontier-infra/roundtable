@@ -108,9 +108,11 @@ TOOL = {
             },
             "verdict": {
                 "type": "string",
-                "enum": ["decision", "pros-cons", "plan", "vote"],
+                "enum": ["decision", "pros-cons", "plan", "vote", "none"],
                 "description": (
-                    "Optional. The chair's final verdict shape: a decision with confidence, pros and cons, an action plan, or a vote. Every verdict names the minority view and who held it."
+                    "Optional. The chair's final verdict shape: a decision (the default with two or more seats), pros and cons, an action plan, a vote, or none. "
+                    "Every verdict leads with the pick, its confidence, what would change it and three next steps, and names the minority view and who held it. "
+                    "It opens with QUESTIONS FIRST when the question lacks key facts."
                 ),
             },
             "blind": {

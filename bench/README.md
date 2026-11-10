@@ -21,7 +21,13 @@ twelve real decisions a small-business owner or technical lead faces.
    echo the runner's own agent setup into its answer.
 
 The Roundtable answer the judge reads is what a person reads at the end of a
-run: the last round's positions and the chair's last ruling.
+run. Since rc8 that is the verdict first, then the last round's seat answers,
+which the app folds under it. A build with no verdict gives the last round's
+positions and the chair's last ruling.
+
+`--tag b` writes a second run of the day as `results/<date>b.md`, and
+`--baseline <date>` adds a before and after table against that day's
+`summary.json`.
 
 ## Rubric
 
