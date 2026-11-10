@@ -41,7 +41,14 @@ test("one version source: Cargo.toml, stamped into Cargo.lock", () => {
   const stamped = writeVersion(toml, "9.8.7-rc.1");
   assert.equal(readVersion(stamped), "9.8.7-rc.1");
   assert.equal(stamped.replace("9.8.7-rc.1", v), toml, "only the version line changes");
+  // A Windows checkout has CRLF line ends: the file must survive whole.
+  const crlf = toml.replace(/\r?\n/g, "\r\n");
+  const stampedCrlf = writeVersion(crlf, "9.8.7-rc.1");
+  assert.equal(readVersion(stampedCrlf), "9.8.7-rc.1");
+  assert.equal(stampedCrlf.length, crlf.length + "9.8.7-rc.1".length - v.length);
+  assert.ok(!/\r(?!\n)/.test(stampedCrlf), "every CR is followed by a newline");
   const lock = readFileSync(here("../Cargo.lock"), "utf8");
+  assert.ok(writeLockVersion(lock.replace(/\n/g, "\r\n"), "9.8.7-rc.1").includes('name = "roundtable-engine"\r\nversion = "9.8.7-rc.1"'));
   for (const name of ["roundtable-engine", "roundtable-desktop"]) {
     assert.ok(lock.includes(`name = "${name}"\nversion = "${v}"`), `${name} in Cargo.lock is ${v}`);
     assert.ok(writeLockVersion(lock, "9.8.7-rc.1").includes(`name = "${name}"\nversion = "9.8.7-rc.1"`));
