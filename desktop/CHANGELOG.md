@@ -39,6 +39,7 @@ Each release adds a section here. The app, the GitHub release and roundtable.sh/
 - Grok no longer stops early with "max turns reached".
 - An AI that fails or runs out of time is asked once more, unless it is signed out or out of credit.
 - A slow network on Windows now shows as a time-out, not a connection error.
+- A thinking model from another provider that runs out of room is asked once more, with more room.
 - Every version now has its own number, so you can tell test builds apart.
 
 ## 0.1.1 - 2026-11-09
