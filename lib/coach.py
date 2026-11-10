@@ -190,7 +190,7 @@ def estimate_line(mode, rounds):
 
 
 SHAPE_JOB = {
-    "decision": "Then **TRADE-OFF**: one sentence on what the pick costs and what it buys. Then **RISKS**: at most two short bullets, the risks that could hurt this person.",
+    "decision": "Then **TRADE-OFFS**: one short bullet per serious option (at most three), what it costs and what it buys. Then **RISKS**: at most two short bullets, the risks that could hurt this person.",
     "pros-cons": "Then **PROS** and **CONS** of the pick: at most two short bullets each.",
     "plan": "Then **PLAN**: at most three more numbered steps (4 to 6), each with who and by when.",
     "vote": "Then **VOTES**: one bullet per seat, \"<seat name>: <the option it backs>\". Then \"RESULT: <option> wins <n> to <m>\", or \"RESULT: tie\".",

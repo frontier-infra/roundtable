@@ -49,7 +49,7 @@ impl Shape {
     /// What the shape adds after the decision core in a Quick verdict: a few short lines.
     fn quick_job(self) -> &'static str {
         match self {
-            Shape::Decision => "Then **TRADE-OFF**: one sentence on what the pick costs and what it buys. Then **RISKS**: at most two short bullets, the risks that could hurt this person.",
+            Shape::Decision => "Then **TRADE-OFFS**: one short bullet per serious option (at most three), what it costs and what it buys. Then **RISKS**: at most two short bullets, the risks that could hurt this person.",
             Shape::ProsCons => "Then **PROS** and **CONS** of the pick: at most two short bullets each.",
             Shape::Plan => "Then **PLAN**: at most three more numbered steps (4 to 6), each with who and by when.",
             Shape::Vote => "Then **VOTES**: one bullet per seat, \"<seat name>: <the option it backs>\". Then \"RESULT: <option> wins <n> to <m>\", or \"RESULT: tie\".",
@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn quick_is_short_and_deep_is_long() {
         let q = prompt(Shape::Decision, Mode::Quick, "Q", None, None, &[], &[]);
-        assert!(q.contains("under 200 words") && q.contains("**TRADE-OFF**") && !q.contains("**REASONING**"));
+        assert!(q.contains("under 200 words") && q.contains("**TRADE-OFFS**") && !q.contains("**REASONING**"));
         let d = prompt(Shape::Decision, Mode::Deep, "Q", None, None, &[], &[]);
         assert!(d.find("DECISION:").unwrap() < d.find("**REASONING**").unwrap(), "the decision comes first");
         for h in ["**TRADE-OFFS**", "**RISKS**", "**UNKNOWNS**", "**PLAN**", "**THE MINORITY VIEW IN FULL**", "MINORITY VIEW:", "HELD BY:"] {
