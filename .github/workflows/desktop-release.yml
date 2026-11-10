@@ -52,8 +52,10 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
           VERSION="${TAG#desktop-v}"
           BASE="${VERSION%%-*}"
-          CONF="$(node -p 'require("./desktop/core/tauri.conf.json").version')"
-          [ "$BASE" = "$CONF" ] || { echo "::error::tag $TAG does not match tauri.conf.json version $CONF"; exit 1; }
+          # tauri.conf.json has no version; Tauri takes it from the Cargo workspace.
+          CONF="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version *= *"\(.*\)"/\1/p' desktop/Cargo.toml)"
+          [ -n "$CONF" ] || { echo "::error::no version in desktop/Cargo.toml [workspace.package]"; exit 1; }
+          [ "$BASE" = "$CONF" ] || { echo "::error::tag $TAG does not match app version $CONF"; exit 1; }
           PRE=false
           if [ "$VERSION" != "$BASE" ]; then PRE=true; fi
           { echo "tag=$TAG"; echo "version=$VERSION"; echo "prerelease=$PRE"; } >> "$GITHUB_OUTPUT"
