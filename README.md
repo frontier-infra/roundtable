@@ -17,9 +17,56 @@ from the command line or any MCP-capable coding harness.
 
 </div>
 
+## Install
+
+### In Claude
+
+Paste these two lines into Claude Code:
+
+```text
+/plugin marketplace add frontier-infra/roundtable
+/plugin install roundtable@frontier-infra
+```
+
+That is all. The plugin brings the `roundtable` command, the Roundtable skill, and the
+`roundtable` MCP tool. Claude Code then asks for your API keys. Every key is optional, and
+any one key is enough to start. Run `/roundtable:setup` to see which models are ready.
+
+### Command line
+
+```bash
+uv tool install roundtable-sh
+```
+
+Other ways, one line each:
+
+```bash
+pipx install roundtable-sh
+pip install roundtable-sh
+uv tool install git+https://github.com/frontier-infra/roundtable   # works now, before the PyPI release
+pipx install git+https://github.com/frontier-infra/roundtable      # same, with pipx
+```
+
+The package is `roundtable-sh`. The command is `roundtable`. The PyPI package named
+`roundtable` is an unrelated project, so do not install it. Then run `roundtable auth` to
+add your keys.
+
+### Or run our installer
+
 ```bash
 curl -fsSL https://roundtable.sh/install.sh | bash
 ```
+
+What it does:
+
+- Checks that `bash`, `python3`, and `curl` are present.
+- Downloads Roundtable from this GitHub repository into `~/.local/share/roundtable`.
+- Links the `roundtable` command into `~/.local/bin`, and tells you if that folder is not
+  on your `PATH`.
+- Offers to run `roundtable auth` and `roundtable install`. Both are optional.
+
+It needs no `sudo` and changes nothing else. Read it first at
+https://roundtable.sh/install.sh.
 
 ---
 
@@ -37,7 +84,7 @@ Disagreement is signal, not noise.
 - **🗳️ Advisory** *(default)* — every head answers once, blind to the others. Raw, independent reads.
 - **⚖️ Deliberation** (`--rounds N`) — heads see each other and revise; a neutral chair rules `CONSENSUS` / `CONTINUE` and stops early on agreement.
 - **🔑 API keys are enough** — no local CLIs required. Missing heads are skipped; the council runs on whatever subset you've configured.
-- **📦 One binary, everywhere** — a CLI, an MCP server, and a one-command installer that wires itself into your coding harness.
+- **📦 One package, everywhere:** a Claude Code plugin, a CLI, and an MCP server from the same code.
 
 ## Example
 
@@ -51,23 +98,6 @@ $ roundtable "Reply with exactly: OK three words" --heads claude,gemini
 
 Add `--rounds 3` and the heads deliberate; a chair prints `VERDICT: CONSENSUS` (or
 `CONTINUE`) with the points they agreed on and any dissent named.
-
-## Install
-
-```bash
-curl -fsSL https://roundtable.sh/install.sh | bash
-```
-
-Or pick your package manager — all four deliver the same engine:
-
-```bash
-pip install roundtable
-uv tool install roundtable
-brew install frontier-infra/tap/roundtable
-```
-
-The installer places the engine under `${XDG_DATA_HOME:-~/.local/share}/roundtable`,
-symlinks `roundtable` into `~/.local/bin`, and prints a `PATH` hint if needed.
 
 ## Quickstart
 
@@ -117,6 +147,12 @@ roundtable mcp serve     # stdio JSON-RPC; one tool: roundtable(question, heads?
 roundtable mcp config    # prints the server JSON block to paste manually
 ```
 
+Add it to Claude Code with one line (needs the command line install):
+
+```bash
+claude mcp add --scope user roundtable -- roundtable mcp serve
+```
+
 Auto-wire detected harnesses (idempotent — backs up first, never clobbers):
 
 ```bash
@@ -134,25 +170,15 @@ Wires **Claude Code** (skill + MCP), **Cursor** (`~/.cursor/mcp.json`),
 
 ## Use in Claude Code
 
-Roundtable ships as a **Claude Code plugin** — a `roundtable` skill that drives the CLI.
-Two ways to add it:
+Install the plugin with the two lines under [In Claude](#in-claude). It adds:
 
-**A — Plugin marketplace** (inside Claude Code):
+- `/roundtable:ask <question>`: ask the council and get one decision back.
+- `/roundtable:setup`: see which models are ready and how to add keys.
+- The Roundtable skill, which Claude uses when you say "ask the council" or "get a second opinion".
+- The `roundtable` MCP tool and the `roundtable` command.
 
-```text
-/plugin marketplace add frontier-infra/roundtable
-/plugin install roundtable@roundtable
-```
-
-The skill calls the **globally-installed `roundtable` CLI**, so install that first:
-`curl -fsSL https://roundtable.sh/install.sh | bash`.
-
-**B — `roundtable install`** — auto-wires the skill **and** the MCP server into Claude
-Code (plus Cursor / Codex) in one step:
-
-```bash
-roundtable install
-```
+Already installed the command line version? `roundtable install` wires the skill and the MCP
+server into Claude Code, Cursor, and Codex instead.
 
 ## Commands
 
@@ -179,6 +205,25 @@ AI agent to install, configure, run, and wire Roundtable into its own harness.
 - **Website & docs** — https://roundtable.sh
 - **Source** — https://github.com/frontier-infra/roundtable
 - **Frontier Infra** — https://frontierinfra.org
+
+## Privacy, trademarks, and decision limits
+
+Roundtable runs locally and does not send prompts, credentials, or outputs to a
+Frontier Infra service. It sends each requested prompt and supplied context
+directly to the model providers or authenticated local CLIs that the user
+configures. Those requests are governed by the selected providers' terms,
+privacy policies, retention settings, and charges. Keep secrets and data you
+are not authorized to disclose out of council inputs.
+
+Roundtable output is advisory. Agreement among models is not proof that a
+recommendation is correct, safe, lawful, or suitable for a production change.
+Provider and product names identify compatible services only. Roundtable and
+Frontier Infra are independent and are not sponsored or endorsed by those
+providers. See [TRADEMARKS.md](./TRADEMARKS.md).
+
+Website policies: [Privacy](https://roundtable.sh/docs/privacy) ·
+[Terms](https://roundtable.sh/docs/terms) ·
+[Support](https://github.com/frontier-infra/roundtable/issues)
 
 ## License
 
