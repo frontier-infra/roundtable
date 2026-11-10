@@ -160,9 +160,10 @@ Three areas. The window opens at 1100 by 720 and works down to 800 by 600.
   - A search box on top. Right-click a row to delete it.
 - **Centre: Ask.**
   - A large question box: "What do you want to decide?"
-  - Two large choice buttons:
-    - **Quick answers**: each AI answers once, on its own. (Engine: `--rounds 1`.)
-    - **Talk it through**: they read each other and revise. Claude, as chair, says when they agree. Up to 3 rounds. (Engine: `--rounds 3`.)
+  - **Mode**, two choices (rc11):
+    - **Quick** (the default): each AI answers once, on its own, in about 250 words; the verdict card leads with a short decision (the pick, confidence, what would change it, three next steps, one minority view) in under 200 words. About 2 minutes. (Engine: `--mode quick`, one round.)
+    - **Deep Think**: the coach always runs first; up to 4 rounds that argue against the leading pick; answers up to about 800 words; a long verdict (the decision first, then the reasoning by theme, the trade-offs, the risks, the unknowns and how to resolve them, a step plan, the minority view in full). The hint says "Deep Think: about N minutes" before asking. (Engine: `--mode deep`, 4 rounds.)
+    - The coach suggests Deep Think when the brief is complex (several stakeholders, money or legal stakes, more than three options, missing facts). The person picks **Use Deep Think** or **Keep Quick**.
   - A switch: **Let them search the web** (engine `--research`). Off by default.
   - **Add a file** (optional): background the AIs should read (engine `--context`). Plain text in v1.
   - A line under the button: "This will ask 3 AIs, about 3 requests." It updates with the choices.

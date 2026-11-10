@@ -312,15 +312,22 @@ describe("screen 5, first roundtable", () => {
 describe("main screen", () => {
   it("updates the request count with the rounds and runs to a verdict", async () => {
     const { app } = await start({ keys: ["claude", "gemini", "openai"], onboarded: true }, { view: "main" });
-    // Two rounds by default.
-    expect(text()).toContain("This will ask 3 AIs, 2 rounds, at most 8 requests.");
-    root.querySelector<HTMLButtonElement>('[data-rounds="1"]')!.click();
+    // Quick by default: one round.
+    expect(text()).toContain("This will ask 3 AIs, about 3 requests.");
+    expect(root.querySelector('[data-depth="quick"]')?.getAttribute("aria-checked")).toBe("true");
+    // Deep Think says how long it takes before it asks.
+    root.querySelector<HTMLButtonElement>('[data-depth="deep"]')!.click();
+    await tick();
+    expect(root.querySelector('[data-depth="deep"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(text()).toContain("Deep Think: about 14 minutes.");
+    expect(text()).toContain("4 rounds, at most 16 requests");
+    root.querySelector<HTMLButtonElement>('[data-depth="quick"]')!.click();
     await tick();
     expect(text()).toContain("This will ask 3 AIs, about 3 requests.");
-    root.querySelector<HTMLButtonElement>('[data-rounds="3"]')!.click();
+    // Three rounds, as the CLI's --rounds 3 would run.
+    app.set({ ask: { ...app.state.ask, rounds: 3 } });
     await tick();
     expect(text()).toContain("at most 12 requests");
-    expect(root.querySelector('[data-rounds="3"]')?.getAttribute("aria-checked")).toBe("true");
     const q = root.querySelector<HTMLTextAreaElement>("textarea.question")!;
     q.value = "Garden or bread?";
     q.dispatchEvent(new Event("input"));

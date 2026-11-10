@@ -108,7 +108,7 @@ describe("brief, material and verdict text", () => {
 describe("Markdown export", () => {
   it("holds the brief, the seats (persona and AI), each round and the verdict with the minority", () => {
     const md = runMarkdown(sampleRun(), { date: null });
-    expect(md.startsWith("# Roundtable: Bread or garden?\n\n## Brief\n\n- **Goal:** Pick one.")).toBe(true);
+    expect(md.startsWith("# Roundtable: Bread or garden?\n\n**Mode:** Quick, up to 2 rounds\n\n## Brief\n\n- **Goal:** Pick one.")).toBe(true);
     expect(md).toContain("## Seats\n\n| Seat | Persona | AI |\n|---|---|---|\n| 1 | CFO | Claude |\n| 2 | Generic | Gemini |");
     expect(md).toContain("## Material every seat read\n\n- plan.pdf");
     expect(md).toContain("## Round 1: each seat answered on its own\n\n### CFO on Claude\n\nGarden: it pays off.");
@@ -163,7 +163,7 @@ describe("the question coach", () => {
     const brief = api.calls.find((c) => c.startsWith("brief:"))!;
     expect(brief).toContain("- **Constraints:** Under 50 dollars");
     expect(brief).toContain("- **Context:** Something that lasts About 50 dollars");
-    expect(api.calls.find((c) => c.startsWith("askStart:"))).toBe("askStart:claude,gemini:2:cfo@claude,head-of-product@gemini,customer-advocate@claude");
+    expect(api.calls.find((c) => c.startsWith("askStart:"))).toBe("askStart:claude,gemini:1:cfo@claude,head-of-product@gemini,customer-advocate@claude");
     expect(api.calls).toContain("verdict:decision");
     expect(app.state.run?.brief).toContain("Under 50 dollars");
     expect(text()).toContain("The brief");
@@ -177,7 +177,7 @@ describe("the question coach", () => {
     await click("My seats");
     await click("Ask the table");
     await tick(20);
-    expect(api.calls.find((c) => c.startsWith("askStart:"))).toBe("askStart:claude,gemini:2");
+    expect(api.calls.find((c) => c.startsWith("askStart:"))).toBe("askStart:claude,gemini:1");
   });
 
   it("can be skipped, or turned off, and says so when it cannot answer", async () => {
@@ -250,7 +250,7 @@ describe("verdicts", () => {
     app.state.ask = { ...app.state.ask, coach: false, verdict: "decision" };
     await app.askTable("Bread or garden?", null);
     await tick(30);
-    expect(root.querySelector(".final-verdict .state")?.textContent).toBe("Medium confidence");
+    expect(root.querySelector(".final-verdict .state.conf-medium")?.textContent).toBe("Medium confidence");
   });
 
   it("saves the shape as the next default", async () => {
@@ -289,7 +289,7 @@ describe("follow-ups and material", () => {
     await type(".follow-up textarea", "So which first?");
     await click("Ask");
     await tick(30);
-    expect(api.calls.filter((c) => c.startsWith("askStart:"))[2]).toBe("askStart:claude,gemini:2");
+    expect(api.calls.filter((c) => c.startsWith("askStart:"))[2]).toBe("askStart:claude,gemini:1");
     expect(app.state.session.length).toBe(2);
     await click("Export session");
     expect(app.state.toast).toBe("Session saved.");

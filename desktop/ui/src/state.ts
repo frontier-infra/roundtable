@@ -106,6 +106,8 @@ export interface RunView {
   prior?: string | null;
   attached?: string | null;
   mode: "quick" | "talk";
+  /** Quick or Deep Think, as the run was asked. */
+  depth?: Depth;
   research?: boolean;
   /** Background for a retry: a file path, or "follow-up". */
   context?: string | null;
@@ -163,6 +165,8 @@ export interface CoachView {
   suggesting: boolean;
   /** Use the suggested seats (true) or the ask box's Seats choice. */
   useSuggested: boolean;
+  /** The person answered the coach's Deep Think suggestion (took it or kept Quick). */
+  deepAnswered?: boolean;
   error?: string;
 }
 
@@ -256,7 +260,9 @@ export interface SeatPick {
 
 export interface AskBox {
   question: string;
-  /** 1 to 4. One round is independent answers; more rounds talk it through. */
+  /** Quick (the default) or Deep Think. Sets the rounds, the answer length and the verdict. */
+  depth: Depth;
+  /** 1 to 4: the mode's rounds (Quick 1, Deep Think up to 4). */
   rounds: number;
   research: boolean;
   contextPath: string | null;
@@ -327,7 +333,7 @@ export function initialState(): State {
     claude: { loading: true },
     firstQuestion: FIRST_QUESTION,
     run: null,
-    ask: { question: "", rounds: DEFAULT_ROUNDS, research: false, contextPath: null, contextText: null, contextName: null, seats: "", seatList: [], coach: true, verdict: "decision", attachments: [], attaching: false, link: "" },
+    ask: { question: "", depth: "quick", rounds: DEFAULT_ROUNDS, research: false, contextPath: null, contextText: null, contextName: null, seats: "", seatList: [], coach: true, verdict: "decision", attachments: [], attaching: false, link: "" },
     personas: null,
     personaEdit: null,
     history: [],
@@ -539,11 +545,48 @@ export function setupFailedMessage(attempts: number): string {
 
 // ---- Asking ----
 
-/** The Rounds control: 1 to 4, default 2. */
+/** Rounds: 1 to 4. Quick (the default) runs one; Deep Think up to four. */
 export const MAX_ROUNDS = 4;
-export const DEFAULT_ROUNDS = 2;
+export const DEFAULT_ROUNDS = 1;
 /** Kept for callers that still say "talk": two rounds. */
-export const TALK_ROUNDS = DEFAULT_ROUNDS;
+export const TALK_ROUNDS = 2;
+
+// ---- Quick and Deep Think ----
+
+export type Depth = "quick" | "deep";
+
+export const DEPTHS: { id: Depth; label: string }[] = [
+  { id: "quick", label: "Quick" },
+  { id: "deep", label: "Deep Think" },
+];
+
+/** The rounds each mode runs. */
+export const DEPTH_ROUNDS: Record<Depth, number> = { quick: 1, deep: MAX_ROUNDS };
+
+export function depthTitle(d: Depth | undefined): string {
+  return d === "deep" ? "Deep Think" : "Quick";
+}
+
+/** About how long a run takes, in whole minutes. Same numbers as the engine's `mode::estimate_minutes`. */
+export function estimateMinutes(depth: Depth, rounds = DEPTH_ROUNDS[depth]): number {
+  const r = Math.min(MAX_ROUNDS, Math.max(1, Math.round(rounds) || 1));
+  const [seat, verdict, coach] = depth === "deep" ? [140, 75, 45] : [75, 30, 0];
+  const chair = r > 1 ? r * 30 : 0;
+  return Math.max(1, Math.ceil((coach + r * seat + chair + verdict) / 60));
+}
+
+/** "Deep Think: about 14 minutes." Shown before a run asks. */
+export function depthLine(depth: Depth, rounds = DEPTH_ROUNDS[depth]): string {
+  const n = estimateMinutes(depth, rounds);
+  return `${depthTitle(depth)}: about ${n} minute${n === 1 ? "" : "s"}.`;
+}
+
+/** The words under the mode control. */
+export function depthHint(depth: Depth): string {
+  return depth === "deep"
+    ? `${depthLine(depth)} The coach first, up to ${DEPTH_ROUNDS.deep} rounds that argue against the leading pick, and a long verdict with the reasoning, risks, unknowns and a step plan.`
+    : `${depthLine(depth)} One round of short answers and a short verdict: the pick, how sure, what would change it, and three next steps.`;
+}
 
 export type Mode = "quick" | "talk";
 
@@ -737,6 +780,7 @@ export function applyEvent(run: RunView, e: EngineEvent): RunView {
   switch (e.event) {
     case "run_started":
       r.rounds = e.rounds;
+      if (e.depth) r.depth = e.depth;
       r.mode = e.rounds > 1 ? "talk" : "quick";
       if (e.seats?.length) {
         r.heads = e.seats.map((s) => s.seat);

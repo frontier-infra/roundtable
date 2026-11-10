@@ -124,6 +124,8 @@ mod tests {
     #[test]
     fn estimates() {
         assert_eq!(estimate_minutes(Mode::Quick, 1), 2);
+        assert_eq!(estimate_minutes(Mode::Deep, 4), 14, "the app shows the same (ui/src/state.ts)");
+        assert_eq!(estimate_minutes(Mode::Deep, 2), 8);
         assert!(estimate_minutes(Mode::Deep, 4) > estimate_minutes(Mode::Deep, 2));
         assert_eq!(estimate_line(Mode::Deep, 4), format!("Deep Think: about {} minutes.", estimate_minutes(Mode::Deep, 4)));
     }

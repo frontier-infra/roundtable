@@ -1162,7 +1162,8 @@ mod tests {
                         "Q: What is the workload?\nQ: How many users?".to_string()
                     } else if prompt.contains("Write the final verdict") {
                         let open = prompt.contains("OPEN QUESTIONS:\n- What is the workload?") && prompt.contains("QUESTIONS FIRST:");
-                        format!("QUESTIONS FIRST:\n1. What is the workload?\n2. How many users?\nDECISION: If reads dominate, Postgres. open={open}\nCONFIDENCE: medium (60%)\nWOULD CHANGE IT: Heavy writes.\nNEXT STEPS:\n1. Count queries.\n2. Price hosts.\n3. Pick.\n**WHY**\n- x\nMINORITY VIEW: Mongo.\nHELD BY: B")
+                        let deep = prompt.contains("**THE MINORITY VIEW IN FULL**");
+                        format!("QUESTIONS FIRST:\n1. What is the workload?\n2. How many users?\nDECISION: If reads dominate, Postgres. open={open} deep={deep}\nCONFIDENCE: medium (60%)\nWOULD CHANGE IT: Heavy writes.\nNEXT STEPS:\n1. Count queries.\n2. Price hosts.\n3. Pick.\n**WHY**\n- x\nMINORITY VIEW: Mongo.\nHELD BY: B")
                     } else {
                         "VERDICT: CONSENSUS\nLEADING PICK: Postgres.\n**DIFFERENCES**\n- A says 2 GB, B says 8 GB.".to_string()
                     };
@@ -1170,7 +1171,8 @@ mod tests {
                 } else {
                     let open = prompt.contains("## OPEN QUESTIONS\nThe chair would ask the person these first.");
                     let reading = prompt.contains("## THE CHAIR'S READING OF ROUND 1\nVERDICT: CONSENSUS");
-                    serde_json::json!({"choices": [{"message": {"content": format!("open={open} reading={reading}")}}]})
+                    let words = prompt.rsplit("## LENGTH\n").next().filter(|_| prompt.contains("## LENGTH\n")).and_then(|r| r.split("about ").nth(1)).and_then(|r| r.split(' ').next()).unwrap_or("none");
+                    serde_json::json!({"choices": [{"message": {"content": format!("open={open} reading={reading} words={words}")}}]})
                 }
                 .to_string();
                 let mut s = stream;
@@ -1234,6 +1236,78 @@ mod tests {
         let r = run(&solo, &k, &Settings::default(), &|_| {});
         std::env::remove_var("ROUNDTABLE_OPENAI_URL");
         assert!(r.transcript.contains("open=false") && !r.transcript.contains("<details>") && !r.transcript.contains("Verdict"), "{}", r.transcript);
+    }
+
+    fn clarifying_keys(base: &str) -> BTreeMap<String, String> {
+        std::env::set_var("ROUNDTABLE_OPENAI_URL", format!("{base}/v1/chat/completions"));
+        std::env::set_var("ROUNDTABLE_GLM_URL", format!("{base}/v1/chat/completions"));
+        std::env::set_var("ROUNDTABLE_ANTHROPIC_URL", format!("{base}/v1/messages"));
+        [("OPENAI_API_KEY".to_string(), "t".to_string()), ("ZAI_API_KEY".to_string(), "t".to_string()), ("ANTHROPIC_API_KEY".to_string(), "t".to_string())].into()
+    }
+
+    fn clear_urls() {
+        for k in ["ROUNDTABLE_OPENAI_URL", "ROUNDTABLE_GLM_URL", "ROUNDTABLE_ANTHROPIC_URL"] {
+            std::env::remove_var(k);
+        }
+    }
+
+    #[test]
+    fn quick_asks_the_chair_alongside_and_keeps_answers_short() {
+        let _env = crate::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        no_tools();
+        let base = clarifying_server();
+        let store = MemoryStore::default();
+        let k = Keys { store: &store, env: clarifying_keys(&base), file: BTreeMap::new() };
+        let opts = AskOptions {
+            question: "Which database?".into(),
+            heads: parse_heads("openai,glm").0,
+            rounds: 1,
+            timeout: Duration::from_secs(10),
+            verdict: Some(Shape::Decision),
+            clarify: true,
+            mode: Mode::Quick,
+            ..Default::default()
+        };
+        let events = Mutex::new(Vec::new());
+        let r = run(&opts, &k, &Settings::default(), &|e| events.lock().unwrap().push(serde_json::to_value(e).unwrap()));
+        clear_urls();
+        let t = &r.transcript;
+        assert!(t.starts_with("# \u{1fa91} Round Table - 2 heads - advisory - Quick\n"), "{t}");
+        // The seats did not wait for the open questions; the verdict read them, in the short shape.
+        assert!(t.contains("open=false reading=false words=250"), "{t}");
+        assert!(t.contains("DECISION: If reads dominate, Postgres. open=true deep=false"), "{t}");
+        let ev = events.lock().unwrap();
+        assert_eq!(ev[0]["event"], "run_started");
+        assert_eq!(ev[0]["depth"], "quick");
+        assert!(ev.iter().any(|e| e["event"] == "clarify"));
+        assert!(!ev.iter().any(|e| e["event"] == "chair_verdict"), "one round has no chair ruling");
+    }
+
+    #[test]
+    fn deep_think_asks_first_writes_long_and_deliberates() {
+        let _env = crate::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        no_tools();
+        let base = clarifying_server();
+        let store = MemoryStore::default();
+        let k = Keys { store: &store, env: clarifying_keys(&base), file: BTreeMap::new() };
+        let opts = AskOptions {
+            question: "Which database?".into(),
+            heads: parse_heads("openai,glm").0,
+            rounds: 2,
+            timeout: Duration::from_secs(10),
+            verdict: Some(Shape::Decision),
+            clarify: true,
+            mode: Mode::Deep,
+            ..Default::default()
+        };
+        let events = Mutex::new(Vec::new());
+        let r = run(&opts, &k, &Settings::default(), &|e| events.lock().unwrap().push(serde_json::to_value(e).unwrap()));
+        clear_urls();
+        let t = &r.transcript;
+        assert!(t.starts_with("# \u{1fa91} Round Table - 2 heads - deliberation (\u{2264}2 rounds) - Deep Think\n"), "{t}");
+        assert!(t.contains("open=true reading=false words=800") && t.contains("open=true reading=true words=800"), "{t}");
+        assert!(t.contains("DECISION: If reads dominate, Postgres. open=true deep=true"), "{t}");
+        assert_eq!(events.lock().unwrap()[0]["depth"], "deep");
     }
 
     #[test]

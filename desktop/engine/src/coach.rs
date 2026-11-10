@@ -458,4 +458,19 @@ mod tests {
         assert_eq!(s.why, "Money and direction.");
         assert!(parse_suggestion("I would pick finance people.", &lib).is_none());
     }
+    #[test]
+    fn the_brief_carries_a_deep_think_suggestion() {
+        let p = brief_prompt("Sign the vendor contract?", &[]);
+        assert!(p.contains("exactly five lines") && p.contains(DEEP_LINE));
+        let b = parse_brief("GOAL: Decide on the contract.\nGOOD ANSWER: A pick.\nDEEP THINK: yes: Legal stakes and four options.", "Q");
+        assert!(b.deep);
+        assert_eq!(b.deep_why, "Legal stakes and four options.");
+        assert_eq!(b.good_answer, "A pick.", "the Deep Think line never runs into the brief");
+        assert!(!b.to_markdown().contains("DEEP"));
+        let b = parse_brief("GOAL: g\n**DEEP THINK:** no, it is simple.", "Q");
+        assert!(!b.deep && b.deep_why.is_empty());
+        assert_eq!(parse_deep("GOAL: g"), (false, String::new()));
+        assert_eq!(parse_deep("- Deep-Think: YES, money is at stake"), (true, "money is at stake".to_string()));
+    }
+
 }

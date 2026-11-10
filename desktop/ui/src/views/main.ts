@@ -17,9 +17,11 @@ import {
   firstFailure,
   flagOnly,
   firstLine,
-  MAX_ROUNDS,
+  DEPTHS,
+  depthHint,
+  depthLine,
+  depthTitle,
   planSeats,
-  roundsHint,
   roundtables,
   seatInfos,
   shortDate,
@@ -280,11 +282,12 @@ function askBox(app: App): HTMLElement {
   const heads = tableHeads(s.settings, s.keys, app.cliHeads());
   const n = heads.length;
   const plan = planSeats(ask, heads, s.personas);
-  const est = h("p", { class: "estimate small muted", text: estimateLine(n, ask.rounds, plan.length) });
+  const est = h("p", { class: "estimate small muted", text: ask.depth === "deep" && n ? `${depthLine("deep", ask.rounds)} ${estimateLine(n, ask.rounds, plan.length)}` : estimateLine(n, ask.rounds, plan.length) });
   // The cost line, when a provider seat sits: published prices, free on this computer, else unknown.
   const costText = costLine(plan.map((p) => p.head), ask.rounds, s.providers.list);
   const cost = costText ? h("p", { class: "estimate cost small muted", attrs: { "data-cost": "" }, text: costText }) : null;
-  const go = button(ask.coach ? "Sharpen and ask" : "Ask the table", () => void app.startAsk(), "btn primary large", n === 0 || flagOnly(ask.question));
+  const deep = ask.depth === "deep";
+  const go = button(deep ? "Sharpen and think deeply" : ask.coach ? "Sharpen and ask" : "Ask the table", () => void app.startAsk(), "btn primary large", n === 0 || flagOnly(ask.question));
   const chairMissing = s.keys.claude.status !== "connected" && !app.cliHeads().includes("claude");
   return h(
     "div",
@@ -306,11 +309,13 @@ function askBox(app: App): HTMLElement {
         },
       },
     }),
-    h("div", { class: "ask-grid" }, h("div", { class: "ask-col" }, roundsControl(app), verdictControl(app)), seatsControl(app, heads, plan)),
+    h("div", { class: "ask-grid" }, h("div", { class: "ask-col" }, depthControl(app), verdictControl(app)), seatsControl(app, heads, plan)),
     h(
       "div",
       { class: "options" },
-      toggle("Sharpen my question first", ask.coach, (v) => app.set({ ask: { ...ask, coach: v } }), "One AI asks up to three questions and writes a brief."),
+      deep
+        ? lockedToggle("Sharpen my question first", "Deep Think always sharpens the question first.")
+        : toggle("Sharpen my question first", ask.coach, (v) => app.set({ ask: { ...ask, coach: v } }), "One AI asks up to three questions and writes a brief."),
       toggle("Let them search the web", ask.research, (v) => app.set({ ask: { ...ask, research: v } })),
     ),
     materialRow(app),
@@ -325,31 +330,40 @@ function askBox(app: App): HTMLElement {
       ),
       h("div", { class: "actions" }, n === 0 ? button("Open Settings", () => void app.openSettings(), "btn") : null, go),
     ),
-    ask.rounds > 1 && chairMissing ? h("p", { class: "small muted", text: "Two or more rounds work best with Claude connected, because Claude is the chair." }) : null,
+    ask.rounds > 1 && chairMissing ? h("p", { class: "small muted", text: "Deep Think works best with Claude connected, because Claude is the chair." }) : null,
   );
 }
 
-/** Rounds: 1 to 4. One round is independent answers; more rounds talk it through. */
-function roundsControl(app: App): HTMLElement {
+/** A switch that is on and cannot be turned off here, with the reason. */
+function lockedToggle(label: string, why: string): HTMLElement {
+  const t = toggle(label, true, () => undefined, why);
+  t.classList.add("locked");
+  const input = t.querySelector("input");
+  if (input) input.disabled = true;
+  return t;
+}
+
+/** Quick (the default) or Deep Think. Deep Think says how long it takes before it asks. */
+function depthControl(app: App): HTMLElement {
   const ask = app.state.ask;
   return h(
     "div",
     { class: "ask-field" },
-    h("span", { class: "field-label", attrs: { id: "rounds-label" }, text: "Rounds" }),
+    h("span", { class: "field-label", attrs: { id: "depth-label" }, text: "Mode" }),
     h(
       "div",
-      { class: "seg", role: "radiogroup", attrs: { "aria-labelledby": "rounds-label" } },
-      Array.from({ length: MAX_ROUNDS }, (_, i) => i + 1).map((r) =>
+      { class: "seg choice-seg depth-seg", role: "radiogroup", attrs: { "aria-labelledby": "depth-label" } },
+      DEPTHS.map((d) =>
         h("button", {
           type: "button",
-          class: `seg-btn${ask.rounds === r ? " on" : ""}`,
-          text: String(r),
-          attrs: { role: "radio", "aria-checked": String(ask.rounds === r), "data-rounds": String(r), "aria-label": `${r} round${r === 1 ? "" : "s"}` },
-          on: { click: () => app.set({ ask: { ...ask, rounds: r } }) },
+          class: `seg-btn wide${ask.depth === d.id ? " on" : ""}`,
+          text: d.label,
+          attrs: { role: "radio", "aria-checked": String(ask.depth === d.id), "data-depth": d.id },
+          on: { click: () => app.setDepth(d.id) },
         }),
       ),
     ),
-    h("small", { class: "muted field-hint", text: roundsHint(ask.rounds) }),
+    h("small", { class: "muted field-hint", attrs: { "data-depth-hint": "" }, text: depthHint(ask.depth) }),
   );
 }
 
@@ -547,7 +561,7 @@ function results(app: App, run: RunView): HTMLElement {
       : null;
   const waitingVerdict = run.verdictShape && !run.verdict && !run.done && Object.values(run.cards).every((c) => c.status !== "thinking" && c.status !== "waiting") && run.round >= 1;
   const progress = !run.done
-    ? h("p", { class: "muted", role: "status", text: waitingVerdict ? `The chair is writing the verdict (${verdictTitle(run.verdictShape!).toLowerCase()})...` : run.rounds > 1 ? `Round ${run.round} of up to ${run.rounds}...` : "Asking the table..." })
+    ? h("p", { class: "muted", role: "status", text: `${run.depth === "deep" ? "Deep Think. " : ""}${waitingVerdict ? `The chair is writing the ${run.depth === "deep" ? "full " : ""}verdict (${verdictTitle(run.verdictShape!).toLowerCase()})...` : run.rounds > 1 ? `Round ${run.round} of up to ${run.rounds}...` : "Asking the table..."}` })
     : null;
   const turns = app.state.session;
   return h(
@@ -639,6 +653,7 @@ function finalVerdict(app: App, run: RunView): HTMLElement {
       "div",
       { class: "fv-head" },
       h("p", { class: "verdict-by fv-by" }, headLogo("claude", "sm"), h("span", { text: "Claude, as chair, final verdict" })),
+      h("span", { class: `state depth-tag${run.depth === "deep" ? " deep" : ""}`, attrs: { "data-depth": run.depth ?? "quick" }, text: depthTitle(run.depth) }),
       conf ? h("span", { class: `state conf-${conf}`, text: `${conf[0].toUpperCase()}${conf.slice(1)} confidence` }) : null,
     ),
     h("h2", { text: verdictTitle(v.shape) }),
