@@ -1,0 +1,16 @@
+[workspace]
+members = ["engine", "core"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/frontier-infra/roundtable"
+authors = ["Frontier Infra"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

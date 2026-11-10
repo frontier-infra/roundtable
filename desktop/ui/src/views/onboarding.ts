@@ -1,0 +1,370 @@
+// The five first-run screens (spec section 4).
+
+import type { App } from "../app";
+import type { HeadId } from "../api";
+import { button, h } from "../dom";
+import { PROVIDERS, CLAUDE_DOWNLOAD_URL, ISSUES_URL, type Provider } from "../providers";
+import {
+  allFailed,
+  canContinue,
+  canSkip,
+  cardStatusText,
+  firstFailure,
+  helpUrl,
+  looksLikeKey,
+  setupFailedMessage,
+  STEPS,
+  type HeadCard,
+} from "../state";
+import { renderMarkdown } from "../markdown";
+import { providerName } from "../providers";
+
+export function renderOnboarding(app: App): HTMLElement {
+  const s = app.state;
+  const screen =
+    s.step === 1 ? welcome(app) : s.step === 2 ? setup(app) : s.step === 3 ? keys(app) : s.step === 4 ? claude(app) : firstRun(app);
+  return h(
+    "main",
+    { class: "onboarding", attrs: { "data-step": String(s.step) } },
+    h("div", { class: "brand" }, logo(), h("span", { text: "Roundtable" })),
+    h("section", { class: "card screen" }, screen),
+    footer(app),
+  );
+}
+
+export function logo(): HTMLElement {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 64 64");
+  svg.setAttribute("class", "logo");
+  svg.setAttribute("aria-hidden", "true");
+  const add = (tag: string, attrs: Record<string, string>) => {
+    const e = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    svg.appendChild(e);
+  };
+  add("rect", { x: "2", y: "2", width: "60", height: "60", rx: "14", fill: "var(--brand)" });
+  add("circle", { cx: "32", cy: "32", r: "12", fill: "var(--brand-ink)" });
+  for (const [x, y] of [[32, 13], [50, 26], [43, 47], [21, 47], [14, 26]]) add("circle", { cx: String(x), cy: String(y), r: "4", fill: "var(--gold)" });
+  return svg as unknown as HTMLElement;
+}
+
+function dots(step: number): HTMLElement {
+  return h(
+    "div",
+    { class: "progress", attrs: { "aria-label": `Step ${step} of ${STEPS}` } },
+    h("div", { class: "dots" }, Array.from({ length: STEPS }, (_, i) => h("span", { class: i + 1 <= step ? "dot on" : "dot" }))),
+    h("span", { class: "step-label", text: `Step ${step} of ${STEPS}` }),
+  );
+}
+
+function footer(app: App): HTMLElement {
+  const s = app.state;
+  if (s.step === 1) return h("footer", { class: "nav" });
+  const right: HTMLElement[] = [];
+  if (canSkip(s.step) && s.step < 5) right.push(button("Skip for now", () => app.goNext(), "btn ghost"));
+  if (s.step === 5) right.push(button("Skip for now", () => void app.finishOnboarding(), "btn ghost"));
+  if (s.step < 5) right.push(button("Continue", () => app.goNext(), "btn primary", !canContinue(s)));
+  return h(
+    "footer",
+    { class: "nav" },
+    button("Back", () => app.goBack(), "btn ghost", !!(s.run && !s.run.done)),
+    dots(s.step),
+    h("div", { class: "nav-right" }, right),
+  );
+}
+
+// ---- Screen 1 ----
+
+function welcome(app: App): HTMLElement[] {
+  return [
+    h("h1", { text: "Ask several AIs at once. Get one clear answer." }),
+    h(
+      "ul",
+      { class: "plain big" },
+      h("li", { text: "Roundtable asks Claude, ChatGPT, Gemini and others the same question." }),
+      h("li", { text: "You see each answer, side by side." }),
+      h("li", { text: "Everything runs on this computer, with your own accounts." }),
+    ),
+    h("p", { class: "small muted", text: "Each AI company charges your account for the answers. Roundtable itself is free." }),
+    h("div", { class: "actions" }, button("Get started", () => app.goNext(), "btn primary large")),
+  ];
+}
+
+// ---- Screen 2 ----
+
+const TICKS = ["Putting Roundtable in place", "Checking it runs", "Ready"];
+
+function setup(app: App): HTMLElement[] {
+  const st = app.state.setup;
+  const out: HTMLElement[] = [
+    h("h1", { text: "Set up Roundtable" }),
+    h("p", { class: "lead", text: "This takes a few seconds. You do not need to install anything else." }),
+  ];
+  if (st.status !== "idle") {
+    out.push(
+      h(
+        "ol",
+        { class: "ticks" },
+        TICKS.map((t, i) => {
+          const done = i < st.ticks;
+          const failed = st.status === "failed" && i === st.ticks;
+          const working = st.status === "working" && i === st.ticks;
+          return h(
+            "li",
+            { class: done ? "done" : failed ? "failed" : working ? "working" : "" },
+            h("span", { class: "tick", attrs: { "aria-hidden": "true" }, text: done ? "✓" : failed ? "!" : "" }),
+            h("span", { text: t }),
+          );
+        }),
+      ),
+    );
+  }
+  if (st.status === "idle") out.push(h("div", { class: "actions" }, button("Set up", () => void app.runSetup(), "btn primary large")));
+  if (st.status === "working") out.push(h("div", { class: "actions" }, button("Setting up...", () => {}, "btn primary large", true)));
+  if (st.status === "done") out.push(h("p", { class: "ok-line", text: "All set. Click Continue." }));
+  if (st.status === "failed") {
+    out.push(
+      h("p", { class: "error-line", role: "alert", text: setupFailedMessage(st.attempts) }),
+      h(
+        "div",
+        { class: "actions" },
+        button("Try again", () => void app.runSetup(), "btn primary"),
+        button("Get help", () => void app.api.openUrl(helpUrl(ISSUES_URL, st.error?.code, app.state.os, app.state.version)), "btn"),
+      ),
+      h("p", { class: "small muted", text: `Error code: ${st.error?.code ?? "E_UNKNOWN"}` }),
+    );
+  }
+  return out;
+}
+
+// ---- Screen 3 ----
+
+export function keyCard(app: App, p: Provider, opts: { removable?: boolean } = {}): HTMLElement {
+  const card = app.state.keys[p.id];
+  let draft = "";
+  const input = h("input", {
+    type: "password",
+    class: "key-input",
+    placeholder: "Paste your key here",
+    attrs: { "aria-label": `${p.name} key`, autocomplete: "off", spellcheck: "false" },
+    disabled: card.status === "checking",
+    on: {
+      input: (e) => {
+        draft = (e.target as HTMLInputElement).value;
+        save.disabled = !looksLikeKey(draft);
+      },
+      // Check at once when a key is pasted.
+      paste: () =>
+        setTimeout(() => {
+          draft = input.value;
+          if (looksLikeKey(draft)) void app.saveKey(p.id, draft);
+        }, 0),
+      keydown: (e) => {
+        if (e.key === "Enter" && looksLikeKey(draft)) void app.saveKey(p.id, draft);
+      },
+    },
+  });
+  const save = button("Check and save", () => void app.saveKey(p.id, draft), "btn small", true);
+  const connected = card.status === "connected";
+  const status =
+    card.status === "checking"
+      ? h("p", { class: "status checking", role: "status", text: "Checking your key..." })
+      : card.status === "connected"
+        ? h("p", { class: "status ok", role: "status", text: card.message ?? "Connected." })
+        : card.status === "error"
+          ? h("p", { class: "status bad", role: "alert", text: card.message ?? "That key did not work." })
+          : null;
+  return h(
+    "div",
+    { class: `ai-card${connected ? " connected" : ""}`, attrs: { "data-head": p.id } },
+    h(
+      "div",
+      { class: "ai-head" },
+      h("div", null, h("strong", { text: p.name }), h("span", { class: "muted", text: ` by ${p.company}` })),
+      connected ? h("span", { class: "pill ok", text: "Connected" }) : null,
+    ),
+    p.tag ? h("p", { class: "tag", text: p.tag }) : null,
+    connected
+      ? h(
+          "div",
+          { class: "row" },
+          button("Replace key", () => {
+            app.state.keys = { ...app.state.keys, [p.id]: { status: "empty" } };
+            app.render();
+          }, "btn small"),
+          opts.removable ? button("Remove", () => void app.removeKey(p.id), "btn small ghost") : null,
+        )
+      : h("div", { class: "row" }, input, save),
+    status,
+    connected
+      ? null
+      : h(
+          "p",
+          { class: "how small muted" },
+          h("a", {
+            href: "#",
+            text: "Where do I get a key?",
+            on: {
+              click: (e) => {
+                e.preventDefault();
+                void app.api.openUrl(p.keyPage);
+              },
+            },
+          }),
+          " Sign in. Click Create key. Copy it and paste it here.",
+        ),
+  );
+}
+
+function keys(app: App): HTMLElement[] {
+  const s = app.state;
+  const primary = PROVIDERS.filter((p) => p.primary);
+  const more = PROVIDERS.filter((p) => !p.primary);
+  const moreConnected = more.filter((p) => s.keys[p.id].status === "connected").length;
+  const out: (HTMLElement | null)[] = [
+    h("h1", { text: "Connect at least one AI" }),
+    h("p", { class: "lead", text: "Two or more make a real roundtable. You can add more later." }),
+    h("div", { class: "cards" }, primary.map((p) => keyCard(app, p))),
+    h(
+      "button",
+      {
+        class: "more-toggle",
+        type: "button",
+        attrs: { "aria-expanded": String(s.moreOpen) },
+        on: { click: () => app.set({ moreOpen: !s.moreOpen }) },
+      },
+      h("span", { text: s.moreOpen ? "▾ " : "▸ " }),
+      h("span", { text: `More AIs${moreConnected ? ` (${moreConnected} connected)` : ""}` }),
+    ),
+    s.moreOpen ? h("div", { class: "cards" }, more.map((p) => keyCard(app, p))) : null,
+    h("p", { class: "small muted", text: "A Claude or ChatGPT chat plan is not an API key. Use the link to get a key." }),
+  ];
+  return out.filter((x): x is HTMLElement => !!x);
+}
+
+// ---- Screen 4 ----
+
+export function claudeConnect(app: App, inSettings = false): HTMLElement[] {
+  const c = app.state.claude;
+  if (c.loading) return [h("p", { class: "muted", role: "status", text: "Looking for Claude on this computer..." })];
+  const out: HTMLElement[] = [];
+  if (c.app_found) {
+    out.push(
+      h(
+        "div",
+        { class: `connect-row${c.app_connected ? " done" : ""}`, attrs: { "data-target": "app" } },
+        h("div", null, h("strong", { text: "Claude app found." }), c.appMessage ? h("p", { class: "status ok", text: c.appMessage }) : c.app_connected ? h("p", { class: "status ok", text: "Connected." }) : null),
+        c.app_connected
+          ? h("span", { class: "check", text: "✓", attrs: { "aria-label": "Connected" } })
+          : button(c.busy === "app" ? "Connecting..." : "Connect to the Claude app", () => void app.connectClaude("app"), "btn primary", !!c.busy),
+      ),
+    );
+  }
+  if (c.code_found) {
+    out.push(
+      h(
+        "div",
+        { class: `connect-row${c.code_connected ? " done" : ""}`, attrs: { "data-target": "code" } },
+        h("div", null, h("strong", { text: "Claude Code found." }), c.codeMessage ? h("p", { class: "status ok", text: c.codeMessage }) : c.code_connected ? h("p", { class: "status ok", text: "Connected." }) : null),
+        c.code_connected
+          ? h("span", { class: "check", text: "✓", attrs: { "aria-label": "Connected" } })
+          : button(c.busy === "code" ? "Connecting..." : "Connect to Claude Code", () => void app.connectClaude("code"), "btn primary", !!c.busy),
+      ),
+    );
+  }
+  if (c.plugin_ids && c.plugin_ids.length) {
+    out.push(
+      h(
+        "div",
+        { class: "notice" },
+        h("p", { text: "The Roundtable plugin is also installed in Claude Code. Claude would see two Roundtable tools." }),
+        button(c.busy === "plugin" ? "Working..." : "Use the app's engine instead", () => void app.connectClaude("plugin"), "btn small", !!c.busy),
+      ),
+    );
+  }
+  if (c.pluginMessage) out.push(h("p", { class: "status ok", text: c.pluginMessage }));
+  if (!c.app_found && !c.code_found) {
+    out.push(
+      h(
+        "div",
+        { class: "notice" },
+        h("p", null, "Claude is not on this computer yet. ", h("a", { href: "#", text: "Download Claude", on: { click: (e) => { e.preventDefault(); void app.api.openUrl(CLAUDE_DOWNLOAD_URL); } } })),
+      ),
+    );
+  }
+  if (!c.code_found) {
+    const lines = (c.plugin_lines ?? ["", ""]).join("\n");
+    out.push(
+      h("p", { class: "small", text: "Using Claude Code somewhere else? Paste these two lines into Claude Code:" }),
+      h(
+        "div",
+        { class: "copy-box" },
+        h("pre", { text: lines }),
+        button("Copy", () => void app.api.copyText(lines).then(() => app.showToast("Copied.")), "btn small"),
+      ),
+    );
+  }
+  if (c.error) out.push(h("p", { class: "status bad", role: "alert", text: c.error }));
+  if (inSettings && (c.app_connected || c.code_connected)) {
+    out.push(h("div", { class: "actions left" }, button("Disconnect", () => void app.disconnectClaude(), "btn ghost danger")));
+  }
+  return out;
+}
+
+function claude(app: App): HTMLElement[] {
+  return [
+    h("h1", { text: "Use Roundtable from inside Claude" }),
+    h("p", { class: "lead", text: "Then you can tell Claude “ask the roundtable”, and it will." }),
+    h("div", { class: "stack" }, claudeConnect(app)),
+  ];
+}
+
+// ---- Screen 5 ----
+
+export function answerCard(c: HeadCard): HTMLElement {
+  return h(
+    "article",
+    { class: `answer ${c.status}`, attrs: { "data-head": c.head } },
+    h("header", null, h("strong", { text: providerName(c.head) }), h("span", { class: `pill ${c.status}`, text: cardStatusText(c) })),
+    c.text ? renderMarkdown(c.text.replace(/^\s*\**POSITION:\**\s*/i, "")) : c.status === "thinking" || c.status === "waiting" ? h("div", { class: "shimmer", attrs: { "aria-hidden": "true" } }) : h("p", { class: "muted", text: c.message ?? "" }),
+  );
+}
+
+function firstRun(app: App): HTMLElement[] {
+  const s = app.state;
+  const run = s.run;
+  const out: (HTMLElement | null)[] = [h("h1", { text: "Try it now" })];
+  if (!run) {
+    let q = s.firstQuestion;
+    out.push(
+      h("p", { class: "lead", text: "Change the question if you like." }),
+      h("textarea", {
+        class: "question",
+        rows: 3,
+        value: q,
+        attrs: { "aria-label": "Your question" },
+        on: { input: (e) => (q = s.firstQuestion = (e.target as HTMLTextAreaElement).value) },
+      }),
+      h("div", { class: "actions" }, button("Ask the table", () => void app.ask(q, "quick", false), "btn primary large", app.connectedCount() === 0)),
+      app.connectedCount() === 0 ? h("p", { class: "status bad", text: "Connect an AI first. Click Back." }) : null,
+    );
+    return out.filter((x): x is HTMLElement => !!x);
+  }
+  out.push(h("p", { class: "lead", text: run.question }));
+  out.push(h("div", { class: "answers" }, run.heads.map((hd) => answerCard(run.cards[hd]))));
+  if (run.done && allFailed(run)) {
+    out.push(
+      h("p", { class: "status bad", role: "alert", text: firstFailure(run) }),
+      h("div", { class: "actions" }, button("Back to keys", () => app.set({ step: 3, run: null }), "btn primary")),
+    );
+  } else if (run.done) {
+    out.push(
+      h("p", { class: "ok-line big", text: "That's it. You're set up." }),
+      h("div", { class: "actions" }, button("Open Roundtable", () => void app.finishOnboarding(), "btn primary large")),
+    );
+  }
+  return out.filter((x): x is HTMLElement => !!x);
+}
+
+export type { HeadId };

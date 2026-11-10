@@ -1,6 +1,6 @@
 # Roundtable Desktop: spec
 
-Status: design, step 1. No app code yet.
+Status: built in step 2 on this branch. `desktop/README.md` says how to build and test it.
 Branch: `feat/desktop-app` in `frontier-infra/roundtable`. Everything lives under `desktop/`.
 Stack: Tauri 2, Rust core, TypeScript UI (tauri-standard).
 
@@ -219,7 +219,7 @@ Each is reversible. Each lists the options, the pick, the reason and the undo st
 
 ### D5. Versioning
 
-- The app starts at 0.1.0 and climbs the patch digit to 99 (Jason's rule). Tags: `desktop-v0.1.N`.
+- The app starts at 0.1.1, the same number as the CLI release, and climbs the patch digit to 99 (Jason's rule). Tags: `desktop-v0.1.N`.
 - The engine binary reports the same version as the app it ships in.
 - CLI tags (`v0.1.N`) and desktop tags never share a release.
 
@@ -227,11 +227,11 @@ Each is reversible. Each lists the options, the pick, the reason and the undo st
 
 ### 7.1 Setting up the engine (screen 2)
 
-The engine ships inside the app as a Tauri sidecar (`externalBin`). The **Set up** button:
+The engine ships inside the app as a Tauri sidecar (`externalBin`) named `roundtable-engine`. The **Set up** button:
 
 1. Copies the engine to a stable per-user place, so Claude's config survives if the app moves:
-   - Mac: `~/Library/Application Support/sh.roundtable.desktop/engine/roundtable`
-   - Windows: `%LOCALAPPDATA%\sh.roundtable.desktop\engine\roundtable.exe`
+   - Mac: `~/Library/Application Support/sh.roundtable.app/engine/roundtable`
+   - Windows: `%LOCALAPPDATA%\sh.roundtable.app\engine\roundtable.exe`
 2. Runs `roundtable version --json` and checks it matches the app.
 3. Runs `roundtable mcp selftest` (initialize and tools/list, no network).
 4. Writes nothing else. No PATH change unless the person turns on "Use Roundtable in Terminal too".
@@ -259,8 +259,8 @@ The Rust engine keeps them, but the app hides them.
 ### 7.3 History
 
 - Each finished roundtable writes one Markdown transcript and one small JSON index row.
-  - Mac: `~/Library/Application Support/sh.roundtable.desktop/history/`
-  - Windows: `%APPDATA%\sh.roundtable.desktop\history\`
+  - Mac: `~/Library/Application Support/sh.roundtable.app/history/`
+  - Windows: `%APPDATA%\sh.roundtable.app\history\`
 - Runs that Claude starts through MCP write there too, marked `source: "claude"`.
 - So the person can see and reopen what Claude asked.
 - Nothing leaves the computer. The Settings switch turns writing off. **Delete all history** removes the folder.
@@ -288,7 +288,7 @@ The Rust engine keeps them, but the app hides them.
 | Key store | Login Keychain | Credential Manager |
 | Claude app config | `~/Library/Application Support/Claude/claude_desktop_config.json` | `%APPDATA%\Claude\claude_desktop_config.json`; also check the Microsoft Store package path |
 | Claude Code detection | `claude` on PATH, `~/.local/bin/claude`, or `~/.claude.json` | `claude.exe` on PATH or `%USERPROFILE%\.claude.json` |
-| Engine location | `~/Library/Application Support/sh.roundtable.desktop/engine/` | `%LOCALAPPDATA%\sh.roundtable.desktop\engine\` |
+| Engine location | `~/Library/Application Support/sh.roundtable.app/engine/` | `%LOCALAPPDATA%\sh.roundtable.app\engine\` |
 | Terminal command (opt-in) | Symlink in `~/.local/bin`, only if no `roundtable` is there already | Adds the engine folder to the user PATH |
 | First open | Gatekeeper passes, because it is notarized | SmartScreen may warn until the signature builds reputation. A help line covers "More info, Run anyway". |
 | Window | Native traffic lights and menu bar | Standard title bar |

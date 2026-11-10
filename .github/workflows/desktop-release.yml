@@ -1,0 +1,116 @@
+# Desktop release: signed installers and the updater manifest.
+# Runs only on a desktop-v* tag pushed to this repo, or a maintainer's manual run.
+# The Mac job uses the Studio runner (self-hosted), so it never runs on pull_request.
+name: desktop-release
+
+on:
+  push:
+    tags: ["desktop-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    if: github.repository == 'frontier-infra/roundtable'
+    runs-on: [self-hosted, macOS, ARM64]
+    env:
+      CARGO_TARGET_DIR: /Volumes/PRO-G40/ci/roundtable-desktop/target
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - name: Stop if the build drive is not mounted
+        working-directory: .
+        run: test -d /Volumes/PRO-G40 || { echo "PRO-G40 is not mounted"; exit 1; }
+      - uses: actions/checkout@v4
+      - name: Toolchain targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - run: npm ci
+        working-directory: desktop/ui
+      - name: Checks before release
+        run: |
+          cargo test -p roundtable-engine
+          cargo build -p roundtable-engine
+          python3 scripts/parity.py "$CARGO_TARGET_DIR/debug/roundtable-engine"
+          "$CARGO_TARGET_DIR/debug/roundtable-engine" mcp selftest
+      - name: Build, sign and notarize the universal app
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          CI: "true"
+        working-directory: desktop/core
+        run: cargo tauri build --target universal-apple-darwin --bundles app,dmg --config '{"bundle":{"createUpdaterArtifacts":true}}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: |
+            ${{ env.CARGO_TARGET_DIR }}/universal-apple-darwin/release/bundle/dmg/*.dmg
+            ${{ env.CARGO_TARGET_DIR }}/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
+            ${{ env.CARGO_TARGET_DIR }}/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
+
+  windows:
+    if: github.repository == 'frontier-infra/roundtable'
+    runs-on: blacksmith-4vcpu-windows-2025
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: desktop/ui
+      - run: cargo install tauri-cli --version "^2" --locked
+      - run: cargo install trusted-signing-cli --locked
+      - name: Build and sign the per-user installer
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          TRUSTED_SIGNING_ENDPOINT: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          TRUSTED_SIGNING_ACCOUNT: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          TRUSTED_SIGNING_PROFILE: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        working-directory: desktop/core
+        shell: pwsh
+        run: |
+          $sign = "trusted-signing-cli -e $env:TRUSTED_SIGNING_ENDPOINT -a $env:TRUSTED_SIGNING_ACCOUNT -c $env:TRUSTED_SIGNING_PROFILE -d Roundtable %1"
+          $cfg = @{ bundle = @{ createUpdaterArtifacts = $true; windows = @{ signCommand = $sign } } } | ConvertTo-Json -Depth 5 -Compress
+          cargo tauri build --bundles nsis --config $cfg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            desktop/target/release/bundle/nsis/*.exe
+            desktop/target/release/bundle/nsis/*.exe.sig
+
+  publish:
+    needs: [mac, windows]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Release with installers and latest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          node desktop/scripts/latest-json.mjs out "$TAG" > latest.json
+          gh release create "$TAG" out/* latest.json --title "Roundtable Desktop ${TAG#desktop-v}" --notes "Roundtable for Mac and Windows." || gh release upload "$TAG" out/* latest.json --clobber
+          # The rolling release the app checks, so a CLI release never looks like a desktop update.
+          gh release view desktop-latest >/dev/null 2>&1 || gh release create desktop-latest --title "Roundtable Desktop (latest)" --notes "Updater manifest for Roundtable Desktop." --latest=false
+          gh release upload desktop-latest latest.json --clobber

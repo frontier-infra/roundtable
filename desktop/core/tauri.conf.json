@@ -1,0 +1,51 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Roundtable",
+  "identifier": "sh.roundtable.app",
+  "build": {
+    "beforeDevCommand": { "script": "node ../scripts/sidecar.mjs && npm run dev", "cwd": "../ui" },
+    "beforeBuildCommand": { "script": "node ../scripts/sidecar.mjs && npm run build", "cwd": "../ui" },
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../ui/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Roundtable",
+        "width": 1100,
+        "height": 720,
+        "minWidth": 800,
+        "minHeight": 600,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg", "nsis"],
+    "category": "Productivity",
+    "shortDescription": "Ask several AIs at once. Get one clear answer.",
+    "longDescription": "Roundtable asks Claude, ChatGPT, Gemini and others the same question and shows each answer side by side. It runs on your computer with your own AI accounts, and connects to the Claude app and Claude Code.",
+    "publisher": "Frontier Infra",
+    "copyright": "Copyright 2026 Frontier Infra. MIT License.",
+    "homepage": "https://roundtable.sh",
+    "externalBin": ["binaries/roundtable-engine"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "createUpdaterArtifacts": false,
+    "macOS": { "minimumSystemVersion": "11.0" },
+    "windows": {
+      "nsis": { "installMode": "currentUser", "displayLanguageSelector": false },
+      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM1QzA2QjAzMTQ3REQ4MkIKUldRcjJIMFVBMnZBTlhJR2J4VURZYjZQZElXK0M4R3Bhd0tKZ09TZVBuMGsxbnJiSmdJSU9rd2wK",
+      "endpoints": ["https://github.com/frontier-infra/roundtable/releases/download/desktop-latest/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  }
+}

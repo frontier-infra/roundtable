@@ -1,0 +1,141 @@
+// Settings (spec section 5, "Settings").
+
+import type { App } from "../app";
+import { button, h, toggle } from "../dom";
+import { CHAIR_DEFAULT_MODEL, HELP_URL, ISSUES_URL, PROVIDERS } from "../providers";
+import { connectedHeads, helpUrl, keychainName } from "../state";
+import { claudeConnect, keyCard } from "./onboarding";
+
+function section(title: string, ...body: (HTMLElement | null)[]): HTMLElement {
+  return h("section", { class: "card setting" }, h("h2", { text: title }), body);
+}
+
+export function renderSettings(app: App): HTMLElement {
+  const s = app.state;
+  const connected = connectedHeads(s.keys);
+  const seated = new Set(s.settings.default_heads.length ? s.settings.default_heads : connected);
+
+  const seats = PROVIDERS.filter((p) => connected.includes(p.id)).map((p) =>
+    toggle(p.name, seated.has(p.id), (on) => {
+      const next = new Set(seated);
+      if (on) next.add(p.id);
+      else next.delete(p.id);
+      if (next.size === 0) {
+        app.showToast("Keep at least one AI at the table.");
+        app.render();
+        return;
+      }
+      void app.saveSettings({ default_heads: PROVIDERS.map((x) => x.id).filter((id) => next.has(id)) });
+    }),
+  );
+
+  const models = h(
+    "div",
+    { class: "grid2" },
+    [...PROVIDERS.map((p) => ({ id: p.id, label: p.name, def: p.defaultModel })), { id: "chair", label: "Chair (Claude)", def: CHAIR_DEFAULT_MODEL }].map((m) =>
+      h(
+        "label",
+        { class: "field" },
+        h("span", { text: m.label }),
+        h("input", {
+          type: "text",
+          value: s.settings.models[m.id] ?? "",
+          placeholder: m.def,
+          attrs: { spellcheck: "false" },
+          on: {
+            change: (e) => {
+              const v = (e.target as HTMLInputElement).value.trim();
+              const models = { ...s.settings.models };
+              if (v) models[m.id] = v;
+              else delete models[m.id];
+              void app.saveSettings({ models });
+            },
+          },
+        }),
+      ),
+    ),
+  );
+
+  return h(
+    "div",
+    { class: "settings-page" },
+    h("div", { class: "topbar" }, button("← Back", () => app.set({ view: "main" }), "btn ghost"), h("h1", { text: "Settings" }), h("span")),
+    h(
+      "div",
+      { class: "settings" },
+      section(
+        "AI accounts",
+        h("p", { class: "small muted", text: `Keys are saved in ${keychainName(s.os)}. Roundtable never shows a saved key again.` }),
+        h("div", { class: "cards" }, PROVIDERS.map((p) => keyCard(app, p, { removable: true }))),
+      ),
+      section(
+        "Who sits at the table",
+        seats.length ? h("div", { class: "stack" }, seats) : h("p", { class: "muted", text: "Connect an AI above first." }),
+      ),
+      section("Claude connection", h("div", { class: "stack" }, claudeConnect(app, true))),
+      section(
+        "History",
+        toggle("Keep past roundtables on this computer", s.settings.history, (v) => void app.saveSettings({ history: v }), "Nothing leaves this computer."),
+        h("div", { class: "actions left" }, button("Delete all history", () => {
+          if (confirm("Delete every past roundtable on this computer? This cannot be undone.")) void app.clearHistory();
+        }, "btn ghost danger")),
+      ),
+      section(
+        "Updates",
+        h("p", { text: `Version ${s.version || "unknown"}` }),
+        toggle("Install updates automatically", s.settings.auto_update, (v) => void app.saveSettings({ auto_update: v })),
+        h("div", { class: "actions left" }, button("Check now", () => void app.checkUpdate(true), "btn")),
+      ),
+      h(
+        "details",
+        { class: "card setting advanced" },
+        h("summary", null, h("h2", { text: "Advanced" })),
+        h("h3", { text: "Model per AI" }),
+        h("p", { class: "small muted", text: "Leave a box empty to use the default shown." }),
+        models,
+        h("h3", { text: "Time limit per AI" }),
+        h(
+          "label",
+          { class: "field inline" },
+          h("span", { text: "Seconds" }),
+          h("input", {
+            type: "number",
+            value: s.settings.timeout_secs ? String(s.settings.timeout_secs) : "",
+            placeholder: "300 (360 with web search)",
+            attrs: { min: "30", max: "1800" },
+            on: {
+              change: (e) => {
+                const n = parseInt((e.target as HTMLInputElement).value, 10);
+                void app.saveSettings({ timeout_secs: Number.isFinite(n) && n >= 30 ? Math.min(n, 1800) : null });
+              },
+            },
+          }),
+        ),
+        h("h3", { text: "Terminal" }),
+        toggle("Use Roundtable in Terminal too", s.settings.terminal_command, (v) => void app.setTerminal(v), "Adds a roundtable command."),
+        s.importable.length
+          ? h(
+              "div",
+              { class: "notice" },
+              h("p", { text: `The command-line version has ${s.importable.length} key${s.importable.length === 1 ? "" : "s"} in a plain text file. Move ${s.importable.length === 1 ? "it" : "them"} to ${keychainName(s.os)}?` }),
+              button("Import keys from the command-line version", () => {
+                const remove = confirm("Keys are now in the keychain. Also remove them from the old text file?");
+                void app.importKeys(remove);
+              }, "btn small"),
+            )
+          : null,
+      ),
+      section(
+        "Help",
+        h(
+          "div",
+          { class: "actions left" },
+          button("Help pages", () => void app.api.openUrl(HELP_URL), "btn"),
+          button("Report a problem", () => void app.api.openUrl(helpUrl(ISSUES_URL, undefined, s.os, s.version)), "btn"),
+          button("Copy diagnostics", () => void app.copyDiagnostics(), "btn ghost"),
+        ),
+        h("p", { class: "small muted", text: "Diagnostics list versions, your system and which AIs are set up. Never keys." }),
+      ),
+    ),
+  );
+}
