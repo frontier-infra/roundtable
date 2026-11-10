@@ -6,9 +6,13 @@
 # Runners: Blacksmith only. This repo is public, and our self-hosted runners
 # (the Studio) serve private repos only.
 #
-# A tag with a dash (desktop-v0.1.1-rc1) is a test build: it signs, notarizes and
-# uploads workflow artifacts, and publishes nothing. A plain tag
-# (desktop-v0.1.1) also makes the GitHub release and moves the updater manifest.
+# Versions (desktop/scripts/version.mjs): desktop/Cargo.toml holds the next release, say 0.1.2.
+# - desktop-v0.1.2-rc.N is a test build. The build carries 0.1.2-rc.N, so every test build
+#   has its own number. It goes to the rolling `desktop-test` pre-release and its latest.json,
+#   which only apps with Settings, Updates, "Test builds" on read. No public release.
+# - desktop-v0.1.2 is a stable release: the GitHub release `desktop-v0.1.2` and the
+#   `desktop-latest` manifest every app reads. Only Jason approves a stable tag.
+# Notes for both come from that version's section of desktop/CHANGELOG.md.
 #
 # Signing follows Support-Phone's release.yml (Mac) and release-publish.yml
 # (Windows). Secret names and vault items are listed in desktop/README.md.
@@ -38,28 +42,25 @@ jobs:
     outputs:
       tag: ${{ steps.v.outputs.tag }}
       version: ${{ steps.v.outputs.version }}
-      prerelease: ${{ steps.v.outputs.prerelease }}
+      channel: ${{ steps.v.outputs.channel }}
     steps:
       - uses: actions/checkout@v4
-      - name: Tag matches the app version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Release scripts work
+        run: node --test desktop/scripts/release.test.mjs
+      - name: Tag matches the app version, and the changelog has its section
         id: v
         run: |
           set -euo pipefail
-          case "$GITHUB_REF" in
-            refs/tags/desktop-v*) ;;
-            *) echo "::error::run this on a desktop-v* tag (got $GITHUB_REF)"; exit 1 ;;
-          esac
-          TAG="${GITHUB_REF#refs/tags/}"
-          VERSION="${TAG#desktop-v}"
-          BASE="${VERSION%%-*}"
           # tauri.conf.json has no version; Tauri takes it from the Cargo workspace.
-          CONF="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version *= *"\(.*\)"/\1/p' desktop/Cargo.toml)"
-          [ -n "$CONF" ] || { echo "::error::no version in desktop/Cargo.toml [workspace.package]"; exit 1; }
-          [ "$BASE" = "$CONF" ] || { echo "::error::tag $TAG does not match app version $CONF"; exit 1; }
-          PRE=false
-          if [ "$VERSION" != "$BASE" ]; then PRE=true; fi
-          { echo "tag=$TAG"; echo "version=$VERSION"; echo "prerelease=$PRE"; } >> "$GITHUB_OUTPUT"
-          echo "::notice::$TAG, app version $CONF, test build: $PRE"
+          INFO="$(node desktop/scripts/version.mjs tag "$GITHUB_REF")"
+          VERSION="$(echo "$INFO" | jq -r .version)"
+          CHANNEL="$(echo "$INFO" | jq -r .channel)"
+          node desktop/scripts/changelog.mjs check "$VERSION"
+          { echo "tag=desktop-v$VERSION"; echo "version=$VERSION"; echo "channel=$CHANNEL"; } >> "$GITHUB_OUTPUT"
+          echo "::notice::desktop-v$VERSION, channel $CHANNEL"
 
   mac:
     name: Mac (universal, signed and notarized)
@@ -78,6 +79,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # The app, the engine and the About screen all report the tag's version (0.1.2-rc.1).
+      - name: Stamp the version
+        run: node desktop/scripts/version.mjs stamp "$VERSION"
       - run: npm ci
         working-directory: desktop/ui
       - run: npm install -g "$TAURI_CLI"
@@ -175,7 +179,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          OUT="$PWD/dist/Roundtable.app.tar.gz"
+          OUT="$PWD/dist/Roundtable_${VERSION}_universal.app.tar.gz"
           tar -C "$BUNDLE" -czf "$OUT" "$APP_NAME"
           tauri signer sign "$OUT"
           test -s "$OUT.sig" || { echo "::error::tauri signer made no .sig"; exit 1; }
@@ -260,6 +264,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Stamp the version
+        run: node desktop/scripts/version.mjs stamp "$VERSION"
       - run: npm ci
         working-directory: desktop/ui
       - run: npm install -g "$TAURI_CLI"
@@ -310,8 +316,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $base = $env:VERSION.Split('-')[0]
-          $exe = Get-Item "$env:GITHUB_WORKSPACE/$env:NSIS_DIR/Roundtable_$($base)_x64-setup.exe"
+          $exe = Get-Item "$env:GITHUB_WORKSPACE/$env:NSIS_DIR/Roundtable_$($env:VERSION)_x64-setup.exe"
           $payload = Join-Path $env:RUNNER_TEMP 'roundtable-payload'
           & 7z x -tNsis $exe.FullName "-o$payload" -y
           if ($LASTEXITCODE -ne 0) { throw 'Could not extract the NSIS installer' }
@@ -334,7 +339,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          SRC="$NSIS_DIR/Roundtable_${VERSION%%-*}_x64-setup.exe"
+          SRC="$NSIS_DIR/Roundtable_${VERSION}_x64-setup.exe"
           [ -f "$SRC" ] || { echo "::error::expected $SRC"; ls -l "$NSIS_DIR"; exit 1; }
           OUT="$PWD/dist/Roundtable_${VERSION}_x64-setup.exe"
           cp "$SRC" "$OUT"
@@ -352,16 +357,20 @@ jobs:
           retention-days: 30
 
   publish:
-    name: GitHub release and updater manifest
+    name: GitHub release and the Stable manifest
     needs: [guard, mac, windows]
-    if: needs.guard.outputs.prerelease == 'false'
+    if: needs.guard.outputs.channel == 'stable'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: write
     env:
       TAG: ${{ needs.guard.outputs.tag }}
+      VERSION: ${{ needs.guard.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: actions/download-artifact@v4
         with:
           name: roundtable-desktop-macos
@@ -371,13 +380,67 @@ jobs:
         with:
           name: roundtable-desktop-windows
           path: out
-      - name: Release with installers and latest.json
+      - name: Release with installers, changelog notes and latest.json
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          node desktop/scripts/changelog.mjs section "$VERSION" > notes.md
           node desktop/scripts/latest-json.mjs out "$TAG" > latest.json
-          gh release create "$TAG" out/* latest.json --title "Roundtable Desktop ${TAG#desktop-v}" --notes "Roundtable for Mac and Windows." || gh release upload "$TAG" out/* latest.json --clobber
-          # The rolling release the app checks, so a CLI release never looks like a desktop update.
+          gh release create "$TAG" out/* latest.json --title "Roundtable $VERSION" --notes-file notes.md \
+            || { gh release edit "$TAG" --notes-file notes.md && gh release upload "$TAG" out/* latest.json --clobber; }
+          # The rolling release every app checks, so a CLI release never looks like a desktop update.
           gh release view desktop-latest >/dev/null 2>&1 || gh release create desktop-latest --title "Roundtable Desktop (latest)" --notes "Updater manifest for Roundtable Desktop." --latest=false
           gh release upload desktop-latest latest.json --clobber
+          # A stable release is newer than every test build of it, so Test builds get it too.
+          gh release view desktop-test >/dev/null 2>&1 && gh release upload desktop-test latest.json --clobber || true
+
+  publish-test:
+    name: Test channel (desktop-test pre-release and its manifest)
+    needs: [guard, mac, windows]
+    if: needs.guard.outputs.channel == 'test'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.guard.outputs.tag }}
+      VERSION: ${{ needs.guard.outputs.version }}
+      CHANNEL_RELEASE: desktop-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: roundtable-desktop-macos
+          path: out
+      - uses: actions/download-artifact@v4
+        with:
+          name: roundtable-desktop-windows
+          path: out
+      - name: Upload to desktop-test and move its latest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node desktop/scripts/latest-json.mjs out "$TAG" "$CHANNEL_RELEASE" > latest.json
+          cat latest.json
+          # One pre-release holds the newest test build. It is never "Latest" on the releases page.
+          gh release view "$CHANNEL_RELEASE" >/dev/null 2>&1 || gh release create "$CHANNEL_RELEASE" --prerelease --latest=false \
+            --title "Roundtable Desktop test builds" --notes "Test builds for Roundtable Desktop. Apps with Settings, Updates, Test builds on update from here."
+          node desktop/scripts/changelog.mjs section "$VERSION" > notes.md
+          { echo "Newest test build: **$VERSION**"; echo; cat notes.md; } > channel-notes.md
+          gh release edit "$CHANNEL_RELEASE" --notes-file channel-notes.md --prerelease --latest=false
+          # Files first, then the manifest that points at them.
+          gh release upload "$CHANNEL_RELEASE" out/* --clobber
+          gh release upload "$CHANNEL_RELEASE" latest.json --clobber
+          # Keep this build and the one before it; remove older test files.
+          gh release view "$CHANNEL_RELEASE" --json assets -q '.assets[].name' \
+            | grep -E '^Roundtable_[^_]+_' | sed -E 's/^Roundtable_([^_]+)_.*/\1/' | sort -u > versions.txt
+          KEEP="$(node desktop/scripts/version.mjs newest 2 < versions.txt)"
+          gh release view "$CHANNEL_RELEASE" --json assets -q '.assets[].name' | while read -r f; do
+            v="$(echo "$f" | sed -nE 's/^Roundtable_([^_]+)_.*/\1/p')"
+            [ -n "$v" ] && ! echo "$KEEP" | grep -qx "$v" && gh release delete-asset "$CHANNEL_RELEASE" "$f" -y || true
+          done
+          echo "::notice::$VERSION is on the test channel: https://github.com/${{ github.repository }}/releases/tag/$CHANNEL_RELEASE"

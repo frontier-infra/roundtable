@@ -38,6 +38,7 @@ export function outLink(app: App, url: string, text: string, cls?: string): HTML
 /** Settings, About. */
 export function aboutSection(app: App): HTMLElement[] {
   return [
+    h("p", { class: "about-version", text: `Roundtable ${app.state.version || "unknown"}` }),
     h("p", { text: MADE_BY }),
     h(
       "ul",

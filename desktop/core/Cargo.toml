@@ -25,7 +25,6 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
-tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 dirs = "5"
@@ -38,3 +37,4 @@ lab-pack = ["roundtable-engine/lab-pack"]
 
 [dev-dependencies]
 tempfile = "3"
+semver = "1"

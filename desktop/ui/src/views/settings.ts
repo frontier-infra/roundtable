@@ -12,6 +12,7 @@ import { personasSection } from "./personas";
 import { providersSection } from "./providers";
 import { decisionSection } from "../decision";
 import { aboutSection } from "../credits";
+import { updatesSection } from "../updates";
 
 function section(title: string, ...body: (HTMLElement | null)[]): HTMLElement {
   return h("section", { class: "setting" }, h("h2", { text: title }), h("div", { class: "setting-body" }, body));
@@ -110,12 +111,7 @@ export function renderSettings(app: App): HTMLElement {
         toggle("Add a Roundtable credit line to exports", s.settings.export_credit !== false, (v) => void app.saveSettings({ export_credit: v }), "One line at the end of a saved or copied Markdown file."),
         clearAllRow(app),
       ),
-      section(
-        "Updates",
-        h("p", { text: `Version ${s.version || "unknown"}` }),
-        toggle("Install updates automatically", s.settings.auto_update, (v) => void app.saveSettings({ auto_update: v })),
-        h("div", { class: "actions left" }, button("Check now", () => void app.checkUpdate(true), "btn")),
-      ),
+      section("Updates", ...updatesSection(app)),
       h(
         "details",
         { class: "setting advanced" },

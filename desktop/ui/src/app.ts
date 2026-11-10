@@ -37,6 +37,7 @@ import { renderMain } from "./views/main";
 import { renderSettings } from "./views/settings";
 import { h } from "./dom";
 import { HEAD_ORDER, setProviderNames } from "./providers";
+import { CHANGELOG, parseChangelog, renderUpdateBanner, renderWhatsNew, whatsNewAfterUpdate } from "./updates";
 
 const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
 
@@ -55,7 +56,6 @@ export interface AskExtra {
 
 export class App {
   state: State = initialState();
-  private updateInstall: (() => Promise<void>) | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   /** Deletes still inside their Undo window, by token: the timer that makes them final. */
   private pending = new Map<string, ReturnType<typeof setTimeout>>();
@@ -124,11 +124,21 @@ export class App {
     if (opts.screen) this.state.step = Math.min(5, Math.max(1, opts.screen)) as Step;
     if (this.state.view !== "onboarding") await Promise.all([this.refreshHistory(), this.refreshPersonas()]);
     if (this.state.step === 4) void this.refreshClaude();
+    this.noteVersion();
     this.render();
-    if (this.state.settings.auto_update) {
-      void this.checkUpdate(false);
-      setInterval(() => void this.checkUpdate(false), UPDATE_EVERY_MS);
-    }
+    // Always look, so the person knows a new version is out. The switch decides only
+    // whether it downloads and installs by itself.
+    void this.checkUpdate(false);
+    setInterval(() => void this.checkUpdate(false), UPDATE_EVERY_MS);
+  }
+
+  /** After an update, open What's new once. Remember the version either way. */
+  private noteVersion() {
+    const { version, settings } = this.state;
+    if (!version || settings.last_seen_version === version) return;
+    const shown = settings.onboarded ? whatsNewAfterUpdate(settings.last_seen_version, version) : null;
+    if (shown && this.state.view !== "onboarding") this.state.whatsNew = shown;
+    void this.saveSettings({ last_seen_version: version });
   }
 
   set(patch: Partial<State>) {
@@ -139,15 +149,8 @@ export class App {
   render() {
     const s = this.state;
     const view = s.view === "onboarding" ? renderOnboarding(this) : s.view === "settings" ? renderSettings(this) : renderMain(this);
-    const banner = s.update
-      ? h(
-          "div",
-          { class: "banner", role: "status" },
-          h("span", { text: "An update is ready." }),
-          h("button", { class: "btn small primary", type: "button", text: "Restart now", on: { click: () => void this.installUpdate() } }),
-          h("button", { class: "btn small", type: "button", text: "Later", on: { click: () => this.set({ update: null }) } }),
-        )
-      : null;
+    const banner = renderUpdateBanner(this);
+    const sheet = s.whatsNew ? renderWhatsNew(this, s.whatsNew) : null;
     const toast = s.toast
       ? h(
           "div",
@@ -158,7 +161,7 @@ export class App {
             : null,
         )
       : null;
-    this.root.replaceChildren(...[banner, view, toast].filter((x): x is HTMLElement => !!x));
+    this.root.replaceChildren(...[banner, view, sheet, toast].filter((x): x is HTMLElement => !!x));
     if (this.focusRow) {
       const id = this.focusRow;
       [...this.root.querySelectorAll<HTMLElement>(".history li")].find((li) => li.dataset.id === id)?.focus();
@@ -1088,27 +1091,89 @@ export class App {
     }
   }
 
+  // ---- Updates ----
+
+  /** Look for a newer version on the chosen channel. With automatic updates on, download it. */
   async checkUpdate(manual: boolean) {
+    if (this.state.updateStatus.checking) return;
+    const channel = this.state.settings.update_channel === "test" ? "test" : "stable";
+    this.set({ updateStatus: { ...this.state.updateStatus, checking: true } });
     try {
-      const u = await this.api.checkUpdate();
-      if (u) {
-        this.updateInstall = u.install;
-        this.set({ update: { version: u.version } });
-      } else if (manual) this.showToast("You have the latest version.");
-    } catch {
+      const u = await this.api.updateCheck(channel);
+      const was = this.state.update;
+      const update = u
+        ? { version: u.version, notes: u.notes, date: u.date, ready: u.ready, busy: was?.version === u.version ? was.busy : null, dismissed: !manual && was?.version === u.version && was.dismissed }
+        : null;
+      this.set({ update, updateStatus: { checking: false, checkedAt: Date.now(), error: null } });
+      if (!u && manual) this.showToast("You have the latest version.");
+      if (update && !update.ready && this.state.settings.auto_update) void this.downloadUpdate();
+    } catch (e) {
+      this.set({ updateStatus: { checking: false, checkedAt: this.state.updateStatus.checkedAt, error: errorText(e) } });
       if (manual) this.showToast("Could not check for updates. Try again later.");
     }
   }
 
-  async installUpdate() {
-    if (!this.updateInstall) return;
-    this.showToast("Installing the update...");
+  /** Background download; it installs on the next quit. */
+  async downloadUpdate() {
+    const u = this.state.update;
+    if (!u || u.busy) return;
+    this.set({ update: { ...u, busy: "downloading" } });
     try {
-      await this.updateInstall();
-      await this.api.restart();
+      await this.api.updateDownload(true);
+      if (this.state.update?.version === u.version) this.set({ update: { ...this.state.update, ready: true, busy: null } });
     } catch (e) {
-      this.showToast(errorText(e));
+      if (this.state.update?.version === u.version) this.set({ update: { ...this.state.update, busy: null } });
+      this.set({ updateStatus: { ...this.state.updateStatus, error: errorText(e) } });
     }
+  }
+
+  /** Update now: install and restart into the new version. */
+  async installUpdate() {
+    const u = this.state.update;
+    if (!u || u.busy === "installing") return;
+    this.set({ whatsNew: null, update: { ...u, busy: "installing", dismissed: false } });
+    try {
+      await this.api.updateInstall();
+    } catch (e) {
+      this.set({ update: { ...u, busy: null } });
+      this.showToast(`The update did not install: ${errorText(e)}`);
+    }
+  }
+
+  laterUpdate() {
+    const u = this.state.update;
+    if (!u) return;
+    this.set({ update: { ...u, dismissed: true } });
+    if (this.state.settings.auto_update) this.showToast("It installs the next time you quit Roundtable.");
+  }
+
+  async setAutoUpdate(on: boolean) {
+    await this.saveSettings({ auto_update: on });
+    const u = this.state.update;
+    if (!u) return;
+    if (!on) await this.api.updateOnQuit(false).catch(() => {});
+    else if (u.ready) await this.api.updateOnQuit(true).catch(() => {});
+    else void this.downloadUpdate();
+  }
+
+  async setUpdateChannel(channel: "stable" | "test") {
+    await this.saveSettings({ update_channel: channel });
+    this.set({ update: null });
+    await this.checkUpdate(true);
+  }
+
+  /** The banner's What's new: the new version's notes from the manifest. */
+  showUpdateNotes() {
+    const u = this.state.update;
+    if (!u) return;
+    const fromFile = parseChangelog(CHANGELOG).find((s) => s.version === u.version.replace(/-.*$/, ""));
+    const body = u.notes.trim() || fromFile?.body || "No notes for this version.";
+    this.set({ whatsNew: { title: `What's new in Roundtable ${u.version}`, sections: [{ version: u.version, date: u.date?.slice(0, 10) ?? "", body }] } });
+  }
+
+  /** Settings, What's new: every version, newest first. */
+  showChangelog() {
+    this.set({ whatsNew: { title: "What's new", sections: parseChangelog(CHANGELOG) } });
   }
 
   connectedCount(): number {
