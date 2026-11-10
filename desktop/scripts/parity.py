@@ -11,7 +11,7 @@ with the seat it was told it sits in. Compares every section and body. Exit 0 on
 
 Usage: python3 desktop/scripts/parity.py <path to the Rust engine binary>
 """
-import http.server, json, os, re, subprocess, sys, tempfile, threading
+import hashlib, http.server, json, os, re, subprocess, sys, tempfile, threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -33,30 +33,66 @@ echo "codex progress on stderr" >&2
 """
 
 
+def sha8(s):
+    return hashlib.sha256(s.encode()).hexdigest()[:8]
+
+
+PAGE = "<html><head><title>t</title><style>x{}</style></head><body><h1>Launch plan</h1><p>Ship in March &amp; tell partners.</p><script>no()</script></body></html>"
+
+
+def chair_reply(prompt):
+    """The fake chair: one fixed answer per kind of chair prompt. Hashes prove both engines sent the same prompt."""
+    if "help the person sharpen" in prompt:
+        return "Q: What is the budget?\n2. Q: Who decides?"
+    if "Rewrite the person's question into a brief" in prompt:
+        answers = "; ".join(re.findall(r"^A: (.*)$", prompt, re.M)) or "no answers"
+        return f"GOAL: Pick one for the weekend.\nCONTEXT: {answers}.\nCONSTRAINTS: None given\nGOOD ANSWER: One pick and why. p:{sha8(prompt)}"
+    if "Pick the seats" in prompt:
+        return f"SEATS: cfo, nobody, ceo\nWHY: Money and direction. p:{sha8(prompt)}"
+    if "Every councilor will read your summary" in prompt:
+        src = re.search(r"^SOURCE: (.*)$", prompt, re.M).group(1)
+        return f"- the gist of {src} p:{sha8(prompt)}"
+    if "Write the final verdict" in prompt:
+        return f"DECISION: Start the garden.\nCONFIDENCE: High (80%)\n**WHY**\n- p:{sha8(prompt)}\nMINORITY VIEW: Bake bread first.\nHELD BY: GLM"
+    return "VERDICT: CONTINUE\n**AGREED**\n- Both are cheap.\n\n**REMAINING DISAGREEMENTS**\n- Which first."
+
+
 class Fake(http.server.BaseHTTPRequestHandler):
+    def _send(self, ctype, out):
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(out)))
+        self.end_headers()
+        self.wfile.write(out)
+
+    def do_GET(self):
+        self._send("text/html; charset=utf-8", PAGE.encode())
+
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
         prompt = body["messages"][0]["content"]
+        if self.path.endswith("/v1/messages"):
+            return self._send("application/json", json.dumps({"content": [{"type": "text", "text": chair_reply(prompt)}]}).encode())
         tag = "revised" if "COUNCIL DELIBERATION" in prompt else "first"
         m = re.search(r"^You sit at this roundtable as (.*)\.$", prompt, re.M)
         seat = f" as {m.group(1)}" if m else ""
         if "Do not claim to speak for" in prompt:
             seat += " (lab rule)"
         text = f"{tag} answer from {body['model']}{seat}"
+        if "ANSWERS SO FAR" in prompt:
+            text += " (saw earlier seats)"
+        # The new prompt sections: both engines must send the very same prompt.
+        if "COUNCIL DELIBERATION" not in prompt and any(k in prompt for k in ("## BRIEF", "## ATTACHMENTS", "EARLIER IN THIS SESSION", "ANSWERS SO FAR")):
+            text += f" p:{sha8(prompt)}"
         if body["model"].startswith("MiniMax"):
             text = "<think>hidden</think>" + text
-        out = json.dumps({"choices": [{"message": {"content": text}}]}).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(out)))
-        self.end_headers()
-        self.wfile.write(out)
+        self._send("application/json", json.dumps({"choices": [{"message": {"content": text}}]}).encode())
 
     def log_message(self, *a):
         pass
 
 
-def env_for(home, url):
+def env_for(home, url, chair=False):
     fakebin = os.path.join(home, "fakebin")
     os.makedirs(fakebin, exist_ok=True)
     codex = os.path.join(fakebin, "codex")
@@ -70,7 +106,74 @@ def env_for(home, url):
         e[k] = "test"
     for k in ("GROK_XAI", "OPENAI", "GLM", "MINIMAX", "GEMINI"):
         e[f"ROUNDTABLE_{k}_URL"] = url
+    if chair:
+        e["ANTHROPIC_API_KEY"] = "test"
+        e["ROUNDTABLE_ANTHROPIC_URL"] = url.replace("/chat/completions", "/messages")
     return e
+
+
+def rc7_cases(rust, url, base):
+    """The question coach, suggested seats, an open first round, verdicts, follow-ups and attachments."""
+    ok = True
+    with tempfile.TemporaryDirectory() as home:
+        files = os.path.join(home, "files")
+        os.makedirs(files)
+        w = lambda n, t: open(os.path.join(files, n), "w").write(t) and os.path.join(files, n)
+        notes = w("notes.md", "Budget: 40 thousand.\r\n\r\n\r\nDeadline: March.  \n")
+        long = w("long.txt", "A long report line.\n" * 1000)
+        prior = w("prior.md", "# Round Table\n\n_Question:_ Which first?\n\n## Claude\n\nThe garden.\n")
+        brief = w("brief.md", "\n- **Goal:** Raise prices or not.\n- **Constraints:** Keep churn under 2%.\n\n")
+        runs = [
+            ("coach+open+verdict+attach+follow-up", True, {}, ["--heads", "openai,glm,minimax", "--rounds", "1", "--coach", "--coach-answer", "About 40 thousand.",
+              "--verdict", "decision", "--no-blind", "--attach", notes, "--attach", long, "--attach", base + "/page.html", "--follow-up", prior, "-q", "Bread or garden?"]),
+            ("brief+auto seats+vote, 2 rounds", True, {}, ["--heads", "openai,glm", "--rounds", "2", "--brief", brief, "--verdict", "vote", "--personas", "auto", "-q", "Raise prices?"]),
+            ("auto seats by words, no chair", False, {}, ["--heads", "openai,glm", "--personas", "auto", "-q", "Should we raise prices? Budget and revenue matter."]),
+            ("pros-cons and plan, no chair", False, {}, ["--heads", "openai,glm", "--rounds", "2", "--verdict", "plan", "-q", "Bread or garden?"]),
+        ]
+        for name, chair, extra, args in runs:
+            env = {**env_for(home, url, chair), **extra}
+            a = subprocess.run(["bash", CORE, *args], env=env, capture_output=True, text=True, timeout=180)
+            b = subprocess.run([rust, "ask", "--no-history", *args], env=env, capture_output=True, text=True, timeout=180)
+            sa, sb = sections(a.stdout), sections(b.stdout)
+            checks = []
+            if name.startswith("coach"):
+                checks = [("## Brief", "About 40 thousand."), ("Verdict (decision)", "MINORITY VIEW: Bake bread first."), ("MiniMax", "(saw earlier seats)")]
+            elif name.startswith("brief"):
+                checks = [("## Brief", "Keep churn under 2%."), ("Verdict (vote)", "HELD BY: GLM"), ("CFO", "as CFO"), ("CEO", "as CEO")]
+            elif name.startswith("auto"):
+                checks = [("CFO", "as CFO")]
+            else:
+                checks = [("Verdict (action plan)", "verdict unavailable")]
+            for head, want in checks:
+                if not any(head in h and want in bd for h, bd in sa):
+                    ok = False
+                    print(f"parity {name}: FAIL, bash has no {head!r} section with {want!r}")
+                    print("  bash stderr:", a.stderr[-600:])
+            if name.startswith("coach") and not any("p:" in bd for h, bd in sa if "OpenAI" in h):
+                ok = False
+                print(f"parity {name}: FAIL, the seats did not read the new prompt sections")
+            if sa == sb and sa:
+                print(f"parity {name}: PASS ({len(sa)} sections)")
+            else:
+                ok = False
+                print(f"parity {name}: FAIL")
+                for x, y in zip(sa, sb):
+                    if x != y:
+                        print("  bash:", x)
+                        print("  rust:", y)
+                if len(sa) != len(sb):
+                    print(f"  section counts differ: bash {len(sa)}, rust {len(sb)}")
+                    print("  bash stderr:", a.stderr[-400:])
+                    print("  rust stderr:", b.stderr[-400:])
+        env = env_for(home, url, True)
+        a = subprocess.run(["bash", CORE, "--coach-questions", "-q", "Bread or garden?"], env=env, capture_output=True, text=True, timeout=60).stdout
+        b = subprocess.run([rust, "ask", "--coach-questions", "-q", "Bread or garden?"], env=env, capture_output=True, text=True, timeout=60).stdout
+        if a == b == "Q: What is the budget?\nQ: Who decides?\n":
+            print("parity coach questions: PASS")
+        else:
+            ok = False
+            print(f"parity coach questions: FAIL\n  bash: {a!r}\n  rust: {b!r}")
+    return ok
 
 
 NORMALIZE = [
@@ -147,6 +250,7 @@ def main():
                     print("  rust:", y)
             if len(sa) != len(sb):
                 print(f"  section counts differ: bash {len(sa)}, rust {len(sb)}")
+    ok = rc7_cases(rust, url, url.rsplit("/v1/", 1)[0]) and ok
     srv.shutdown()
     return 0 if ok else 1
 

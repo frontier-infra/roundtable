@@ -70,6 +70,7 @@ mod tests {
 
     #[test]
     fn models_urls() {
+        let _env = crate::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(models_url(providers::find("openai").unwrap()), "https://api.openai.com/v1/models");
         assert_eq!(models_url(providers::find("claude").unwrap()), "https://api.anthropic.com/v1/models");
         assert_eq!(

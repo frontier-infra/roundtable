@@ -28,6 +28,12 @@ pub struct Settings {
     pub show_lab_pack: bool,
     /// Seats for a run with no `--personas`: a preset, pack or persona list. Empty is Generic.
     pub personas: String,
+    /// The question coach opens before a question goes to the table.
+    pub coach: bool,
+    /// Round 1 is blind: seats answer without seeing each other.
+    pub blind_first_round: bool,
+    /// The verdict shape the ask box starts with: decision, pros-cons, plan or vote.
+    pub verdict_shape: String,
 }
 
 impl Default for Settings {
@@ -44,6 +50,9 @@ impl Default for Settings {
             clis_chosen: false,
             show_lab_pack: true,
             personas: String::new(),
+            coach: true,
+            blind_first_round: true,
+            verdict_shape: "decision".into(),
         }
     }
 }

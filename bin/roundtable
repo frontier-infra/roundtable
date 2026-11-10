@@ -52,7 +52,18 @@ Engine flags (passed through to 'ask'):
       --heads CSV       Subset: claude,openai,grok,glm,minimax,gemini,codex
       --rounds N        1 to 4. 2 to 4 -> deliberation to consensus (default 1 = advisory)
       --personas SPEC   Seat roles: a preset (pricing), a pack (business-roles),
-                        or names (cfo,ceo@claude). generic = plain seats
+                        or names (cfo,ceo@claude). generic = plain seats.
+                        auto = suggest seats from the question or brief
+      --coach           Up to 3 clarifying questions first, then a brief the table reads
+      --coach-answer A  An answer to the coach's next question (repeat, in order)
+      --coach-questions Print the coach's questions and stop
+      --brief FILE      A ready brief (goal, context, constraints, a good answer)
+      --verdict SHAPE   Final verdict: decision, pros-cons, plan or vote; it always
+                        names the minority view and who held it
+      --no-blind        Round 1 open: each seat reads the seats before it
+      --attach SRC      A text file, PDF or link every seat reads (repeat); long ones
+                        are summarized once and the summary shared
+      --follow-up FILE  A follow-up: the earlier transcript comes first
       --timeout S       Per-head timeout, seconds
       --research        Allow web/tool use where heads support it
       --out FILE        Also save the transcript to FILE
