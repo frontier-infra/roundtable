@@ -486,6 +486,71 @@ pub fn detect_all() -> Vec<Detection> {
 /// The short prompt the Test button and the setup check send.
 pub const TEST_PROMPT: &str = "Answer in five words: is water wet?";
 
+// ---- Seat isolation ----
+//
+// A seat answers from what it knows, never from the computer it runs on. Every
+// seat runs in a fresh empty folder with no tools, web off (unless the run does
+// research), no MCP servers, and the tool's own user instructions and memory
+// turned off wherever the tool has a switch for it. Each flag was read from the
+// tool's own --help on 2026-11-10 (claude 2.1.321, codex 0.167.0, grok 1.0.77,
+// gemini 0.67.0, qwen 0.27.0, cursor-agent 2026.11.05). The bench found seats
+// that named the runner's own servers and tried to run its commands.
+
+/// What every seat is told on top of the tool's own system prompt.
+pub fn seat_rule(research: bool) -> &'static str {
+    if research {
+        "You are one seat on an advisory council. Your only tools are web search and web fetch: do not read, open or look up any file, skill or command on this computer. Answer in plain Markdown, in this one reply. Earlier rules that ask you to read a file or use another tool do not apply here."
+    } else {
+        "You are one seat on an advisory council. You have no tools: do not read, open or look up any file, skill or command, and do not search the web. Answer from what you know, in plain Markdown, in this one reply. Earlier rules that ask you to read a file or use a tool do not apply here."
+    }
+}
+
+/// An MCP config with no servers (Claude Code reads only this with --strict-mcp-config).
+pub const NO_MCP: &str = r#"{"mcpServers":{}}"#;
+
+/// Codex features a seat never gets: commands, code, memory, apps, plugins, hooks,
+/// browsers, helper agents, skills. Set by `-c features.<name>=false` (an unknown
+/// name there is ignored, where `--disable <name>` stops the run).
+pub const CODEX_OFF: &[&str] = &[
+    "shell_tool",
+    "code_mode_host",
+    "memories",
+    "apps",
+    "plugins",
+    "hooks",
+    "browser_use",
+    "computer_use",
+    "in_app_browser",
+    "multi_agent",
+    "multi_agent_v2",
+    "skill_search",
+    "tool_suggest",
+    "sleep_tool",
+];
+
+/// Grok tools a plain seat keeps: none. `--tools` with one entry and
+/// `--disallowed-tools` naming it leaves the list empty (an empty `--tools` means all).
+const GROK_NO_TOOLS: &str = "todo_write,search_tool,use_tool,CallMcpTool";
+
+/// Environment that turns off what Grok would load from this computer: its memory,
+/// workflows, and what it borrows from Claude Code and Cursor (CLAUDE.md, rules,
+/// skills, MCP servers, hooks).
+pub const GROK_ENV: &[(&str, &str)] = &[
+    ("GROK_MEMORY", "0"),
+    ("GROK_WORKFLOWS", "0"),
+    ("GROK_DISABLE_AUTOUPDATER", "1"),
+    ("GROK_CLAUDE_AGENTS_ENABLED", "0"),
+    ("GROK_CLAUDE_RULES_ENABLED", "0"),
+    ("GROK_CLAUDE_SKILLS_ENABLED", "0"),
+    ("GROK_CLAUDE_MCPS_ENABLED", "0"),
+    ("GROK_CLAUDE_HOOKS_ENABLED", "0"),
+    ("GROK_CURSOR_AGENTS_ENABLED", "0"),
+    ("GROK_CURSOR_RULES_ENABLED", "0"),
+    ("GROK_CURSOR_SKILLS_ENABLED", "0"),
+    ("GROK_CURSOR_MCPS_ENABLED", "0"),
+    ("GROK_CURSOR_HOOKS_ENABLED", "0"),
+];
+
 /// Arguments for one headless answer. `out_file` is where codex writes its last message.
 /// Every flag here was read from the tool's own `--help` (see desktop/README.md, "AI apps").
 pub fn headless_args(cli: &Cli, prompt: &str, research: bool, out_file: &Path) -> (Vec<OsString>, PromptVia) {
@@ -497,24 +562,33 @@ pub fn headless_args_with(cli: &Cli, prompt: &str, research: bool, out_file: &Pa
     let mut a: Vec<OsString> = Vec::new();
     let mut push = |s: &str| a.push(s.into());
     let via = match cli.id {
+        // --safe-mode: no CLAUDE.md, memory, skills, plugins, hooks, MCP servers or custom
+        // commands; sign-in still works (--bare and an empty --setting-sources do not).
+        // --tools "" removes every built-in tool; research keeps web search and fetch only.
         "claude" => {
-            for s in ["-p", "--output-format", "text", "--strict-mcp-config", "--no-session-persistence"] {
+            for s in ["-p", "--output-format", "text", "--safe-mode", "--strict-mcp-config", "--mcp-config", NO_MCP, "--no-session-persistence", "--disable-slash-commands", "--tools"] {
                 push(s);
             }
-            if !research {
-                push("--disallowedTools");
-                push("WebSearch,WebFetch");
-            }
+            push(if research { "WebSearch,WebFetch" } else { "" });
+            push("--append-system-prompt");
+            push(seat_rule(research));
             PromptVia::Stdin
         }
-        // Same flags as run_codex in lib/core.sh.
+        // Run in a clean CODEX_HOME (see `seat_codex_home`): no AGENTS.md, memories,
+        // MCP servers, hooks or plugins. Commands and code are off, the sandbox is read-only.
         "codex" => {
-            for s in ["exec", "--skip-git-repo-check", "-s", "read-only"] {
+            for s in ["exec", "--skip-git-repo-check", "--ephemeral", "--ignore-rules", "-s", "read-only", "-c", "project_doc_max_bytes=0"] {
                 push(s);
+            }
+            for f in CODEX_OFF {
+                push("-c");
+                push(&format!("features.{f}=false"));
             }
             if !research {
                 push("-c");
                 push("tools.web_search=false");
+                push("-c");
+                push("web_search=\"disabled\"");
             }
             push("-o");
             a.push(out_file.as_os_str().to_owned());
@@ -528,6 +602,8 @@ pub fn headless_args_with(cli: &Cli, prompt: &str, research: bool, out_file: &Pa
         // `grok -p` is its single-turn mode. The tool picks its own default model: a
         // fixed id breaks as soon as the plan's model list changes (rc4 sent one that
         // no longer exists). ROUNDTABLE_GROK_CLI_MODEL still pins one.
+        // A plain seat has no tools, so it has no turn cap: the bench saw "max turns
+        // reached" in 4 of 12 runs, from rules that sent it looking for files.
         "grok" => {
             if cfg!(windows) {
                 push("--prompt-file");
@@ -542,24 +618,46 @@ pub fn headless_args_with(cli: &Cli, prompt: &str, research: bool, out_file: &Pa
                 push("-m");
                 push(&m);
             }
-            push("--max-turns");
-            push(if research { "8" } else { "6" });
+            if research {
+                push("--max-turns");
+                push("16");
+                push("--tools");
+                push("web_search,web_fetch");
+            } else {
+                push("--tools");
+                push("todo_write");
+                push("--disallowed-tools");
+                push(GROK_NO_TOOLS);
+            }
             // One councilor answers; no helper agents.
             push("--no-subagents");
             if !research {
                 push("--disable-web-search");
             }
+            push("--rules");
+            push(seat_rule(research));
             PromptVia::Arg
         }
         // Piped input runs these headless. Gemini refuses an untrusted folder
         // without --skip-trust, and every run uses a fresh empty folder.
+        // `-e none` loads no extensions; the MCP allow list names no server.
         "gemini" => {
-            for s in ["--skip-trust", "--output-format", "text"] {
+            for s in ["--skip-trust", "--output-format", "text", "--extensions", "none", "--allowed-mcp-server-names", "roundtable-none"] {
                 push(s);
             }
             PromptVia::Stdin
         }
+        // --safe-mode: no context files, hooks, extensions, skills or MCP servers.
+        // A plain seat may call no tool at all (the first call ends the run).
         "qwen" => {
+            push("--safe-mode");
+            if research {
+                push("--exclude-tools");
+                push("run_shell_command,write_file,edit,read_file,read_many_files,list_directory,glob,search_file_content,save_memory");
+            } else {
+                push("--max-tool-calls");
+                push("0");
+            }
             push("--output-format");
             push("text");
             PromptVia::Stdin
@@ -583,8 +681,10 @@ pub fn headless_args_with(cli: &Cli, prompt: &str, research: bool, out_file: &Pa
             a.push(prompt.into());
             PromptVia::Arg
         }
+        // Ask mode cannot edit or run; the sandbox holds anything else. MCP servers
+        // need --approve-mcps, which a seat never gets.
         "cursor" => {
-            for s in ["-p", "--output-format", "text", "--trust", "--mode", "ask"] {
+            for s in ["-p", "--output-format", "text", "--trust", "--mode", "ask", "--sandbox", "enabled"] {
                 push(s);
             }
             a.push(prompt.into());
@@ -601,8 +701,12 @@ pub fn headless_args_with(cli: &Cli, prompt: &str, research: bool, out_file: &Pa
 /// `selectedAuthType` field, which headless mode no longer reads, so it stops with
 /// "Invalid auth method selected". GOOGLE_GENAI_USE_GCA picks the Google sign-in.
 /// Only the auth type name is read from settings, never a credential.
+/// Grok: `GROK_ENV` turns off memory and what it borrows from other tools.
 pub fn headless_env(cli: &Cli, home: &Path) -> Vec<(&'static str, String)> {
     let mut env = Vec::new();
+    if cli.id == "grok" {
+        env.extend(GROK_ENV.iter().map(|(k, v)| (*k, v.to_string())));
+    }
     if cli.id == "gemini" && std::env::var_os("GEMINI_API_KEY").is_none() && std::env::var_os("GOOGLE_GENAI_USE_GCA").is_none() {
         let v = std::fs::read_to_string(home.join(".gemini/settings.json"))
             .ok()
@@ -614,6 +718,94 @@ pub fn headless_env(cli: &Cli, home: &Path) -> Vec<(&'static str, String)> {
         }
     }
     env
+}
+
+/// Top-level Codex settings a seat keeps: which model and provider, and how it signs in.
+const CODEX_KEEP: &[&str] = &[
+    "model",
+    "model_provider",
+    "model_reasoning_effort",
+    "model_reasoning_summary",
+    "model_verbosity",
+    "preferred_auth_method",
+    "forced_login_method",
+    "forced_chatgpt_workspace_id",
+    "cli_auth_credentials_store",
+    "openai_base_url",
+    "chatgpt_base_url",
+];
+
+/// The part of a Codex `config.toml` a seat may use: the model, the provider tables
+/// it needs to reach that model, and the sign-in choice. MCP servers, hooks, plugins,
+/// projects, memories, agents and everything else stay behind.
+pub fn filter_codex_config(text: &str) -> String {
+    let mut out = Vec::new();
+    let mut table: Option<String> = None;
+    for line in text.lines() {
+        let t = line.trim();
+        if t.starts_with('[') {
+            let name = t.trim_start_matches('[').split(']').next().unwrap_or("").trim().to_string();
+            let keep = name == "model_providers" || name.starts_with("model_providers.");
+            if keep {
+                out.push(line);
+            }
+            table = Some(if keep { name } else { String::new() });
+            continue;
+        }
+        match &table {
+            None => {
+                let key = t.split('=').next().unwrap_or("").trim();
+                if t.contains('=') && CODEX_KEEP.contains(&key) {
+                    out.push(line);
+                }
+            }
+            Some(n) if !n.is_empty() => out.push(line),
+            _ => {}
+        }
+    }
+    let mut s = out.join("\n");
+    s.push('\n');
+    s
+}
+
+/// Where Codex keeps its settings and sign-in on this computer.
+pub fn codex_source_home() -> PathBuf {
+    std::env::var_os("CODEX_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| crate::paths::home().join(".codex"))
+}
+
+/// Build a clean CODEX_HOME for one seat inside `dir`: the sign-in file linked (so a
+/// token refresh still reaches the real one), and the filtered settings, readable by
+/// this user only. None when there is no sign-in file to link (a key or keyring
+/// sign-in); the seat then runs with `--ignore-user-config`.
+pub fn seat_codex_home(src: &Path, dir: &Path) -> Option<PathBuf> {
+    let auth = src.join("auth.json");
+    if !auth.is_file() {
+        return None;
+    }
+    let home = dir.join("codex-home");
+    std::fs::create_dir_all(&home).ok()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700));
+        std::os::unix::fs::symlink(&auth, home.join("auth.json")).ok()?;
+    }
+    #[cfg(windows)]
+    {
+        std::fs::hard_link(&auth, home.join("auth.json")).ok()?;
+    }
+    let cfg = std::fs::read_to_string(src.join("config.toml")).map(|t| filter_codex_config(&t)).unwrap_or_default();
+    let path = home.join("config.toml");
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path).ok()?;
+        f.write_all(cfg.as_bytes()).ok()?;
+    }
+    #[cfg(not(unix))]
+    std::fs::write(&path, cfg).ok()?;
+    Some(home)
 }
 
 /// The command line shown to people, with the question left out.
@@ -628,7 +820,9 @@ pub fn command_line(cli: &Cli, prompt: &str, research: bool, model: Option<&str>
     for a in args {
         let a = a.to_string_lossy().into_owned();
         s.push(' ');
-        if a.contains(' ') {
+        if a == seat_rule(false) || a == seat_rule(true) {
+            s.push_str("'<seat rule>'");
+        } else if a.is_empty() || a.contains(' ') || a.contains('"') || a.contains('{') {
             s.push_str(&sh_quote(&a));
         } else {
             s.push_str(&a);
@@ -680,6 +874,9 @@ pub struct Trial {
     pub secs: f64,
     /// Last lines of what the tool printed on stderr, colour codes removed.
     pub stderr_tail: String,
+    /// The first try failed and this is the second.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub retried: bool,
 }
 
 fn strip_ansi(s: &str) -> String {
@@ -746,6 +943,9 @@ pub fn explain(cli: &Cli, code: i32, stdout: &str, stderr: &str) -> Failure {
     if any(&["usage limit", "rate limit", "rate-limit", "too many requests", " 429", "quota", "out of credits", "insufficient balance"]) {
         return Failure { fix: Fix::Retry, message: format!("{name} hit its usage limit. Try again later.") };
     }
+    if any(&["unknown option", "unknown argument", "unrecognized option", "unexpected argument", "unknown flag"]) {
+        return Failure { fix: Fix::Install, message: format!("{name} is too old for Roundtable's safe seat settings. Update {name}, then try again.") };
+    }
     if any(&["unknown model", "model not found", "invalid model", "couldn't set model"]) {
         return Failure { fix: Fix::Retry, message: format!("{name} does not offer the model it was asked to use.") };
     }
@@ -783,25 +983,46 @@ pub fn ask_with(cli: &Cli, exe: &Path, prompt: &str, research: bool, timeout: Du
 
 /// Ask, and also say exactly what ran. A tool that fails on its own default model
 /// (OpenCode pointed at a provider that is down, say) is asked once more with a
-/// model from an account it is signed in to.
+/// model from an account it is signed in to. A run that times out or stops with an
+/// error worth retrying is asked once more before the seat is dropped.
 pub fn ask_detailed(cli: &Cli, exe: &Path, prompt: &str, research: bool, timeout: Duration) -> (CliResult, Trial) {
     let start = Instant::now();
+    let (mut r, mut trial) = ask_once(cli, exe, prompt, research, timeout);
+    if retryable(&r) {
+        let (r2, t2) = ask_once(cli, exe, prompt, research, timeout);
+        r = r2;
+        trial = t2;
+        trial.retried = true;
+    }
+    trial.secs = round1(start.elapsed().as_secs_f64());
+    (r, trial)
+}
+
+/// Worth one more try: a time-out, or an error that is not about sign-in, an install,
+/// a usage limit or a model the tool does not offer.
+pub fn retryable(r: &CliResult) -> bool {
+    match r {
+        CliResult::Timeout => true,
+        CliResult::Failed(f) => f.fix == Fix::Retry && !f.message.contains("usage limit") && !f.message.contains("does not offer the model") && !f.message.contains("could not start"),
+        _ => false,
+    }
+}
+
+fn ask_once(cli: &Cli, exe: &Path, prompt: &str, research: bool, timeout: Duration) -> (CliResult, Trial) {
+    let start = Instant::now();
     let pinned = if cli.id == "opencode" { std::env::var("ROUNDTABLE_OPENCODE_MODEL").ok().filter(|m| !m.trim().is_empty()) } else { None };
-    let (r, mut trial) = run_once(cli, exe, prompt, research, timeout, pinned.as_deref());
+    let (r, trial) = run_once(cli, exe, prompt, research, timeout, pinned.as_deref());
     if let CliResult::Failed(_) = &r {
         if pinned.is_none() {
             let left = timeout.saturating_sub(start.elapsed());
             if let Some(m) = fallback_model(cli, exe).filter(|_| left > Duration::from_secs(5)) {
                 let (r2, t2) = run_once(cli, exe, prompt, research, left, Some(&m));
                 if matches!(r2, CliResult::Answered(_)) {
-                    let mut t2 = t2;
-                    t2.secs = round1(start.elapsed().as_secs_f64());
                     return (r2, t2);
                 }
             }
         }
     }
-    trial.secs = round1(start.elapsed().as_secs_f64());
     (r, trial)
 }
 
@@ -811,14 +1032,23 @@ fn round1(x: f64) -> f64 {
 
 fn run_once(cli: &Cli, exe: &Path, prompt: &str, research: bool, timeout: Duration, model: Option<&str>) -> (CliResult, Trial) {
     let dir = std::env::temp_dir().join(format!("roundtable-{}-{}-{}", cli.id, std::process::id(), nanos()));
+    // The seat's working folder: fresh and empty, so there is nothing to read.
     let work = dir.join("work");
     let _ = std::fs::create_dir_all(&work);
     let last = dir.join("last.md");
-    let (args, via) = headless_args_with(cli, prompt, research, &last, model);
+    let (mut args, via) = headless_args_with(cli, prompt, research, &last, model);
     if cli.id == "grok" && cfg!(windows) {
         let _ = std::fs::write(last.with_extension("prompt"), prompt);
     }
     let mut c = tool_command(exe);
+    if cli.id == "codex" {
+        match seat_codex_home(&codex_source_home(), &dir) {
+            Some(h) => {
+                c.env("CODEX_HOME", h);
+            }
+            None => args.insert(1, "--ignore-user-config".into()),
+        }
+    }
     c.args(&args).current_dir(&work);
     for (k, v) in headless_env(cli, &crate::paths::home()) {
         c.env(k, v);
@@ -827,9 +1057,10 @@ fn run_once(cli: &Cli, exe: &Path, prompt: &str, research: bool, timeout: Durati
     let r = run_with_timeout(c, if via == PromptVia::Stdin { Some(prompt) } else { None }, timeout);
     let secs = round1(started.elapsed().as_secs_f64());
     let file_text = std::fs::read_to_string(&last).unwrap_or_default();
+    // Removes the clean CODEX_HOME too: the link goes, the real sign-in file stays.
     let _ = std::fs::remove_dir_all(&dir);
     let short: String = if prompt.chars().count() > 60 { "<question>".into() } else { prompt.into() };
-    let mut trial = Trial { tool: cli.name.into(), command: command_line(cli, &short, research, model), exit: None, secs, stderr_tail: String::new() };
+    let mut trial = Trial { tool: cli.name.into(), command: command_line(cli, &short, research, model), exit: None, secs, stderr_tail: String::new(), retried: false };
     let res = match r {
         Ok(None) => CliResult::Timeout,
         Ok(Some(ran)) => {
@@ -942,16 +1173,19 @@ mod tests {
         let (a, via) = headless_args(find("codex").unwrap(), "Q", false, Path::new("/tmp/last.md"));
         if !cfg!(windows) {
             let a: Vec<_> = a.iter().map(|s| s.to_string_lossy().into_owned()).collect();
-            assert_eq!(a, ["exec", "--skip-git-repo-check", "-s", "read-only", "-c", "tools.web_search=false", "-o", "/tmp/last.md", "Q"]);
+            assert_eq!(&a[..8], ["exec", "--skip-git-repo-check", "--ephemeral", "--ignore-rules", "-s", "read-only", "-c", "project_doc_max_bytes=0"]);
+            assert!(a.iter().any(|x| x == "tools.web_search=false"));
+            assert!(a.iter().any(|x| x == "features.shell_tool=false") && a.iter().any(|x| x == "features.code_mode_host=false"), "no commands");
+            assert_eq!(&a[a.len() - 3..], ["-o", "/tmp/last.md", "Q"]);
             assert_eq!(via, PromptVia::Arg);
             let (g, _) = headless_args(find("grok").unwrap(), "Q", true, Path::new("/tmp/x"));
             let g: Vec<_> = g.iter().map(|s| s.to_string_lossy().into_owned()).collect();
-            assert_eq!(g, ["-p", "Q", "--max-turns", "8", "--no-subagents"]);
+            assert_eq!(&g[..8], ["-p", "Q", "--max-turns", "16", "--tools", "web_search,web_fetch", "--no-subagents", "--rules"]);
         }
         let (c, via) = headless_args(find("claude").unwrap(), "Q", false, Path::new("/x"));
         assert_eq!(via, PromptVia::Stdin);
         assert!(c.iter().any(|s| s == "--strict-mcp-config"), "never load Roundtable into itself");
-        assert_eq!(how_line(find("claude").unwrap()), "claude -p --output-format text --strict-mcp-config --no-session-persistence --disallowedTools WebSearch,WebFetch < question");
+        assert_eq!(how_line(find("claude").unwrap()), "claude -p --output-format text --safe-mode --strict-mcp-config --mcp-config '{\"mcpServers\":{}}' --no-session-persistence --disable-slash-commands --tools '' --append-system-prompt '<seat rule>' < question");
     }
 
     fn args_of(id: &str, research: bool, model: Option<&str>) -> (Vec<String>, PromptVia) {
@@ -965,17 +1199,22 @@ mod tests {
     #[test]
     fn every_head_command_builder() {
         let (a, v) = args_of("claude", false, None);
-        assert_eq!(a, ["-p", "--output-format", "text", "--strict-mcp-config", "--no-session-persistence", "--disallowedTools", "WebSearch,WebFetch"]);
+        assert_eq!(
+            a,
+            ["-p", "--output-format", "text", "--safe-mode", "--strict-mcp-config", "--mcp-config", NO_MCP, "--no-session-persistence", "--disable-slash-commands", "--tools", "", "--append-system-prompt", seat_rule(false)]
+        );
         assert_eq!(v, PromptVia::Stdin);
         let (a, _) = args_of("claude", true, None);
-        assert!(!a.iter().any(|x| x == "--disallowedTools"), "web search allowed in research mode");
+        let tools = a.iter().position(|x| x == "--tools").unwrap();
+        assert_eq!(a[tools + 1], "WebSearch,WebFetch", "web search and fetch only in research mode");
 
         let (a, v) = args_of("gemini", false, None);
-        assert_eq!(a, ["--skip-trust", "--output-format", "text"], "a fresh folder is untrusted; without --skip-trust gemini exits 55");
+        assert_eq!(a[..3], ["--skip-trust", "--output-format", "text"], "a fresh folder is untrusted; without --skip-trust gemini exits 55");
+        assert_eq!(a[3..], ["--extensions", "none", "--allowed-mcp-server-names", "roundtable-none"]);
         assert_eq!(v, PromptVia::Stdin);
 
         let (a, v) = args_of("qwen", false, None);
-        assert_eq!(a, ["--output-format", "text"]);
+        assert_eq!(a, ["--safe-mode", "--max-tool-calls", "0", "--output-format", "text"]);
         assert_eq!(v, PromptVia::Stdin);
 
         let (a, v) = args_of("kimi", false, None);
@@ -989,17 +1228,19 @@ mod tests {
         assert_eq!(a, ["run", "-m", "zai-coding-plan/glm-5.3", "Q"]);
 
         let (a, v) = args_of("cursor", false, None);
-        assert_eq!(a, ["-p", "--output-format", "text", "--trust", "--mode", "ask", "Q"]);
+        assert_eq!(a, ["-p", "--output-format", "text", "--trust", "--mode", "ask", "--sandbox", "enabled", "Q"]);
         assert_eq!(v, PromptVia::Arg);
 
         if !cfg!(windows) {
             let (a, _) = args_of("grok", false, None);
-            assert_eq!(a, ["-p", "Q", "--max-turns", "6", "--no-subagents", "--disable-web-search"]);
+            assert_eq!(a, ["-p", "Q", "--tools", "todo_write", "--disallowed-tools", GROK_NO_TOOLS, "--no-subagents", "--disable-web-search", "--rules", seat_rule(false)]);
+            assert!(!a.iter().any(|x| x == "--max-turns"), "no tools, so no turn cap: 4 of 12 bench runs died on max turns");
             assert!(!a.iter().any(|x| x == "-m"), "the tool's own default model; rc4's fixed id no longer existed");
             let (a, _) = args_of("grok", false, Some("grok-4.7"));
             assert_eq!(&a[2..4], ["-m", "grok-4.7"]);
             let (a, v) = args_of("codex", true, None);
-            assert_eq!(a, ["exec", "--skip-git-repo-check", "-s", "read-only", "-o", "/tmp/last.md", "Q"]);
+            assert!(!a.iter().any(|x| x.contains("web_search")), "web on in research mode");
+            assert!(a.iter().any(|x| x == "features.shell_tool=false"), "still no commands in research mode");
             assert_eq!(v, PromptVia::Arg);
         }
         for c in CLIS {
@@ -1031,6 +1272,46 @@ mod tests {
         let f = explain(find("codex").unwrap(), 2, "", "");
         assert_eq!(f.message, "Codex stopped without an answer (exit 2).");
         assert!(!f.message.contains('\u{2014}'));
+    }
+
+    #[test]
+    fn codex_seat_settings_keep_only_the_model_and_provider() {
+        let cfg = "model_provider = \"cpa\"\nmodel = \"gpt-x\"\nnotify = [\"x\"]\napproval_policy = \"never\"\n\n[mcp_servers.dart]\ncommand = \"npx\"\n\n[model_providers.cpa]\nname = \"cpa\"\nbase_url = \"https://p.example/v1\"\n\n[hooks.pre]\ncmd = \"desk\"\n[projects.\"/Users/x\"]\ntrust_level = \"trusted\"\n[features]\nmemories = true\n";
+        let f = filter_codex_config(cfg);
+        assert!(f.contains("model_provider = \"cpa\"") && f.contains("model = \"gpt-x\""));
+        assert!(f.contains("[model_providers.cpa]") && f.contains("base_url = \"https://p.example/v1\""));
+        for gone in ["mcp_servers", "npx", "hooks", "desk", "projects", "trusted", "notify", "approval_policy", "[features]", "memories"] {
+            assert!(!f.contains(gone), "{gone} must not reach a seat:\n{f}");
+        }
+    }
+
+    #[test]
+    fn codex_seat_home_has_no_instructions_memory_or_servers() {
+        let src = tempfile::tempdir().unwrap();
+        let run = tempfile::tempdir().unwrap();
+        assert!(seat_codex_home(src.path(), run.path()).is_none(), "no sign-in file: run with --ignore-user-config");
+        std::fs::write(src.path().join("auth.json"), "{}").unwrap();
+        std::fs::write(src.path().join("AGENTS.md"), "# Kraken facts").unwrap();
+        std::fs::create_dir_all(src.path().join("memories")).unwrap();
+        std::fs::write(src.path().join("config.toml"), "model = \"m\"\n[mcp_servers.x]\ncommand = \"y\"\n").unwrap();
+        let home = seat_codex_home(src.path(), run.path()).unwrap();
+        let mut names: Vec<String> = std::fs::read_dir(&home).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        assert_eq!(names, ["auth.json", "config.toml"]);
+        assert_eq!(std::fs::read_to_string(home.join("config.toml")).unwrap(), "model = \"m\"\n");
+        std::fs::remove_dir_all(run.path().join("codex-home")).unwrap();
+        assert!(src.path().join("auth.json").is_file(), "removing the seat home keeps the real sign-in");
+    }
+
+    #[test]
+    fn what_is_worth_a_second_try() {
+        assert!(retryable(&CliResult::Timeout));
+        assert!(retryable(&CliResult::Failed(explain(find("grok").unwrap(), 1, "", "Error: max turns reached"))));
+        assert!(!retryable(&CliResult::Failed(explain(find("grok").unwrap(), 1, "", "not logged in"))));
+        assert!(!retryable(&CliResult::Failed(explain(find("grok").unwrap(), 1, "", "rate limit exceeded"))));
+        assert!(!retryable(&CliResult::Answered("x".into())));
+        let f = explain(find("claude").unwrap(), 1, "", "error: unknown option '--safe-mode'");
+        assert_eq!((f.fix, f.message.as_str()), (Fix::Install, "Claude Code is too old for Roundtable's safe seat settings. Update Claude Code, then try again."));
     }
 
     #[test]
@@ -1159,10 +1440,42 @@ mod tests {
             match ask_with(find("claude").unwrap(), &exe, "Bread or garden?", false, Duration::from_secs(10)) {
                 CliResult::Answered(t) => {
                     assert!(t.starts_with("answer to: Bread or garden?"));
-                    assert!(t.contains("--strict-mcp-config"));
+                    assert!(t.contains("--strict-mcp-config") && t.contains("--safe-mode"));
                 }
                 other => panic!("{other:?}"),
             }
+        }
+
+        #[test]
+        fn a_seat_runs_in_an_empty_folder_with_a_clean_codex_home() {
+            let bin = tempfile::tempdir().unwrap();
+            // Prints what the seat can see: its folder, and the CODEX_HOME it was given.
+            let exe = script(bin.path(), "codex", r#"o=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && o="$2"; shift; done
+{ echo "cwd:$(ls -A . | tr '\n' ' ')"; echo "home:${CODEX_HOME:-unset}"; } > "$o""#);
+            match ask_with(find("codex").unwrap(), &exe, "Q", false, Duration::from_secs(10)) {
+                CliResult::Answered(t) => {
+                    assert_eq!(t.lines().next(), Some("cwd:"), "the folder is empty: {t}");
+                    let home = t.lines().find_map(|l| l.strip_prefix("home:")).unwrap();
+                    if codex_source_home().join("auth.json").is_file() {
+                        assert!(home.contains("roundtable-codex-") && home.ends_with("codex-home"), "{home}");
+                        assert!(!Path::new(home).exists(), "the seat home is removed after the run");
+                    }
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+
+        #[test]
+        fn a_failed_seat_is_asked_once_more() {
+            let bin = tempfile::tempdir().unwrap();
+            let flag = bin.path().join("tried");
+            let exe = script(bin.path(), "kimi", &format!(r#"if [ -f '{0}' ]; then echo second; else touch '{0}'; echo 'Error: max turns reached' >&2; exit 1; fi"#, flag.display()));
+            let (r, trial) = ask_detailed(find("kimi").unwrap(), &exe, "Q", false, Duration::from_secs(10));
+            assert_eq!(r, CliResult::Answered("second".into()));
+            assert!(trial.retried);
+            let exe = script(bin.path(), "qwen", "echo 'not logged in' >&2; exit 1");
+            let (_, trial) = ask_detailed(find("qwen").unwrap(), &exe, "Q", false, Duration::from_secs(10));
+            assert!(!trial.retried, "a sign-in problem is not retried");
         }
 
         #[test]
