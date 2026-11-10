@@ -1,7 +1,7 @@
 // The controller: holds state, runs actions against the backend, re-renders.
 
 import { errorText, type Api, type EngineEvent, type HeadId, type VerdictShape } from "./api";
-import { attachmentLabel, attachmentsBlock, briefMarkdown, emptyBrief, looksLikeLink, mdFileName, priorText, runMarkdown, runSeats, sessionMarkdown } from "./session";
+import { attachmentLabel, attachmentsBlock, briefMarkdown, coachText, emptyBrief, looksLikeLink, mdFileName, priorText, runMarkdown, runSeats, sessionMarkdown } from "./session";
 import {
   applyEvent,
   back,
@@ -477,7 +477,7 @@ export class App {
     this.state.coach = { stage: "questions", loading: true, question, questions: [], answers: [], brief: emptyBrief(question), seats: null, suggesting: false, useSuggested: false };
     this.render();
     try {
-      const r = await this.api.coachQuestions(question);
+      const r = await this.api.coachQuestions(coachText(question, this.state.ask.attachments));
       const c = this.state.coach;
       if (!c || c.question !== question) return;
       if (!r.ok) {
@@ -501,7 +501,7 @@ export class App {
     this.state.coach = { ...c, loading: true, error: undefined };
     this.render();
     try {
-      const r = await this.api.coachBrief(c.question, c.questions.map((q, i) => ({ q, a: c.answers[i] ?? "" })));
+      const r = await this.api.coachBrief(coachText(c.question, this.state.ask.attachments), c.questions.map((q, i) => ({ q, a: c.answers[i] ?? "" })));
       if (!this.state.coach) return;
       this.state.coach = { ...this.state.coach, stage: "brief", loading: false, brief: r.brief, error: r.ok ? undefined : r.message };
     } catch (e) {

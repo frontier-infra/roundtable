@@ -56,6 +56,12 @@ export function attachmentsBlock(list: Attachment[]): string {
   return out.trimEnd();
 }
 
+/** The text the coach reads: the question, then the material every seat will read. Same words as coach::with_material. */
+export function coachText(question: string, list: Attachment[]): string {
+  const m = attachmentsBlock(list).trim();
+  return m ? `${question.trim()}\n\nATTACHED MATERIAL (every seat already reads this; do not ask for it):\n${m}` : question;
+}
+
 /** The line under an attachment's name. */
 export function attachmentNote(a: Attachment): string {
   const size = a.chars >= 1000 ? `${Math.round(a.chars / 100) / 10}k characters` : `${a.chars} characters`;
