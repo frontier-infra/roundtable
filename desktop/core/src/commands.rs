@@ -54,7 +54,7 @@ fn engine_cmd(args: &[&str]) -> Result<Command, String> {
     Ok(c)
 }
 
-fn engine_json(args: &[&str]) -> Result<Value, String> {
+pub(crate) fn engine_json(args: &[&str]) -> Result<Value, String> {
     let o = engine_cmd(args)?.output().map_err(|e| e.to_string())?;
     serde_json::from_slice(&o.stdout).map_err(|_| "The engine gave an unexpected answer.".to_string())
 }

@@ -4,6 +4,7 @@
 
 import type { App } from "./app";
 import { button, h } from "./dom";
+import { getJebadiah } from "./jebadiah";
 
 export type DecisionProvider = "jev" | "jebadiah" | "systemone";
 
@@ -163,6 +164,8 @@ export function decisionSection(app: App): HTMLElement {
       d.provider === "systemone"
         ? h("div", { class: "grid2" }, field("Name", d.name, "LINK21", "name"), field("Address", d.url, "http://127.0.0.1:8100", "url"), field("Model id", d.model, "model id", "model"))
         : null,
+      // Off or Jebadiah: what decision detect found on this computer, or how to get Jebadiah.
+      d.provider === null || d.provider === "jebadiah" ? h("div", { class: "jebadiah-local" }, getJebadiah(app)) : null,
     ),
   );
 }

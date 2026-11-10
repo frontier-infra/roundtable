@@ -5,7 +5,7 @@ use roundtable_engine::council::{self, AskOptions, Event, RunResult};
 use roundtable_engine::keys::{self, KeyStore, Keys};
 use roundtable_engine::settings::Settings;
 use roundtable_engine::verdict::Shape;
-use roundtable_engine::{attach, clis, coach, decision, history, mcp, paths, personas, providers, verify, VERSION};
+use roundtable_engine::{attach, clis, coach, decision, history, mcp, paths, personas, providers, verify, CREDIT_LINE, VERSION};
 use std::io::IsTerminal;
 use serde_json::json;
 use std::io::{Read, Write};
@@ -75,7 +75,7 @@ fn main() -> ExitCode {
     let rest = if args.is_empty() { &args[..] } else { &args[1..] };
     let code = match cmd {
         "" | "-h" | "--help" | "help" => {
-            println!("{USAGE}");
+            println!("{USAGE}\n{CREDIT_LINE}");
             0
         }
         "version" | "--version" | "-V" => cmd_version(rest),
@@ -104,6 +104,7 @@ fn cmd_version(args: &[String]) -> u8 {
         println!("{}", json!({"version": VERSION, "build": option_env!("RT_BUILD").unwrap_or("dev"), "engine": "rust"}));
     } else {
         println!("roundtable {VERSION}");
+        println!("{CREDIT_LINE}");
     }
     0
 }
@@ -383,7 +384,7 @@ fn cmd_ask(args: &[String]) -> u8 {
     let r = council::run(&opts, &k, &settings, &emit);
     let id = if a.no_history { None } else { record(&r, &opts, &a.source, &settings) };
     if let Some(p) = &a.out {
-        if let Err(e) = std::fs::write(p, &r.transcript) {
+        if let Err(e) = std::fs::write(p, roundtable_engine::with_credit(&r.transcript, settings.export_credit)) {
             eprintln!("WARN: could not save --out: {e}");
         }
     }

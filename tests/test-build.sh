@@ -43,7 +43,8 @@ for kind in wheel sdist; do
   run() { env -i HOME="$HOME_DIR" PATH="$WORK/v-$kind/bin:/usr/bin:/bin" "$RT" "$@"; }
 
   got="$(run --version)"; echo "$got"
-  [ "$got" = "roundtable $EXPECT_VERSION" ] || { echo "bad version: $got"; exit 1; }
+  [ "$(printf '%s\n' "$got" | head -n1)" = "roundtable $EXPECT_VERSION" ] || { echo "bad version: $got"; exit 1; }
+  printf '%s\n' "$got" | grep -q "^Free from Titanium Computing. .*https://titaniumcomputing.com/?utm_source=roundtable" || { echo "no credit line: $got"; exit 1; }
 
   # The README's first example. No keys here, so every head is skipped,
   # but the command must run and print the council transcript.

@@ -31,9 +31,10 @@ import { answerCard } from "./onboarding";
 import { renderCoach } from "./coach";
 import { attachmentLabel, attachmentNote, confidenceOf, formatVerdictBody, seatName, splitFinalVerdict, VERDICT_SHAPES, verdictHint, verdictTitle } from "../session";
 import { glyph, headLogo, lockup } from "../brand";
+import { mainFooter, withCredit } from "../credits";
 
 export function renderMain(app: App): HTMLElement {
-  return h("div", { class: "shell" }, sidebar(app), h("main", { class: "centre" }, topbar(app), centre(app)));
+  return h("div", { class: "shell" }, sidebar(app), h("main", { class: "centre" }, topbar(app), centre(app), mainFooter(app)));
 }
 
 function topbar(app: App): HTMLElement {
@@ -142,7 +143,7 @@ function centre(app: App): HTMLElement {
     return h(
       "div",
       { class: "pane" },
-      h("div", { class: "actions left" }, button("New question", () => app.newQuestion(), "btn"), button("Ask a follow-up", () => app.followUp(), "btn"), button("Copy as Markdown", () => void app.api.copyText(s.opened!.transcript).then(() => app.showToast("Copied as Markdown.")), "btn ghost"), button("Download .md", () => void app.api.saveTextFile("roundtable.md", s.opened!.transcript), "btn ghost")),
+      h("div", { class: "actions left" }, button("New question", () => app.newQuestion(), "btn"), button("Ask a follow-up", () => app.followUp(), "btn"), button("Copy as Markdown", () => void app.api.copyText(withCredit(s.opened!.transcript, s.settings.export_credit)).then(() => app.showToast("Copied as Markdown.")), "btn ghost"), button("Download .md", () => void app.api.saveTextFile("roundtable.md", withCredit(s.opened!.transcript, s.settings.export_credit)), "btn ghost")),
       h("div", { class: "transcript card" }, renderMarkdown(s.opened.transcript)),
     );
   }

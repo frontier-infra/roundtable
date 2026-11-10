@@ -246,6 +246,7 @@ export function defaultSettings(): Settings {
     blind_first_round: true,
     verdict_shape: "decision",
     decision: defaultDecision(),
+    export_credit: true,
   };
 }
 

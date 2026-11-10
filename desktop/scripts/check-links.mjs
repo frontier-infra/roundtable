@@ -7,8 +7,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, "..", "ui", "src", "providers.ts"), "utf8");
-const urls = [...new Set([...src.matchAll(/"(https:\/\/[^"]+)"/g)].map((m) => m[1]))];
+// providers.ts, the credits (Titanium, Jason's page) and the Get Jebadiah pages.
+const read = (f) => readFileSync(join(here, "..", "ui", "src", f), "utf8");
+const src = ["providers.ts", "credits.ts", "jebadiah.ts"].map(read).join("\n");
+// Each Jebadiah build's Hugging Face page, from the BUILDS table.
+const jebPages = [...read("jebadiah.ts").matchAll(/(?:gguf|mlx): "(jebadiah-[^"]+)"/g)].map((m) => `https://huggingface.co/frontier-infra/${m[1]}`);
+const urls = [...new Set([...[...src.matchAll(/"(https:\/\/[^"]+)"/g)].map((m) => m[1]), ...jebPages])];
 // The issues link takes query text; check the issues page itself.
 const targets = urls.map((u) => u.replace(/\/issues\/new$/, "/issues"));
 
