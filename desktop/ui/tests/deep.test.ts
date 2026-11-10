@@ -46,7 +46,7 @@ describe("the mode control", () => {
     const { app } = await start();
     expect(app.state.ask.depth).toBe("quick");
     expect(root.querySelector('[data-depth="quick"]')?.getAttribute("aria-checked")).toBe("true");
-    expect(root.querySelector("[data-depth-hint]")?.textContent).toContain("Quick: about 3 minutes.");
+    expect(root.querySelector("[data-depth-hint]")?.textContent).toContain("Quick: about 2 minutes.");
   });
 
   it("Deep Think shows its time before asking, always runs the coach, and sends --mode deep with four rounds", async () => {
@@ -102,7 +102,7 @@ describe("the coach suggests Deep Think", () => {
     await tick(30);
     expect(app.state.ask.depth).toBe("quick");
     expect(api.calls).toContain("mode:quick");
-    expect(api.calls.find((c) => c.startsWith("askStart:"))).toMatch(/^askStart:claude,gemini:2/);
+    expect(api.calls.find((c) => c.startsWith("askStart:"))).toMatch(/^askStart:claude,gemini:1/);
   });
 
   it("not on a simple one", async () => {
@@ -116,8 +116,7 @@ describe("the coach suggests Deep Think", () => {
 
 describe("estimates and export", () => {
   it("uses the engine's numbers", () => {
-    expect(estimateMinutes("quick")).toBe(3);
-    expect(estimateMinutes("quick", 1)).toBe(2);
+    expect(estimateMinutes("quick")).toBe(2);
     expect(estimateMinutes("deep")).toBe(14);
     expect(estimateMinutes("deep", 2)).toBe(8);
     expect(depthLine("deep")).toBe("Deep Think: about 14 minutes.");
@@ -128,6 +127,5 @@ describe("estimates and export", () => {
     r = applyEvent(r, { event: "run_started", heads: ["claude", "gemini"], rounds: 4, mode: "deliberation", depth: "deep" });
     expect(runMarkdown(r, { date: null })).toContain("**Mode:** Deep Think, up to 4 rounds");
     expect(runMarkdown(newRun("Q", ["claude"], 1), { date: null })).toContain("**Mode:** Quick, one round");
-    expect(runMarkdown(newRun("Q", ["claude"], 2), { date: null })).toContain("**Mode:** Quick, up to 2 rounds");
   });
 });

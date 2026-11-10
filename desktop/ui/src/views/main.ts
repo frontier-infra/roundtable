@@ -330,7 +330,7 @@ function askBox(app: App): HTMLElement {
       ),
       h("div", { class: "actions" }, n === 0 ? button("Open Settings", () => void app.openSettings(), "btn") : null, go),
     ),
-    deep && chairMissing ? h("p", { class: "small muted", text: "Deep Think works best with Claude connected, because Claude is the chair." }) : null,
+    ask.rounds > 1 && chairMissing ? h("p", { class: "small muted", text: "Deep Think works best with Claude connected, because Claude is the chair." }) : null,
   );
 }
 

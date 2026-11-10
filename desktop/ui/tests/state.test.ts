@@ -112,8 +112,8 @@ describe("asking", () => {
     expect(estimateLine(2, 3)).toBe("This will ask 2 AIs, 3 rounds, at most 9 requests.");
     expect(estimateLine(2, 2, 4)).toBe("This will ask 2 AIs in 4 seats, 2 rounds, at most 10 requests.");
     expect(estimateLine(0, 2)).toContain("Connect an AI");
-    expect(DEFAULT_ROUNDS).toBe(2);
-    expect(initialState().ask.rounds).toBe(2);
+    expect(DEFAULT_ROUNDS).toBe(1);
+    expect(initialState().ask.rounds).toBe(1);
     expect(initialState().ask.depth).toBe("quick");
   });
 
