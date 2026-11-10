@@ -98,6 +98,16 @@ describe("the update check", () => {
     expect(text()).toContain("Updating to Roundtable 0.1.3");
   });
 
+  it("a failed check says so in plain words, with no raw error", async () => {
+    const { app } = await start({}, { view: "settings" });
+    app.api.updateCheck = async () => {
+      throw "Could not fetch a valid release JSON from the remote";
+    };
+    await app.checkUpdate(false);
+    expect(text()).toContain("Could not check for updates. Roundtable tries again in 6 hours");
+    expect(text()).not.toContain("release JSON");
+  });
+
   it("no banner when this is the newest version", async () => {
     await start();
     expect(root.querySelector(".banner")).toBeNull();

@@ -155,7 +155,8 @@ export function updateStatusLine(app: App): string {
     if (u.ready && settings.auto_update) return `Roundtable ${u.version} is downloaded. It installs when you quit Roundtable, or now with Update now.`;
     return `Roundtable ${u.version} is ready.`;
   }
-  if (st.error) return `Could not check for updates: ${st.error}`;
+  // The raw error (a 404 before the first release, no network) means nothing to a person.
+  if (st.error) return "Could not check for updates. Roundtable tries again in 6 hours, or use Check now.";
   if (st.checkedAt) return `You have the latest version. Checked at ${timeOf(st.checkedAt)}.`;
   return "";
 }
