@@ -52,8 +52,9 @@ Ask flags:
                         against the leading pick, answers up to about 800 words, and
                         a long verdict (reasoning, trade-offs, risks, unknowns, a step
                         plan, the minority view in full). It says how long first
-      --rounds N        1 to 4, instead of the mode's rounds. 1: each AI answers once.
-                        2 to 4: they read each other and revise toward consensus
+      --rounds N        1 to 4, instead of the mode's rounds. 2 to 4: they read each
+                        other and revise. In Deep Think, Claude chairs every round and
+                        the run stops early on agreement; Quick runs them back to back
       --personas SPEC   Seat roles: a preset (pricing), a pack (business-roles),
                         or persona names (cfo,ceo@claude). generic: plain seats.
                         auto: suggest seats from the question (or the brief)

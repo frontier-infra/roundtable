@@ -53,7 +53,8 @@ Engine flags (passed through to 'ask'):
       --mode MODE       quick (default): one round, short answers, a short verdict.
                         deep: Deep Think. The coach first, up to 4 rounds, long
                         answers and a long verdict. It says how long first
-      --rounds N        1 to 4. 2 to 4 -> deliberation to consensus (instead of the mode's)
+      --rounds N        1 to 4, instead of the mode's. Deep Think: a chair rules each
+                        round and stops on consensus. Quick: rounds run back to back
       --personas SPEC   Seat roles: a preset (pricing), a pack (business-roles),
                         or names (cfo,ceo@claude). generic = plain seats.
                         auto = suggest seats from the question or brief

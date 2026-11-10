@@ -318,7 +318,7 @@ def report(args, scen, rows, date):
         L.append(f"- {mode_label(m)}: `{command_line(args, m)}`, {n} scenario{'s' if n != 1 else ''}")
     L.append(f"- Single AI: `{args.single}` (one answer, same question)")
     L.append(f"- Judge: `{args.judge}`, scored twice per scenario with the order swapped")
-    L.append(f"- Scenarios: {len(scen)} (bench/scenarios.json)")
+    L.append(f"- Scenarios: {len({r['id'] for r in rows})} (bench/scenarios.json)")
     L.append("")
     w = sum(r["pref"] == "table" for r in mrows)
     l = sum(r["pref"] == "single" for r in mrows)

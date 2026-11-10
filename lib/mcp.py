@@ -86,7 +86,7 @@ TOOL = {
                 "type": "string",
                 "enum": ["quick", "deep"],
                 "description": (
-                    "Optional. quick (the default): one round, short seat answers and a short verdict (the pick, confidence, what would change it, three next steps, one minority view), about 2 minutes. deep: Deep Think, for complex asks (several stakeholders, money or legal stakes, more than three options, missing facts): the coach first, up to 4 rounds that argue against the leading pick, long seat answers and a long verdict (reasoning by theme, trade-offs, risks, unknowns and how to resolve them, a step plan, the minority view in full). It takes about 10 to 15 minutes. rounds, when given, overrides the mode's rounds."
+                    "Optional. quick (the default): one round, short seat answers and a short verdict (the pick, confidence, what would change it, three next steps, one minority view), about 2 minutes. deep: Deep Think, for complex asks (several stakeholders, money or legal stakes, more than three options, missing facts): the coach first, up to 4 rounds that argue against the leading pick, long seat answers and a long verdict (reasoning by theme, trade-offs, risks, unknowns and how to resolve them, a step plan, the minority view in full). It takes about 14 minutes. rounds, when given, overrides the mode's rounds."
                 ),
             },
             "personas": {
