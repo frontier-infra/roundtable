@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_ROUNDS,
   applyEvent,
   allFailed,
   back,
@@ -98,17 +99,48 @@ describe("keys", () => {
 });
 
 describe("asking", () => {
-  it("counts requests honestly", () => {
+  it("counts requests honestly, multiplied by rounds", () => {
+    expect(requestEstimate(3, 1)).toBe(3);
     expect(requestEstimate(3, "quick")).toBe(3);
-    expect(requestEstimate(3, "talk")).toBe(12);
-    expect(estimateLine(3, "quick")).toBe("This will ask 3 AIs, about 3 requests.");
-    expect(estimateLine(1, "quick")).toBe("This will ask 1 AI, about 1 request.");
-    expect(estimateLine(2, "talk")).toBe("This will ask 2 AIs, at most 9 requests.");
-    expect(estimateLine(0, "quick")).toContain("Connect an AI");
+    // Each round asks every seat, and the chair once.
+    expect(requestEstimate(3, 2)).toBe(8);
+    expect(requestEstimate(3, 3)).toBe(12);
+    expect(requestEstimate(3, 4)).toBe(16);
+    expect(requestEstimate(3, 9)).toBe(16);
+    expect(estimateLine(3, 1)).toBe("This will ask 3 AIs, about 3 requests.");
+    expect(estimateLine(1, 1)).toBe("This will ask 1 AI, about 1 request.");
+    expect(estimateLine(2, 3)).toBe("This will ask 2 AIs, 3 rounds, at most 9 requests.");
+    expect(estimateLine(2, 2, 4)).toBe("This will ask 2 AIs in 4 seats, 2 rounds, at most 10 requests.");
+    expect(estimateLine(0, 2)).toContain("Connect an AI");
+    expect(DEFAULT_ROUNDS).toBe(2);
+    expect(initialState().ask.rounds).toBe(2);
+  });
+
+  it("keeps every round as a step, keyed by seat", () => {
+    const seats = [
+      { seat: "cfo@claude", head: "claude", persona: "CFO" },
+      { seat: "nvidia-view@claude", head: "claude", persona: "The NVIDIA view", label: "Simulated perspective drawn from public positions. Not affiliated with or endorsed by NVIDIA." },
+    ];
+    let r = newRun("Q", ["claude"], 3, false, null, seats);
+    expect(r.heads).toEqual(["cfo@claude", "nvidia-view@claude"]);
+    r = applyEvent(r, { event: "run_started", heads: ["claude"], rounds: 3, mode: "deliberation", seats });
+    for (const round of [1, 2, 3]) {
+      for (const s of seats) {
+        r = applyEvent(r, { event: "head_started", head: "claude", round, seat: s.seat });
+        r = applyEvent(r, { event: "head_done", head: "claude", round, seat: s.seat, status: "answered", text: `${s.persona} r${round}` });
+      }
+      r = applyEvent(r, { event: "chair_verdict", round, consensus: round === 3, text: round === 3 ? "VERDICT: CONSENSUS\n- ok" : "VERDICT: CONTINUE\n- no" });
+    }
+    expect(r.steps.map((s) => s.round)).toEqual([1, 2, 3]);
+    expect(r.steps[1].answers["cfo@claude"].text).toBe("CFO r2");
+    expect(r.steps[2].verdict?.consensus).toBe(true);
+    expect(r.cards["nvidia-view@claude"].text).toBe("The NVIDIA view r3");
+    expect(r.cards["nvidia-view@claude"].label).toContain("Not affiliated with or endorsed by NVIDIA.");
+    expect(r.cards["cfo@claude"].persona).toBe("CFO");
   });
 
   it("folds engine events into live cards", () => {
-    let r = newRun("Q", ["claude", "gemini"], "talk");
+    let r = newRun("Q", ["claude", "gemini"], 3);
     r = applyEvent(r, { event: "run_started", heads: ["claude", "gemini"], rounds: 3, mode: "deliberation" });
     r = applyEvent(r, { event: "head_started", head: "claude", round: 1 });
     expect(r.cards.claude.status).toBe("thinking");

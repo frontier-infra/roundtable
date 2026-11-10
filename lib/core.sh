@@ -7,9 +7,13 @@
 #
 # MODES:
 #   --rounds 1  (default)  ADVISORY     — each head answers once, BLIND to the others. Raw answers.
-#   --rounds N  (N>=2)     DELIBERATION — round 1 blind; rounds 2..N each head sees the WHOLE table
+#   --rounds N  (N=2..4)   DELIBERATION — round 1 blind; rounds 2..N each head sees the WHOLE table
 #                          and revises; the chair declares CONSENSUS or CONTINUE after each round and
 #                          stops early on consensus. Prints every round + the chair's verdicts.
+#                          At most 4 rounds.
+#
+# PERSONAS: --personas SPEC seats a role on each AI (lib/personas.py, packs in ../personas):
+#   a preset (pricing), a pack (business-roles), or names (cfo,ceo@claude). generic = plain seats.
 #
 # CONFIG: keys/overrides load from ~/.config/roundtable/config.env (dotenv), then ~/.api_keys (back-compat).
 # KEYS: XAI_API_KEY (Grok) · OPENAI_API_KEY (OpenAI) · ZAI_API_KEY (GLM) · MINIMAX_API_KEY ·
@@ -23,6 +27,7 @@
 #   core.sh -q "..." -c context.md                   # shared context file for every head
 #   core.sh -q "..." --research                      # web ON + multi-step (current/external facts)
 #   core.sh -q "..." --out /tmp/rt.md                # also save the transcript
+#   core.sh -q "..." --personas pricing              # seat a panel of roles on the AIs
 #
 # ENV OVERRIDES: ROUNDTABLE_{GROK,OPENAI,GLM,MINIMAX,GEMINI,CLAUDE,CHAIR}_MODEL ·
 #                ROUNDTABLE_{GROK_XAI,OPENAI,GLM,MINIMAX,GEMINI}_URL
@@ -36,6 +41,7 @@ RESEARCH=0
 CONTEXT_FILE=""
 OUT_FILE=""
 QUESTION=""
+PERSONAS="${ROUNDTABLE_PERSONAS:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -43,6 +49,7 @@ while [[ $# -gt 0 ]]; do
     -c|--context)  CONTEXT_FILE="$2"; shift 2 ;;
     --heads)       HEADS="$2"; shift 2 ;;
     --rounds)      ROUNDS="$2"; shift 2 ;;
+    --personas)    PERSONAS="$2"; shift 2 ;;
     --timeout)     TIMEOUT="$2"; shift 2 ;;
     --research)    RESEARCH=1; shift ;;
     --out)         OUT_FILE="$2"; shift 2 ;;
@@ -53,6 +60,9 @@ done
 
 [[ -z "$TIMEOUT" ]] && { if [[ "$RESEARCH" -eq 1 ]]; then TIMEOUT=360; else TIMEOUT=300; fi; }
 [[ -z "$QUESTION" ]] && { echo "ERROR: no question. Use -q \"...\"." >&2; exit 2; }
+[[ "$ROUNDS" =~ ^[0-9]+$ ]] || { echo "ERROR: --rounds needs a number" >&2; exit 2; }
+[[ "$ROUNDS" -lt 1 ]] && ROUNDS=1
+[[ "$ROUNDS" -gt 4 ]] && { echo "NOTE: --rounds is at most 4. Running 4." >&2; ROUNDS=4; }
 
 BASE_PROMPT="$QUESTION"
 if [[ -n "$CONTEXT_FILE" && -f "$CONTEXT_FILE" ]]; then
@@ -297,7 +307,42 @@ done
 # so a bad --heads list would otherwise crash. Skip gracefully with a clear message instead.
 [[ ${#ACTIVE[@]} -eq 0 ]] && { echo "ERROR: no valid heads selected (after dropping unknown heads)." >&2; exit 2; }
 
-run_all_heads() { local h; for h in "${ACTIVE[@]}"; do "run_$h" & done; wait; }
+# ── SEATS: one per head (Generic), or the personas from --personas on those heads ──
+declare -a SEAT_HEAD SEAT_NAME SEAT_DISC
+SEAT_HEAD=(); SEAT_NAME=(); SEAT_DISC=()
+PERSONA_SEATS=0
+_p="$(printf '%s' "$PERSONAS" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+if [[ -n "$_p" && "$_p" != "generic" ]]; then
+  _csv="$(IFS=','; echo "${ACTIVE[*]}")"
+  python3 "$(dirname "$0")/personas.py" seats "$PERSONAS" "$_csv" "$WORK" || exit 2
+  while IFS=$'\t' read -r _h _n _d; do
+    SEAT_HEAD+=("$_h"); [[ "$_n" == "-" ]] && _n=""; [[ "$_d" == "-" ]] && _d=""
+    SEAT_NAME+=("$_n"); SEAT_DISC+=("$_d")
+    [[ -n "$_n" ]] && PERSONA_SEATS=1
+  done < "$WORK/seats.tsv"
+else
+  for h in "${ACTIVE[@]}"; do SEAT_HEAD+=("$h"); SEAT_NAME+=(""); SEAT_DISC+=(""); done
+fi
+NSEATS=${#SEAT_HEAD[@]}
+
+# seat_label <i>: "CFO · 🔵 Claude (...)" on a persona seat, the head label on a Generic one.
+seat_label() {
+  local i="$1"
+  if [[ -n "${SEAT_NAME[$i]}" ]]; then echo "${SEAT_NAME[$i]} · $(label_for "${SEAT_HEAD[$i]}")"; else label_for "${SEAT_HEAD[$i]}"; fi
+}
+
+# Every seat runs in its own subshell and folder, so two seats on one AI never share files.
+# Each seat reads its brief (empty on a Generic seat), then the round's prompt.
+run_all_seats() {
+  local i
+  for ((i=0; i<NSEATS; i++)); do
+    ( WORK="$WORK/s$i"; mkdir -p "$WORK"; PFILE="$WORK/round.prompt"
+      { [[ -f "$WORK/../brief.$i" ]] && cat "$WORK/../brief.$i"; cat "$ROUND_PFILE"; } > "$PFILE"
+      "run_${SEAT_HEAD[$i]}" ) &
+  done
+  wait
+}
+ROUND_PFILE="$PFILE"
 
 body_of_file() {
   local f="$1" b
@@ -313,16 +358,21 @@ body_of_file() {
 
 OUT="$WORK/transcript.md"
 say() { printf '%s\n' "$*" >>"$OUT"; }
+# seat_body <i> <file>: the answer, with the lab label first on a lab seat.
+seat_body() {
+  if [[ -n "${SEAT_DISC[$1]}" ]]; then printf '_%s_\n\n' "${SEAT_DISC[$1]}"; fi
+  body_of_file "$2"
+}
 
-say "# 🪑 Round Table — ${#ACTIVE[@]} heads — $([[ $ROUNDS -le 1 ]] && echo 'advisory' || echo "deliberation (≤$ROUNDS rounds)")"
+say "# 🪑 Round Table — $NSEATS $([[ $PERSONA_SEATS -eq 1 ]] && echo seats || echo heads) — $([[ $ROUNDS -le 1 ]] && echo 'advisory' || echo "deliberation (≤$ROUNDS rounds)")"
 say ""
 say "_Question:_ ${QUESTION}"
 say ""
 
 if [[ "$ROUNDS" -le 1 ]]; then
   printf '%s' "$BASE_PROMPT" > "$PFILE"
-  run_all_heads
-  for h in "${ACTIVE[@]}"; do say "---"; say "## $(label_for "$h")"; say ""; say "$(body_of_file "$WORK/$h.out")"; say ""; done
+  run_all_seats
+  for ((i=0; i<NSEATS; i++)); do say "---"; say "## $(seat_label "$i")"; say ""; say "$(seat_body "$i" "$WORK/s$i/${SEAT_HEAD[$i]}.out")"; say ""; done
   say "---"
   say "_Advisory mode — independent answers, no cross-talk. Use \`--rounds N\` for deliberation-to-consensus._"
 else
@@ -332,16 +382,16 @@ else
       printf '%s' "$BASE_PROMPT" > "$PFILE"
     else
       { printf '%s\n\n---\n## COUNCIL DELIBERATION — every councilor'\''s position from round %d:\n\n' "$BASE_PROMPT" "$((r-1))"
-        for h in "${ACTIVE[@]}"; do printf '### %s\n%s\n\n' "$(label_for "$h")" "$(body_of_file "$WORK/$h.r$((r-1)).out")"; done
+        for ((i=0; i<NSEATS; i++)); do printf '### %s\n%s\n\n' "$(seat_label "$i")" "$(body_of_file "$WORK/s$i.r$((r-1)).out")"; done
         printf '## YOUR TASK (round %d)\nYou are ONE councilor. You have now read everyone. Update your position. State explicitly: (a) where a peer changed your mind — name them; (b) where you still disagree and why; (c) your sharpened current answer. Begin your reply with "POSITION:".\n' "$r"
       } > "$PFILE"
     fi
-    run_all_heads
-    for h in "${ACTIVE[@]}"; do cp "$WORK/$h.out" "$WORK/$h.r$r.out" 2>/dev/null; done
+    run_all_seats
+    for ((i=0; i<NSEATS; i++)); do cp "$WORK/s$i/${SEAT_HEAD[$i]}.out" "$WORK/s$i.r$r.out" 2>/dev/null; done
     say "## ─────── Round $r ───────"; say ""
-    for h in "${ACTIVE[@]}"; do say "### $(label_for "$h")"; say ""; say "$(body_of_file "$WORK/$h.r$r.out")"; say ""; done
+    for ((i=0; i<NSEATS; i++)); do say "### $(seat_label "$i")"; say ""; say "$(seat_body "$i" "$WORK/s$i.r$r.out")"; say ""; done
     { printf 'You are the neutral CHAIR of an AI design council. The councilors submitted these round %d positions to this question:\n\n%s\n\n--- POSITIONS ---\n\n' "$r" "$QUESTION"
-      for h in "${ACTIVE[@]}"; do printf '### %s\n%s\n\n' "$(label_for "$h")" "$(body_of_file "$WORK/$h.r$r.out")"; done
+      for ((i=0; i<NSEATS; i++)); do printf '### %s\n%s\n\n' "$(seat_label "$i")" "$(body_of_file "$WORK/s$i.r$r.out")"; done
       printf -- '--- YOUR JOB ---\nLine 1 must be EXACTLY one of: "VERDICT: CONSENSUS" (the councilors substantively agree on the core recommendation) or "VERDICT: CONTINUE" (material disagreement remains). Then give: **AGREED** (bullets) and **REMAINING DISAGREEMENTS** (bullets — name who holds what). Be strict: consensus means real convergence on the answer, not mere overlap.\n'
     } > "$WORK/chair.prompt"
     CHAIR_OUT="$(anthropic_call "$CHAIR_MODEL" "$WORK/chair.prompt")"

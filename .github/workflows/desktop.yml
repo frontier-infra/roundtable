@@ -3,10 +3,10 @@ name: desktop
 
 on:
   pull_request:
-    paths: ["desktop/**", ".github/workflows/desktop*.yml", ".claude-plugin/**", "lib/core.sh"]
+    paths: ["desktop/**", ".github/workflows/desktop*.yml", ".claude-plugin/**", "lib/**", "personas/**"]
   push:
     branches: [main]
-    paths: ["desktop/**", ".github/workflows/desktop*.yml", ".claude-plugin/**", "lib/core.sh"]
+    paths: ["desktop/**", ".github/workflows/desktop*.yml", ".claude-plugin/**", "lib/**", "personas/**"]
 
 permissions:
   contents: read
@@ -47,6 +47,8 @@ jobs:
           workspaces: desktop
       - name: Engine unit tests and the key-leak scan
         run: cargo test -p roundtable-engine
+      - name: Engine tests without the Frontier labs pack
+        run: cargo test -p roundtable-engine --no-default-features --lib personas
       - name: Parity with the bash engine
         run: |
           cargo build -p roundtable-engine

@@ -16,7 +16,8 @@ pub fn tool() -> Value {
             "properties": {
                 "question": {"type": "string", "description": "The question to put to the council."},
                 "heads": {"type": "string", "description": "Optional comma-separated subset of heads to convene (any of: grok,codex,openai,glm,minimax,claude,gemini). Defaults to all configured heads."},
-                "rounds": {"type": "integer", "description": "Optional number of deliberation rounds. 1 (default) = advisory (blind, independent answers); N>=2 = chaired deliberation to consensus, stopping early when the chair declares consensus.", "minimum": 1},
+                "rounds": {"type": "integer", "description": "Optional number of rounds, 1 to 4. 1 (default) = advisory (blind, independent answers); 2 to 4 = the seats read each other and revise toward consensus, and a Claude chair gives the verdict, stopping early when they agree.", "minimum": 1, "maximum": 4},
+                "personas": {"type": "string", "description": "Optional seat roles. A preset (security-review, go-to-market, hiring-decision, pricing, architecture-review, exec-team, board-review, frontier-four), a pack (business-roles, frontier-labs), or a comma list of persona ids or names, each optionally ending in @<head> (cfo,ceo@claude). 'generic' or empty = plain seats. Lab seats are simulated perspectives drawn from public positions, not affiliated with or endorsed by the lab."},
                 "research": {"type": "boolean", "description": "Optional. Enable web research / deeper reasoning for heads that support it (longer per-head timeout). Defaults to false."}
             },
             "required": ["question"],
@@ -25,8 +26,8 @@ pub fn tool() -> Value {
     })
 }
 
-/// One tool call: (question, heads, rounds, research) -> (text, is_error).
-pub type Runner<'a> = dyn Fn(&str, Option<&str>, Option<u32>, bool) -> (String, bool) + 'a;
+/// One tool call: (question, heads, rounds, research, personas) -> (text, is_error).
+pub type Runner<'a> = dyn Fn(&str, Option<&str>, Option<u32>, bool, Option<&str>) -> (String, bool) + 'a;
 
 fn ok(id: &Value, result: Value) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "result": result})
@@ -74,13 +75,14 @@ pub fn dispatch(msg: &Value, run: &Runner) -> Option<Value> {
             let rounds = match args.get("rounds") {
                 None | Some(Value::Null) => None,
                 Some(v) => match v.as_u64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok())) {
-                    Some(n) => Some(n.clamp(1, 10) as u32),
+                    Some(n) => Some(n.clamp(1, 4) as u32),
                     None => return Some(err(&id, -32602, "'rounds' must be an integer")),
                 },
             };
             let heads = args.get("heads").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
             let research = args.get("research").and_then(|v| v.as_bool()).unwrap_or(false);
-            let (text, is_error) = run(&q, heads, rounds, research);
+            let personas = args.get("personas").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
+            let (text, is_error) = run(&q, heads, rounds, research, personas);
             ok(&id, json!({"content": [{"type": "text", "text": text}], "isError": is_error}))
         }
         other => err(&id, -32601, &format!("Method not found: {other}")),
@@ -141,8 +143,8 @@ pub fn selftest_check(stdout: &str) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    fn fake(q: &str, h: Option<&str>, r: Option<u32>, res: bool) -> (String, bool) {
-        (format!("q={q} h={h:?} r={r:?} res={res}"), false)
+    fn fake(q: &str, h: Option<&str>, r: Option<u32>, res: bool, p: Option<&str>) -> (String, bool) {
+        (format!("q={q} h={h:?} r={r:?} res={res} p={p:?}"), false)
     }
 
     #[test]
@@ -157,14 +159,16 @@ mod tests {
         let t = tool();
         assert_eq!(t["inputSchema"]["required"], json!(["question"]));
         let props: Vec<_> = t["inputSchema"]["properties"].as_object().unwrap().keys().cloned().collect();
-        assert_eq!(props, vec!["question", "heads", "rounds", "research"]);
+        assert_eq!(props, vec!["question", "heads", "rounds", "personas", "research"]);
     }
 
     #[test]
     fn call_passes_arguments() {
-        let m = json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"roundtable","arguments":{"question":"Hi","heads":"claude","rounds":2,"research":true}}});
+        let m = json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"roundtable","arguments":{"question":"Hi","heads":"claude","rounds":2,"research":true,"personas":"pricing"}}});
         let r = dispatch(&m, &fake).unwrap();
-        assert_eq!(r["result"]["content"][0]["text"], "q=Hi h=Some(\"claude\") r=Some(2) res=true");
+        assert_eq!(r["result"]["content"][0]["text"], "q=Hi h=Some(\"claude\") r=Some(2) res=true p=Some(\"pricing\")");
+        let m = json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"roundtable","arguments":{"question":"Hi","rounds":9}}});
+        assert!(dispatch(&m, &fake).unwrap()["result"]["content"][0]["text"].as_str().unwrap().contains("r=Some(4)"));
         assert_eq!(r["result"]["isError"], false);
     }
 

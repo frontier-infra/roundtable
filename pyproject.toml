@@ -47,6 +47,7 @@ packages = ["roundtable_cli"]
 [tool.hatch.build.targets.wheel.force-include]
 "bin" = "roundtable_cli/_engine/bin"
 "lib" = "roundtable_cli/_engine/lib"
+"personas" = "roundtable_cli/_engine/personas"
 "skills/roundtable/SKILL.md" = "roundtable_cli/_engine/skill/SKILL.md"
 
 [tool.hatch.build.targets.sdist]
@@ -54,6 +55,7 @@ include = [
   "/roundtable_cli",
   "/bin",
   "/lib",
+  "/personas",
   "/skills",
   "/commands",
   "/.claude-plugin",

@@ -7,6 +7,7 @@ import { connectedHeads, helpUrl, keychainName } from "../state";
 import { claudeConnect, cliList, keyCard } from "./onboarding";
 import { withGlyph } from "./main";
 import { lockup } from "../brand";
+import { personasSection } from "./personas";
 
 function section(title: string, ...body: (HTMLElement | null)[]): HTMLElement {
   return h("section", { class: "setting" }, h("h2", { text: title }), h("div", { class: "setting-body" }, body));
@@ -78,6 +79,7 @@ export function renderSettings(app: App): HTMLElement {
         "Who sits at the table",
         seats.length ? h("div", { class: "stack" }, seats) : h("p", { class: "muted", text: "Connect an AI above first." }),
       ),
+      section("Personas", ...personasSection(app)),
       section("Claude connection", h("div", { class: "stack" }, claudeConnect(app, true))),
       section(
         "History",

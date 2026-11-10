@@ -23,7 +23,8 @@ SDIST="$(ls "$WORK"/dist/roundtable_sh-"$EXPECT_VERSION".tar.gz)"
 
 step "wheel contents"
 for f in roundtable_cli/_engine/bin/roundtable roundtable_cli/_engine/lib/core.sh \
-         roundtable_cli/_engine/lib/mcp.py roundtable_cli/_engine/skill/SKILL.md; do
+         roundtable_cli/_engine/lib/mcp.py roundtable_cli/_engine/lib/personas.py \
+         roundtable_cli/_engine/personas/business-roles.json roundtable_cli/_engine/skill/SKILL.md; do
   "$WORK/tools/bin/python" -c "import sys,zipfile; n=zipfile.ZipFile(sys.argv[1]).namelist(); sys.exit(0 if sys.argv[2] in n else 1)" "$WHEEL" "$f" \
     || { echo "missing from wheel: $f"; exit 1; }
   echo "ok $f"

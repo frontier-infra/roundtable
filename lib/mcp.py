@@ -76,11 +76,16 @@ TOOL = {
             "rounds": {
                 "type": "integer",
                 "description": (
-                    "Optional number of deliberation rounds. 1 (default) = advisory "
-                    "(blind, independent answers); N>=2 = chaired deliberation to "
-                    "consensus, stopping early when the chair declares consensus."
+                    'Optional number of rounds, 1 to 4. 1 (default) = advisory (blind, independent answers); 2 to 4 = the seats read each other and revise toward consensus, and a Claude chair gives the verdict, stopping early when they agree.'
                 ),
                 "minimum": 1,
+                "maximum": 4,
+            },
+            "personas": {
+                "type": "string",
+                "description": (
+                    "Optional seat roles. A preset (security-review, go-to-market, hiring-decision, pricing, architecture-review, exec-team, board-review, frontier-four), a pack (business-roles, frontier-labs), or a comma list of persona ids or names, each optionally ending in @<head> (cfo,ceo@claude). 'generic' or empty = plain seats. Lab seats are simulated perspectives drawn from public positions, not affiliated with or endorsed by the lab."
+                ),
             },
             "research": {
                 "type": "boolean",
@@ -130,7 +135,7 @@ def _engine_timeout(rounds, research):
     return per_round * max(1, int(rounds or 1)) + 120
 
 
-def run_engine(question, heads=None, rounds=None, research=False):
+def run_engine(question, heads=None, rounds=None, research=False, personas=None):
     """Subprocess core.sh and return (transcript_text, is_error)."""
     if not os.path.exists(CORE_SH):
         return ("Roundtable engine not found at %s — is the install complete?" % CORE_SH, True)
@@ -139,7 +144,9 @@ def run_engine(question, heads=None, rounds=None, research=False):
     if heads:
         cmd += ["--heads", str(heads)]
     if rounds is not None:
-        cmd += ["--rounds", str(int(rounds))]
+        cmd += ["--rounds", str(max(1, min(4, int(rounds))))]
+    if personas:
+        cmd += ["--personas", str(personas)]
     if research:
         cmd += ["--research"]
 
@@ -212,6 +219,7 @@ def handle_tools_call(req_id, params):
         heads=args.get("heads"),
         rounds=rounds,
         research=bool(args.get("research", False)),
+        personas=args.get("personas") or None,
     )
     _result(req_id, {"content": [{"type": "text", "text": text}], "isError": is_error})
 

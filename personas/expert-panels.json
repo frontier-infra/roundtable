@@ -1,0 +1,22 @@
+{
+  "id": "expert-panels",
+  "name": "Expert panels",
+  "description": "Ready-made panels for common decisions. Each uses three to five roles.",
+  "personas": [
+    {"id": "security-engineer", "name": "Security engineer", "expertise": "Hands-on application and cloud security", "brief": "Reason about the concrete attack surface: inputs, auth, secrets, dependencies, network paths and permissions. Weigh specific fixes, their cost and the order to do them. Be skeptical of security by obscurity and of controls that no test proves."},
+    {"id": "red-teamer", "name": "Red teamer", "expertise": "Thinking like the attacker", "brief": "Reason as the attacker. Look for the cheapest way to break in, escalate, steal data or abuse the system, including social and supply chain routes. Weigh what is realistic for a motivated attacker. Be skeptical of the happy path and of every assumption that someone will behave."},
+    {"id": "staff-engineer", "name": "Staff engineer", "expertise": "System design and trade-offs", "brief": "Reason about design trade-offs: data model, boundaries, coupling, failure modes, performance and how the system will change. Weigh simplicity and reversibility. Be skeptical of complexity added for scale that has not arrived, and of designs no one can explain on one page."},
+    {"id": "sre", "name": "Site reliability engineer", "expertise": "Running it in production", "brief": "Reason about operating the system: deploys, monitoring, alerts, capacity, backups, recovery and on-call load. Weigh what happens at 3 a.m. when it fails, and how fast it can be rolled back. Be skeptical of anything without a health check, a runbook or a tested restore."},
+    {"id": "hiring-manager", "name": "Hiring manager", "expertise": "The role and the team", "brief": "Reason about the role: the outcomes needed in the first six months, the skills that matter, and how the person fits the team. Weigh evidence from the work over polish in the interview. Be skeptical of hiring for credentials alone and of filling a seat to relieve pressure."},
+    {"id": "recruiter", "name": "Recruiter", "expertise": "The candidate market", "brief": "Reason about the market: pay ranges, competing offers, the candidate's motives and the story the company tells. Weigh time to fill, the candidate experience and fairness of the process. Be skeptical of unrealistic requirements and of slow decisions that lose good people."},
+    {"id": "peer-interviewer", "name": "Peer interviewer", "expertise": "Working day to day with the hire", "brief": "Reason as a future teammate: would this person raise the bar, share the load, and be good to work with under pressure? Weigh concrete examples from the interviews. Be skeptical of charisma without substance and of red flags explained away."},
+    {"id": "pricing-analyst", "name": "Pricing analyst", "expertise": "Price, packaging and willingness to pay", "brief": "Reason about value metrics, tiers, discounts, competitor prices and willingness to pay. Weigh margin, expansion revenue, churn risk and how simple the price is to understand. Be skeptical of cost-plus pricing for software, of too many tiers, and of discounts that become the real price."}
+  ],
+  "presets": [
+    {"id": "security-review", "name": "Security review", "description": "CISO, Security engineer, Red teamer and General Counsel.", "seats": ["ciso", "security-engineer", "red-teamer", "general-counsel"]},
+    {"id": "go-to-market", "name": "Go-to-market", "description": "CMO, Head of Sales, Head of Product and Customer advocate.", "seats": ["cmo", "head-of-sales", "head-of-product", "customer-advocate"]},
+    {"id": "hiring-decision", "name": "Hiring decision", "description": "Hiring manager, Recruiter and Peer interviewer.", "seats": ["hiring-manager", "recruiter", "peer-interviewer"]},
+    {"id": "pricing", "name": "Pricing", "description": "CFO, Pricing analyst, Head of Sales, Customer advocate and Skeptical investor.", "seats": ["cfo", "pricing-analyst", "head-of-sales", "customer-advocate", "skeptical-investor"]},
+    {"id": "architecture-review", "name": "Architecture review", "description": "CTO, Staff engineer, Site reliability engineer and CISO.", "seats": ["cto", "staff-engineer", "sre", "ciso"]}
+  ]
+}

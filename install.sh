@@ -113,9 +113,10 @@ install_engine() {
 
   info "Installing engine → $SHARE_DIR"
   mkdir -p "$SHARE_DIR"
-  rm -rf "$SHARE_DIR/bin" "$SHARE_DIR/lib" "$SHARE_DIR/skill"
+  rm -rf "$SHARE_DIR/bin" "$SHARE_DIR/lib" "$SHARE_DIR/skill" "$SHARE_DIR/personas"
   cp -R "$SRC/bin" "$SHARE_DIR/bin"
   cp -R "$SRC/lib" "$SHARE_DIR/lib"
+  [ -d "$SRC/personas" ] && cp -R "$SRC/personas" "$SHARE_DIR/personas"
   [ -e "$SHARE_DIR/bin/roundtable" ] && chmod +x "$SHARE_DIR/bin/roundtable" 2>/dev/null || true
 
   # Ship the Claude Code skill next to the engine so `roundtable install` can drop

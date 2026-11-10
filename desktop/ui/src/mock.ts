@@ -1,8 +1,9 @@
 // A fake backend with the same shape as the Rust core. Used by the UI tests and by the
 // browser preview (`?mock=1`), so every screen can be seen without keys or network.
 
-import type { Api, ClaudeStatus, CliDetection, EngineEvent, Fix, HeadTest, HistoryEntry, KeysStatus, Settings } from "./api";
-import { defaultSettings } from "./state";
+import type { Api, ClaudeStatus, CliDetection, EngineEvent, Fix, HeadTest, HistoryEntry, KeysStatus, Pack, Persona, SeatInfo, Settings } from "./api";
+import { defaultSettings, findPersona, labLabel, seatKeys, slug } from "./state";
+import { builtinPacks, libraryOf } from "./mock-personas";
 import { PROVIDERS } from "./providers";
 
 export interface MockOptions {
@@ -22,6 +23,10 @@ export interface MockOptions {
   testFails?: Record<string, { message: string; fix: Fix }>;
   /** Heads that fail in a run with this reason (instead of the default bad key). */
   runFails?: Record<string, { message: string; fix: Fix }>;
+  /** Build without the Frontier labs pack. */
+  noLabPack?: boolean;
+  /** The person's own personas to start with. */
+  custom?: Persona[];
 }
 
 function tool(id: string, head: string, name: string, version: string | null, signed_in: boolean | null, note: string, login: string): CliDetection {
@@ -73,6 +78,19 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
   let stopped = false;
   let lastEmit: ((e: EngineEvent) => void) | null = null;
   const toolName = (h: string) => tools.find((t) => t.head === h)?.name;
+  let builtins: Pack[] | null = null;
+  const custom: Pack = { id: "custom", name: "My personas", description: "", personas: [...(o.custom ?? [])], presets: [], builtin: false };
+  const library = async () => {
+    builtins ??= await builtinPacks();
+    return libraryOf([...builtins, ...(custom.personas.length ? [custom] : [])], settings.show_lab_pack, !o.noLabPack);
+  };
+  const freeId = async (want: string) => {
+    const lib = await library();
+    const used = (id: string) => lib.packs.some((p) => p.personas.some((x) => x.id === id)) || custom.personas.some((x) => x.id === id);
+    const base = want || "persona";
+    if (!used(base)) return base;
+    for (let n = 2; ; n++) if (!used(`${base}-${n}`)) return `${base}-${n}`;
+  };
 
   return {
     calls,
@@ -140,19 +158,33 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
       return { ok: true };
     },
     async askStart(req, onEvent) {
-      calls.push(`askStart:${req.heads.join(",")}:${req.rounds}`);
+      calls.push(`askStart:${req.heads.join(",")}:${req.rounds}${req.personas ? `:${req.personas}` : ""}`);
+      const lib = await library();
+      const picks = req.personas
+        ? req.personas.split(",").map((x) => {
+            const [pid, head] = x.split("@");
+            return { persona: pid === "generic" ? "" : pid, head };
+          })
+        : req.heads.map((h) => ({ persona: "", head: h }));
+      const keysOf = seatKeys(picks);
+      const seats: SeatInfo[] = picks.map((s, i) => {
+        const p = s.persona ? findPersona(lib, s.persona) : undefined;
+        return { seat: keysOf[i], head: s.head, persona: p?.name, expertise: p?.expertise, label: p?.lab ? labLabel(p.lab) : undefined };
+      });
       stopped = false;
       const emit = (e: EngineEvent) => {
         if (!stopped) onEvent(e);
       };
       lastEmit = emit;
       const run = async () => {
-        emit({ event: "run_started", heads: req.heads, rounds: req.rounds, mode: req.rounds > 1 ? "deliberation" : "advisory" });
+        emit({ event: "run_started", heads: req.heads, rounds: req.rounds, mode: req.rounds > 1 ? "deliberation" : "advisory", seats });
         let answered = 0;
-        const rounds = req.rounds > 1 ? 2 : 1;
+        const rounds = Math.max(1, req.rounds);
         for (let r = 1; r <= rounds; r++) {
-          for (const h of req.heads) emit({ event: "head_started", head: h, round: r });
-          for (const h of req.heads) {
+          for (const st of seats) emit({ event: "head_started", head: st.head, round: r, seat: st.seat });
+          for (const st of seats) {
+            const h = st.head;
+            const said = st.persona ? `As ${st.persona}: ${SAMPLE[h] ?? "OK"}` : SAMPLE[h] ?? "OK";
             await wait();
             const viaTool = settings.cli_heads.includes(h) && tools.some((t) => t.head === h && t.signed_in);
             const fail = o.runFails?.[h];
@@ -163,7 +195,8 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
               head: h,
               round: r,
               status: ok ? "answered" : "failed",
-              text: ok ? (r > 1 ? `POSITION: ${SAMPLE[h]}` : SAMPLE[h] ?? "OK") : "",
+              seat: st.seat,
+              text: ok ? (r > 1 ? `POSITION: ${said}${r > 2 ? ` (round ${r})` : ""}` : said) : "",
               reason: ok || fail ? undefined : "bad_key",
               message: ok ? undefined : fail?.message ?? "That key did not work. Check you copied all of it.",
               fix: ok ? undefined : fail?.fix ?? "add_key",
@@ -218,6 +251,39 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
       const name = toolName(head) ?? head;
       if (fail) return { head, name, ok: false, status: "failed", via: via === "key" ? "API key" : name, first_line: null, message: fail.message, fix: fail.fix, secs: 0.4, command: `${head} -p`, exit: 1 };
       return { head, name, ok: true, status: "answered", via: via === "key" ? "API key" : name, first_line: "Yes, water is wet.", message: null, fix: null, secs: 1.2, command: `${head} -p`, exit: 0 };
+    },
+    personasList: library,
+    async personaSave(p) {
+      calls.push(`personaSave:${p.name}`);
+      if (!p.name.trim()) throw "Give the persona a name.";
+      const i = custom.personas.findIndex((x) => x.id === p.id);
+      const saved = { ...p, name: p.name.trim(), id: i >= 0 ? p.id : await freeId(slug(p.id || p.name)) };
+      if (i >= 0) custom.personas[i] = saved;
+      else custom.personas.push(saved);
+      return saved;
+    },
+    async personaDuplicate(id) {
+      calls.push(`personaDuplicate:${id}`);
+      const src = findPersona(await library(), id);
+      if (!src) throw "That persona is gone.";
+      const copy = { ...src, name: `${src.name} (copy)`, id: await freeId(slug(`${src.name} copy`)) };
+      custom.personas.push(copy);
+      return copy;
+    },
+    async personaDelete(id) {
+      calls.push(`personaDelete:${id}`);
+      const n = custom.personas.length;
+      custom.personas = custom.personas.filter((x) => x.id !== id);
+      if (custom.personas.length === n) throw "Only your own personas can be deleted.";
+    },
+    async personasExport() {
+      calls.push("personasExport");
+      return custom.personas.length;
+    },
+    async personasImport() {
+      calls.push("personasImport");
+      custom.personas.push({ id: await freeId("ops-lead"), name: "Ops lead", expertise: "Uptime and on-call", brief: "Count the nines. Ask who gets paged." });
+      return 1;
     },
     historyList: async () => [...history],
     historyGet: async (id) => transcripts.get(id) ?? null,

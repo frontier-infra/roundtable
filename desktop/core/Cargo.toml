@@ -20,7 +20,7 @@ tauri-build = { version = "2", features = [] }
 serde_json = "1"
 
 [dependencies]
-roundtable-engine = { path = "../engine" }
+roundtable-engine = { path = "../engine", default-features = false }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
@@ -29,6 +29,12 @@ tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 dirs = "5"
+
+[features]
+# The Frontier labs persona pack. Build the app and its engine without it with
+# `ROUNDTABLE_NO_LAB_PACK=1 cargo tauri build -- --no-default-features`.
+default = ["lab-pack"]
+lab-pack = ["roundtable-engine/lab-pack"]
 
 [dev-dependencies]
 tempfile = "3"

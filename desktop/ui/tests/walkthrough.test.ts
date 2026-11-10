@@ -296,12 +296,17 @@ describe("screen 5, first roundtable", () => {
 });
 
 describe("main screen", () => {
-  it("updates the request count with the mode and runs Talk it through to a verdict", async () => {
+  it("updates the request count with the rounds and runs to a verdict", async () => {
     const { app } = await start({ keys: ["claude", "gemini", "openai"], onboarded: true }, { view: "main" });
+    // Two rounds by default.
+    expect(text()).toContain("This will ask 3 AIs, 2 rounds, at most 8 requests.");
+    root.querySelector<HTMLButtonElement>('[data-rounds="1"]')!.click();
+    await tick();
     expect(text()).toContain("This will ask 3 AIs, about 3 requests.");
-    root.querySelector<HTMLButtonElement>('[data-mode="talk"]')!.click();
+    root.querySelector<HTMLButtonElement>('[data-rounds="3"]')!.click();
     await tick();
     expect(text()).toContain("at most 12 requests");
+    expect(root.querySelector('[data-rounds="3"]')?.getAttribute("aria-checked")).toBe("true");
     const q = root.querySelector<HTMLTextAreaElement>("textarea.question")!;
     q.value = "Garden or bread?";
     q.dispatchEvent(new Event("input"));
@@ -309,6 +314,8 @@ describe("main screen", () => {
     await tick(30);
     expect(app.state.run?.done).toBe(true);
     expect(root.querySelector(".verdict h2")?.textContent).toBe("They agree");
+    // Each round is a step the person can open.
+    expect([...root.querySelectorAll(".step")].map((d) => d.getAttribute("data-round"))).toEqual(["1", "2", "3"]);
     // The engine asks for "POSITION:" in later rounds; people do not need to see it.
     expect(root.querySelector(".answer .md")?.textContent).not.toMatch(/^POSITION:/);
     expect(buttonNamed("Copy all")).toBeDefined();

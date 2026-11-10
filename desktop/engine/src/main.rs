@@ -4,7 +4,7 @@
 use roundtable_engine::council::{self, AskOptions, Event, RunResult};
 use roundtable_engine::keys::{self, KeyStore, Keys};
 use roundtable_engine::settings::Settings;
-use roundtable_engine::{clis, history, mcp, paths, providers, verify, VERSION};
+use roundtable_engine::{clis, history, mcp, paths, personas, providers, verify, VERSION};
 use serde_json::json;
 use std::io::{Read, Write};
 use std::process::ExitCode;
@@ -25,6 +25,7 @@ Commands:
   test <ai>      Ask one AI a five-word question and say how it went.
                  --via auto|app|key (default auto: its app first, then the key),
                  --timeout S (default 90), --json for the app, --verbose adds stderr.
+  personas       List the persona packs, presets and seats (--json for the app)
   mcp            serve | selftest | config
   version        Print the version
 
@@ -33,7 +34,10 @@ Ask flags:
   -c, --context FILE    Background text every AI reads first
       --heads CSV       Subset: claude,openai,grok,glm,minimax,gemini,codex,
                         qwen,kimi,opencode,cursor
-      --rounds N        N>=2: talk it through, up to N rounds (default 1)
+      --rounds N        1 to 4. 1: each AI answers once (default). 2 to 4: they read
+                        each other and revise toward consensus; Claude chairs
+      --personas SPEC   Seat roles: a preset (pricing), a pack (business-roles),
+                        or persona names (cfo,ceo@claude). generic: plain seats
       --timeout S       Seconds per AI
       --research        Let them search the web where supported
       --out FILE        Also save the transcript to FILE
@@ -58,6 +62,7 @@ fn main() -> ExitCode {
         "doctor" => cmd_doctor(rest),
         "detect" => cmd_detect(rest),
         "test" => cmd_test(rest),
+        "personas" => cmd_personas(rest),
         _ => cmd_ask(&args),
     };
     ExitCode::from(code)
@@ -80,6 +85,7 @@ struct AskArgs {
     question: String,
     context: Option<String>,
     heads: Option<String>,
+    personas: Option<String>,
     rounds: u32,
     timeout: Option<u64>,
     research: bool,
@@ -94,6 +100,7 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
         question: String::new(),
         context: None,
         heads: None,
+        personas: None,
         rounds: 1,
         timeout: None,
         research: false,
@@ -112,6 +119,7 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
             "-q" | "--question" => a.question = val(&mut i)?,
             "-c" | "--context" => a.context = Some(val(&mut i)?),
             "--heads" => a.heads = Some(val(&mut i)?),
+            "--personas" => a.personas = Some(val(&mut i)?),
             "--rounds" => a.rounds = val(&mut i)?.parse().map_err(|_| "--rounds needs a number".to_string())?,
             "--timeout" => a.timeout = Some(val(&mut i)?.parse().map_err(|_| "--timeout needs seconds".to_string())?),
             "--research" => a.research = true,
@@ -142,7 +150,12 @@ fn record(r: &RunResult, opts: &AskOptions, source: &str, settings: &Settings) -
         question: opts.question.clone(),
         source: source.into(),
         mode: if opts.rounds <= 1 { "advisory".into() } else { "deliberation".into() },
-        heads: opts.heads.iter().map(|h| h.id.to_string()).collect(),
+        heads: opts.table().iter().map(|s| s.head.id.to_string()).fold(Vec::new(), |mut v, h| {
+            if !v.contains(&h) {
+                v.push(h);
+            }
+            v
+        }),
         consensus: r.consensus,
     };
     history::save(&paths::history_dir(), &e, &r.transcript).ok().map(|_| e.id)
@@ -187,11 +200,23 @@ fn cmd_ask(args: &[String]) -> u8 {
         },
         None => None,
     };
+    let spec = a.personas.clone().or_else(|| k.env.get("ROUNDTABLE_PERSONAS").cloned()).unwrap_or_default();
+    let seats = match personas::resolve(&spec, &heads, &personas::Library::load(&settings)) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("ERROR: {e}");
+            return 2;
+        }
+    };
+    if a.rounds > council::MAX_ROUNDS {
+        eprintln!("NOTE: --rounds is at most {}. Running {}.", council::MAX_ROUNDS, council::MAX_ROUNDS);
+    }
     let opts = AskOptions {
         question: a.question.clone(),
         context,
         heads,
-        rounds: a.rounds.clamp(1, 10),
+        seats,
+        rounds: a.rounds.clamp(1, council::MAX_ROUNDS),
         research: a.research,
         timeout: a.timeout.map(std::time::Duration::from_secs).unwrap_or_else(|| council::default_timeout(a.research, &settings)),
     };
@@ -227,7 +252,7 @@ fn cmd_mcp(args: &[String]) -> u8 {
         "serve" => {
             let settings = Settings::load();
             let store = keys::default_store();
-            let run = |q: &str, heads: Option<&str>, rounds: Option<u32>, research: bool| -> (String, bool) {
+            let run = |q: &str, heads: Option<&str>, rounds: Option<u32>, research: bool, spec: Option<&str>| -> (String, bool) {
                 let k = Keys::load(store.as_ref());
                 let hs = match heads {
                     Some(csv) => council::parse_heads(csv).0,
@@ -236,11 +261,16 @@ fn cmd_mcp(args: &[String]) -> u8 {
                 if hs.is_empty() {
                     return ("No valid heads selected.".into(), true);
                 }
+                let seats = match personas::resolve(spec.unwrap_or(""), &hs, &personas::Library::load(&settings)) {
+                    Ok(s) => s,
+                    Err(e) => return (e, true),
+                };
                 let opts = AskOptions {
                     question: q.into(),
                     context: None,
                     heads: hs,
-                    rounds: rounds.unwrap_or(1),
+                    seats,
+                    rounds: rounds.unwrap_or(1).clamp(1, council::MAX_ROUNDS),
                     research,
                     timeout: council::default_timeout(research, &settings),
                 };
@@ -509,4 +539,32 @@ fn cmd_test(args: &[String]) -> u8 {
     } else {
         1
     }
+}
+
+fn cmd_personas(args: &[String]) -> u8 {
+    let settings = Settings::load();
+    if has(args, "--json") {
+        println!("{}", personas::library_json(&settings));
+        return 0;
+    }
+    let lib = personas::Library::load(&settings);
+    println!("Generic: plain seats, one per AI (--personas generic).");
+    for p in &lib.packs {
+        println!();
+        println!("{} ({})", p.name, p.id);
+        for x in &p.personas {
+            let ai = x.ai.as_deref().map(|a| format!(", prefers {a}")).unwrap_or_default();
+            println!("  {:<22} {}{ai}", x.id, x.name);
+        }
+        for pr in &p.presets {
+            println!("  preset {:<15} {}", pr.id, pr.seats.join(", "));
+        }
+    }
+    println!();
+    if personas::labs_hidden(&settings) {
+        println!("The Frontier labs pack is hidden.");
+    } else {
+        println!("Lab seats are simulated perspectives drawn from public positions, not affiliated with or endorsed by any lab.");
+    }
+    0
 }

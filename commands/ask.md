@@ -7,4 +7,5 @@ Convene the Roundtable council on this question: $ARGUMENTS
 
 Follow the roundtable skill. Use the `roundtable` MCP tool if it is available. Otherwise run
 `roundtable ask -q "<question>"` in the Bash tool. If the question is high stakes, use 3
-rounds. Return the question recap, the results table, and the judge's decision.
+rounds (at most 4). If it needs named expertise, seat a preset with `--personas` (for
+example `pricing`, `security-review` or `exec-team`); run `roundtable personas` to see them. Return the question recap, the results table, and the judge's decision.

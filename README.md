@@ -111,6 +111,7 @@ roundtable "Postgres or SQLite for a single-tenant internal tool?"
 
 # 3. Deliberate to consensus on a high-stakes call
 roundtable ask -q "Should we rewrite the billing service in Go?" --rounds 3
+roundtable ask -q "Should we raise prices 20%?" --personas pricing    # seat roles (personas/)
 ```
 
 `roundtable doctor` shows which heads are configured and pings each for reachability.
@@ -118,7 +119,7 @@ roundtable ask -q "Should we rewrite the billing service in Go?" --rounds 3
 ### Flags
 
 `-q/--question` · `-c/--context <file>` (shared background for every head) ·
-`--heads grok,codex,openai,glm,minimax,claude,gemini` · `--rounds N` (deliberation) ·
+`--heads grok,codex,openai,glm,minimax,claude,gemini` · `--rounds N` (1 to 4, deliberation) · `--personas SPEC` (seat roles, see `personas/README.md`) ·
 `--research` (web on, multi-step) · `--timeout <secs>` · `--out <file>`.
 
 Exit 0 if at least one head answered.
@@ -143,7 +144,7 @@ configured, so **API keys alone are enough** (no local CLIs required).
 Roundtable ships an MCP server as a subcommand of the one binary:
 
 ```bash
-roundtable mcp serve     # stdio JSON-RPC; one tool: roundtable(question, heads?, rounds?, research?)
+roundtable mcp serve     # stdio JSON-RPC; one tool: roundtable(question, heads?, rounds?, personas?, research?)
 roundtable mcp config    # prints the server JSON block to paste manually
 ```
 
