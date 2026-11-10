@@ -136,14 +136,14 @@ describe("Get Jebadiah", () => {
     expect(sizeFor(null)).toBe("9b");
   });
 
-  it("every command, id and page uses the full frontier-infra address", () => {
+  it("every command, id and page uses the full frontier-infra address, and Ollama the library name", () => {
     for (const size of ["4b", "9b", "27b"] as const) {
-      expect(ollamaCommand(size)).toBe(`ollama pull hf.co/frontier-infra/${BUILDS[size].gguf}:Q4_K_M`);
+      expect(ollamaCommand(size)).toBe(`ollama pull frontierinfra/jebadiah:${size}`);
       expect(lmStudioId(size, true)).toBe(`frontier-infra/${BUILDS[size].mlx}`);
       expect(lmStudioId(size, false)).toBe(`frontier-infra/${BUILDS[size].gguf}`);
       expect(modelPage(size, true)).toBe(`https://huggingface.co/frontier-infra/${BUILDS[size].mlx}`);
     }
-    expect(ollamaCommand("9b")).toBe("ollama pull hf.co/frontier-infra/jebadiah-9b-v2-1-GGUF:Q4_K_M");
+    expect(ollamaCommand("9b")).toBe("ollama pull frontierinfra/jebadiah:9b");
   });
 
   it("offers LM Studio with MLX first on Apple Silicon, Ollama first elsewhere", () => {
@@ -185,8 +185,8 @@ describe("Get Jebadiah", () => {
     expect(text()).toContain("picked for 64 GB of memory");
     expect(linkNamed("Its page on Hugging Face")!.getAttribute("href")).toBe("https://huggingface.co/frontier-infra/jebadiah-27b-v2-1-MLX-4bit");
     (root.querySelector('[data-jeb-app="ollama"]') as HTMLButtonElement).click();
-    expect(pres()).toContain("ollama pull hf.co/frontier-infra/jebadiah-27b-v2-1-GGUF:Q4_K_M");
-    const cmd = "ollama pull hf.co/frontier-infra/jebadiah-27b-v2-1-GGUF:Q4_K_M";
+    expect(pres()).toContain("ollama pull frontierinfra/jebadiah:27b");
+    const cmd = "ollama pull frontierinfra/jebadiah:27b";
     const box = [...root.querySelectorAll(".copy-box")].find((b) => b.querySelector("pre")?.textContent === cmd)!;
     (box.querySelector("button") as HTMLButtonElement).click();
     await tick();
@@ -197,7 +197,7 @@ describe("Get Jebadiah", () => {
     await start({ keys: ["claude"], onboarded: true, os: "windows", arch: "x86_64", memoryGb: 15.8 }, { view: "settings" });
     await tick();
     expect(root.querySelector(".choice.on")!.getAttribute("data-jeb-app")).toBe("ollama");
-    expect(pres()).toContain("ollama pull hf.co/frontier-infra/jebadiah-9b-v2-1-GGUF:Q4_K_M");
+    expect(pres()).toContain("ollama pull frontierinfra/jebadiah:9b");
     expect(text()).toContain("paste this into PowerShell");
   });
 
@@ -208,10 +208,10 @@ describe("Get Jebadiah", () => {
       root = document.getElementById("app")!;
       await start({ keys: ["claude"], onboarded: true, ...opts }, { view: "settings" });
       await tick();
-      for (const p of pres()) expect(p).toMatch(/frontier-infra\//);
+      for (const p of pres()) expect(p).toMatch(/frontier-infra\/|frontierinfra\/jebadiah:/);
       for (const btn of root.querySelectorAll("[data-jeb-app]")) {
         (btn as HTMLButtonElement).click();
-        for (const p of pres()) expect(p).toMatch(/frontier-infra\//);
+        for (const p of pres()) expect(p).toMatch(/frontier-infra\/|frontierinfra\/jebadiah:/);
       }
     }
   });
