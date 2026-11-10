@@ -16,6 +16,7 @@ Each release adds a section here. The app, the GitHub release and roundtable.sh/
 - Verdict shapes: a decision with confidence, pros and cons, an action plan, or a vote. Every verdict names the minority view.
 - Follow-ups. Ask the whole table or one seat a follow-up question. The conversation goes with it.
 - Files and links. Attach a text file, a PDF or a web page for the table to read.
+- Delete a past roundtable, or several at once, with Undo.
 - A decision model can rate the verdict: Jev from TypeSafe, or Jebadiah running on your own computer. Settings shows how to get Jebadiah.
 - Other providers. Add OpenRouter, Ollama, LM Studio, Groq, Together or any compatible service. Each model you tick gets its own seat.
 - Updates. Roundtable checks for a new version when it opens and every 6 hours, and shows what changed. Settings, Updates has the switches.
