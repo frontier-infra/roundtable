@@ -3036,3 +3036,85 @@ details.pack summary {
     text-align: left;
   }
 }
+
+/* ---- Updates: the What's new sheet ---- */
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, 100%);
+  max-height: min(78vh, 680px);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow);
+}
+
+.sheet-head,
+.sheet-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 22px;
+}
+
+.sheet-head {
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+}
+
+.sheet-head h2 {
+  font-size: 17px;
+}
+
+.sheet-foot {
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+}
+
+.sheet-body {
+  overflow-y: auto;
+  padding: 6px 22px 18px;
+}
+
+.whatsnew-section + .whatsnew-section {
+  border-top: 1px solid var(--line);
+  margin-top: 8px;
+}
+
+.whatsnew-section h3 {
+  margin: 16px 0 4px;
+  font-size: 15px;
+}
+
+.whatsnew .md h3 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 14px 0 6px;
+}
+
+.whatsnew .md ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.whatsnew .md li + li {
+  margin-top: 4px;
+}
+
+.update-status:empty {
+  display: none;
+}

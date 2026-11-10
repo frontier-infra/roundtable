@@ -320,7 +320,8 @@ Each is reversible. Each lists the options, the pick, the reason and the undo st
 ### D5. Versioning
 
 - The app starts at 0.1.1, the same number as the CLI release, and climbs the patch digit to 99 (Jason's rule). Tags: `desktop-v0.1.N`.
-- The engine binary reports the same version as the app it ships in.
+- One source: `desktop/Cargo.toml` `[workspace.package]`. The engine binary reports the same version as the app it ships in.
+- Test builds: `desktop-v0.1.N-rc.M`. The build carries `0.1.N-rc.M`, so each test build has its own number (rc1 to rc9 all said 0.1.1).
 - CLI tags (`v0.1.N`) and desktop tags never share a release.
 
 ## 7. Under the hood
@@ -403,9 +404,12 @@ The Rust engine keeps them, but the app hides them.
 - A Tauri updater key signs the manifests.
   - New vault item: "Roundtable Desktop updater key". Private key and password as fields.
   - Same shape as "Titanium Bot desktop updater key". The public key sits in `tauri.conf.json`.
-- The app checks at launch and every 6 hours. It downloads in the background.
-- Then a quiet banner: "An update is ready." Buttons: **Restart now**, **Later**.
-- **Later** installs the update on the next quit.
+- Test builds go to a second rolling pre-release, `desktop-test`, with its own `latest.json`. Settings, Updates, **Test builds** switches the app to it.
+- The app checks at launch and every 6 hours, whatever the switch says.
+- With "Install updates automatically" on (the default) it downloads in the background and installs on the next quit.
+- A quiet banner: "Roundtable 0.1.3 is ready. What's new". Buttons: **Update now**, **Later**.
+- **What's new** shows that version's section of `desktop/CHANGELOG.md`, which the manifest carries.
+- The first launch after an update opens What's new once.
 - The engine updates with the app (7.1). There is no separate engine update.
 
 ## 10. Build and release

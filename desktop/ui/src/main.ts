@@ -31,6 +31,9 @@ async function boot() {
           ? [{ id: "openrouter", preset: "openrouter", name: "OpenRouter", base_url: "https://openrouter.ai/api/v1", needs_key: true, models: [{ id: "openai/gpt-4o-mini", price_in: 0.15, price_out: 0.6 }] }]
           : undefined,
       providerKeys: q.get("providers") === "1" ? ["openrouter"] : undefined,
+      // ?update=0.1.3 (a newer version on Stable), ?version=0.1.2 (this app's version)
+      update: q.get("update") ? { version: q.get("update")!, notes: "### Fixed\n\n- A preview of the notes from the update manifest.", channel: q.get("channel") ?? "stable" } : undefined,
+      version: q.get("version") ?? undefined,
       custom: q.get("custom") === "1" ? [{ id: "head-of-support", name: "Head of Support", expertise: "Customers after they buy", brief: "Weigh repeat contacts.", ai: "gemini" }] : [],
     });
   }
@@ -72,6 +75,9 @@ async function boot() {
         setTimeout(() => void app.askFollowUp("What if a competitor cuts prices next month?", app.state.run!.heads[1] ?? "table"), 4000),
       );
     }
+    // ?whatsnew=update (the banner's notes, with ?update=) or all (Settings, What's new)
+    const wn = q.get("whatsnew");
+    if (wn) setTimeout(() => (wn === "all" ? app.showChangelog() : app.showUpdateNotes()), 300);
     if (q.get("open") === "1") setInterval(() => document.querySelectorAll("details.step").forEach((d) => d.setAttribute("open", "")), 200);
   }
 }

@@ -1,5 +1,6 @@
 // Pure state for the walkthrough and the live roundtable. No DOM here, so it is easy to test.
 
+import type { UpdateStatus, UpdateView, WhatsNew } from "./updates";
 import type { Attachment, Brief, LocalProvider, ModelsResult, PanelSuggestion, ProviderPreset, ProviderRow, VerdictShape } from "./api";
 import type { ClaudeStatus, CliDetection, EngineEvent, Fix, HeadId, HeadTest, HistoryEntry, KeySaveResult, KeysStatus, Persona, PersonaLibrary, Preset, SeatInfo, Settings } from "./api";
 import { defaultDecision, type DecisionEvent } from "./decision";
@@ -198,7 +199,10 @@ export interface State {
   settings: Settings;
   /** Five-word tests, by test key (`app:<head>` or `key:<head>`). */
   tests: Record<string, TestView>;
-  update: { version: string } | null;
+  update: UpdateView | null;
+  updateStatus: UpdateStatus;
+  /** The What's new sheet, when open. */
+  whatsNew: WhatsNew | null;
   toast: string | null;
   engineReady: boolean;
   /** Providers the person added, and the local ones found running. */
@@ -274,6 +278,8 @@ export function defaultSettings(): Settings {
     timeout_secs: null,
     history: true,
     auto_update: true,
+    update_channel: "stable",
+    last_seen_version: "",
     onboarded: false,
     terminal_command: false,
     cli_heads: [],
@@ -322,6 +328,8 @@ export function initialState(): State {
     settings: defaultSettings(),
     tests: {},
     update: null,
+    updateStatus: { checking: false, checkedAt: null, error: null },
+    whatsNew: null,
     toast: null,
     engineReady: false,
     providers: { loaded: false, loading: false, list: [], presets: [], found: [], models: {}, search: {}, form: null, busy: null },

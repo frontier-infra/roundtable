@@ -12,6 +12,7 @@ import { personasSection } from "./personas";
 import { providersSection } from "./providers";
 import { decisionSection } from "../decision";
 import { aboutSection } from "../credits";
+import { updatesSection } from "../updates";
 
 function section(title: string, ...body: (HTMLElement | null)[]): HTMLElement {
   return h("section", { class: "setting" }, h("h2", { text: title }), h("div", { class: "setting-body" }, body));
@@ -112,12 +113,7 @@ export function renderSettings(app: App): HTMLElement {
           if (confirm("Delete every past roundtable on this computer? This cannot be undone.")) void app.clearHistory();
         }, "btn ghost danger")),
       ),
-      section(
-        "Updates",
-        h("p", { text: `Version ${s.version || "unknown"}` }),
-        toggle("Install updates automatically", s.settings.auto_update, (v) => void app.saveSettings({ auto_update: v })),
-        h("div", { class: "actions left" }, button("Check now", () => void app.checkUpdate(true), "btn")),
-      ),
+      section("Updates", ...updatesSection(app)),
       h(
         "details",
         { class: "setting advanced" },
