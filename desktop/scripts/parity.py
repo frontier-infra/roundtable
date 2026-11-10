@@ -148,7 +148,7 @@ def rc7_cases(rust, url, base):
             ("auto seats by words, no chair", False, {}, ["--heads", "openai,glm", "--personas", "auto", "-q", "Should we raise prices? Budget and revenue matter."]),
             ("pros-cons and plan, no chair", False, {}, ["--heads", "openai,glm", "--rounds", "2", "--verdict", "plan", "-q", "Bread or garden?"]),
             ("clarify first, default verdict, 2 rounds", True, {}, ["--heads", "openai,glm", "--rounds", "2", "-q", "Which database for our app?"]),
-            ("quick: clarify alongside one round", True, {}, ["--heads", "openai,glm", "--mode", "quick", "-q", "Which database for our app?"]),
+            ("quick: clarify alongside one round", True, {}, ["--heads", "openai,glm", "--mode", "quick", "--rounds", "1", "-q", "Which database for our app?"]),
             ("deep think: the coach always, long verdict", True, {}, ["--heads", "openai,glm", "--mode", "deep", "--rounds", "2", "-q", "Raise prices?"]),
         ]
         for name, chair, extra, args in runs:
@@ -164,11 +164,12 @@ def rc7_cases(rust, url, base):
             elif name.startswith("auto"):
                 checks = [("CFO", "as CFO")]
             elif name.startswith("clarify"):
-                checks = [("Verdict (decision)", "p:"), ("OpenAI", "p:"), ("OpenAI", "d:"), ("Round 2", ""), ("OpenAI", "len:250")]
+                # Quick: two rounds back to back, the chair asked alongside round 1; only the verdict reads its questions.
+                checks = [("Verdict (decision)", "p:"), ("Verdict (decision)", "asks-first"), ("Round 2", ""), ("OpenAI", "len:250")]
             elif name.startswith("quick"):
                 checks = [("Verdict (decision)", "p:"), ("Verdict (decision)", " quick asks-first"), ("OpenAI", "len:250")]
             elif name.startswith("deep"):
-                checks = [("## Brief", "Pick one for the weekend."), ("Verdict (decision)", " deep"), ("OpenAI", "len:800"), ("Round 2", "")]
+                checks = [("## Brief", "Pick one for the weekend."), ("Verdict (decision)", " deep"), ("OpenAI", "len:800"), ("Round 2", ""), ("OpenAI", "d:")]
             else:
                 checks = [("Verdict (action plan)", "verdict unavailable")]
             for head, want in checks:

@@ -677,9 +677,9 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
     // Clarify first: only on a table, only with no brief and no earlier turns to lean on.
     let fresh = brief.is_none() && opts.prior.as_deref().is_none_or(|p| p.trim().is_empty());
     let check = opts.clarify && n >= 2 && fresh;
-    // A one-round Quick run asks the chair alongside the seats, so nobody waits for it; then
-    // only the verdict reads the open questions. Any other run asks first and every seat reads them.
-    let alongside = check && opts.mode == Mode::Quick && advisory;
+    // Quick asks the chair alongside round 1, so nobody waits for it; then only the verdict
+    // reads the open questions. Deep Think asks first and every seat reads them.
+    let alongside = check && opts.mode == Mode::Quick;
     let clarify = || -> Vec<String> {
         let q = crate::coach::clarify(&opts.question, keys, settings, opts.timeout.min(crate::coach::CHAIR_WAIT));
         if !q.is_empty() {
@@ -762,6 +762,10 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
                 say(&seat_body(seat, body));
                 say("");
             }
+            // Quick: no ruling between rounds; the next round starts at once and the verdict weighs the last.
+            if !opts.mode.chair_rules() {
+                continue;
+            }
             let reply = chair(keys, settings, &chair_prompt(&opts.question, r, &prev), opts.timeout);
             last_chair = Some(reply.clone()).filter(|c| !c.trim().is_empty());
             let chair = if reply.is_empty() { "VERDICT: CONTINUE\n_(chair unavailable: ANTHROPIC_API_KEY missing or error)_".to_string() } else { reply };
@@ -780,12 +784,14 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
                 break;
             }
         }
-        footer = if cons {
+        footer = if !opts.mode.chair_rules() {
+            format!("_Quick: {rounds_run} rounds back to back, with no chair ruling between them. The verdict weighs the last round._")
+        } else if cons {
             "_Deliberation converged. The chair's final verdict above is the council consensus._".into()
         } else {
             format!("_Reached the round cap ({rounds}) without full consensus. The chair's last verdict lists the remaining disagreements._")
         };
-        consensus = Some(cons);
+        consensus = if opts.mode.chair_rules() { Some(cons) } else { None };
     }
     if alongside {
         open = late_open.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -955,6 +961,7 @@ mod tests {
             rounds: 2,
             research: false,
             timeout: Duration::from_secs(10),
+            mode: Mode::Deep,
             ..Default::default()
         };
         let r = run(&opts, &k, &Settings::default(), &|_| {});
@@ -1203,6 +1210,7 @@ mod tests {
             timeout: Duration::from_secs(10),
             verdict: Some(Shape::Decision),
             clarify: true,
+            mode: Mode::Deep,
             ..Default::default()
         };
         let events = Mutex::new(Vec::new());
@@ -1252,7 +1260,7 @@ mod tests {
     }
 
     #[test]
-    fn quick_asks_the_chair_alongside_and_keeps_answers_short() {
+    fn quick_runs_two_short_rounds_back_to_back_and_asks_the_chair_alongside() {
         let _env = crate::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
         no_tools();
         let base = clarifying_server();
@@ -1261,7 +1269,7 @@ mod tests {
         let opts = AskOptions {
             question: "Which database?".into(),
             heads: parse_heads("openai,glm").0,
-            rounds: 1,
+            rounds: Mode::Quick.default_rounds(),
             timeout: Duration::from_secs(10),
             verdict: Some(Shape::Decision),
             clarify: true,
@@ -1272,7 +1280,10 @@ mod tests {
         let r = run(&opts, &k, &Settings::default(), &|e| events.lock().unwrap().push(serde_json::to_value(e).unwrap()));
         clear_urls();
         let t = &r.transcript;
-        assert!(t.starts_with("# \u{1fa91} Round Table - 2 heads - advisory - Quick\n"), "{t}");
+        assert!(t.starts_with("# \u{1fa91} Round Table - 2 heads - deliberation (\u{2264}2 rounds) - Quick\n"), "{t}");
+        // Two rounds back to back: round 2 starts at once, with no chair ruling to read.
+        assert!(t.contains("Round 2") && !t.contains("Chair verdict"), "{t}");
+        assert_eq!(r.consensus, None);
         // The seats did not wait for the open questions; the verdict read them, in the short shape.
         assert!(t.contains("open=false reading=false words=250"), "{t}");
         assert!(t.contains("DECISION: If reads dominate, Postgres. open=true deep=false"), "{t}");
@@ -1280,7 +1291,7 @@ mod tests {
         assert_eq!(ev[0]["event"], "run_started");
         assert_eq!(ev[0]["depth"], "quick");
         assert!(ev.iter().any(|e| e["event"] == "clarify"));
-        assert!(!ev.iter().any(|e| e["event"] == "chair_verdict"), "one round has no chair ruling");
+        assert!(!ev.iter().any(|e| e["event"] == "chair_verdict"), "Quick has no chair ruling between rounds");
     }
 
     #[test]

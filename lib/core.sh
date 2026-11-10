@@ -105,7 +105,7 @@ done
 COACH_PY="$(dirname "$0")/coach.py"
 MODE="$(python3 "$COACH_PY" mode "$MODE")" || exit 2
 # The mode's rounds unless --rounds says otherwise: Quick 1, Deep Think up to 4.
-[[ -z "$ROUNDS" ]] && { if [[ "$MODE" == "deep" ]]; then ROUNDS=4; else ROUNDS=1; fi; }
+[[ -z "$ROUNDS" ]] && { if [[ "$MODE" == "deep" ]]; then ROUNDS=4; else ROUNDS=2; fi; }
 [[ "$ROUNDS" =~ ^[0-9]+$ ]] || { echo "ERROR: --rounds needs a number" >&2; exit 2; }
 [[ "$ROUNDS" -lt 1 ]] && ROUNDS=1
 [[ "$ROUNDS" -gt 4 ]] && { echo "NOTE: --rounds is at most 4. Running 4." >&2; ROUNDS=4; }
@@ -593,8 +593,8 @@ first_round() {
 # Clarify first: with no brief and no earlier turns, the chair checks the question for missing
 # key facts. When the pick flips on them, the seats and the verdict open with its questions.
 : > "$WORK/open.q"
-# A one-round Quick run asks the chair alongside the seats (first_round waits for it), so nobody
-# waits; then only the verdict reads the open questions. Any other run asks first and every seat reads them.
+# Quick asks the chair alongside round 1 (first_round waits for it), so nobody waits; then only the
+# verdict reads the open questions. Deep Think asks first and every seat reads them.
 ALONGSIDE=0
 ask_clarify() {
   python3 "$COACH_PY" clarify-prompt "$QUESTION" > "$WORK/clarify.prompt"
@@ -603,7 +603,7 @@ ask_clarify() {
   TIMEOUT="$_t"
 }
 if [[ "$CLARIFY" -eq 1 && "$NSEATS" -ge 2 && -z "${BRIEF//[[:space:]]/}" && -z "${PRIOR//[[:space:]]/}" ]]; then
-  if [[ "$MODE" == "quick" && "$ROUNDS" -le 1 ]]; then ALONGSIDE=1
+  if [[ "$MODE" == "quick" ]]; then ALONGSIDE=1
   else ask_clarify; mv "$WORK/open.late" "$WORK/open.q"; fi
 fi
 _part "OPEN QUESTIONS" "$(python3 "$COACH_PY" open-section "$WORK/open.q")"
@@ -687,6 +687,8 @@ else
     for ((i=0; i<NSEATS; i++)); do cp "$WORK/s$i/${SEAT_HEAD[$i]}.out" "$WORK/s$i.r$r.out" 2>/dev/null; done
     say "## ─────── Round $r ───────"; say ""
     for ((i=0; i<NSEATS; i++)); do say "### $(seat_label "$i")"; say ""; say "$(seat_body "$i" "$WORK/s$i.r$r.out")"; say ""; done
+    # Quick: no ruling between rounds; the next round starts at once and the verdict weighs the last.
+    [[ "$MODE" == "quick" ]] && continue
     positions ".r$r.out" > "$WORK/round.pos"
     python3 "$COACH_PY" chair-prompt "$QUESTION" "$r" "$WORK/round.pos" > "$WORK/chair.prompt"
     CHAIR_OUT="$(anthropic_call "$CHAIR_MODEL" "$WORK/chair.prompt")"
@@ -699,7 +701,8 @@ else
     fi
   done
   [[ -n "$VERDICT" ]] && verdict_text ".r$LAST_R.out"
-  if [[ $CONS -eq 1 ]]; then FOOTER="_Deliberation converged. The chair's final verdict above is the council consensus._"
+  if [[ "$MODE" == "quick" ]]; then FOOTER="_Quick: $ROUNDS_RUN rounds back to back, with no chair ruling between them. The verdict weighs the last round._"
+  elif [[ $CONS -eq 1 ]]; then FOOTER="_Deliberation converged. The chair's final verdict above is the council consensus._"
   else FOOTER="_Reached the round cap ($ROUNDS) without full consensus — the chair's last verdict lists the remaining disagreements._"; fi
 fi
 

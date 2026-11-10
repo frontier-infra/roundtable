@@ -36,10 +36,10 @@ impl Mode {
             Mode::Deep => "Deep Think",
         }
     }
-    /// Rounds when `--rounds` is not given: one blind round, or up to four.
+    /// Rounds when `--rounds` is not given: two short rounds, or up to four.
     pub fn default_rounds(self) -> u32 {
         match self {
-            Mode::Quick => 1,
+            Mode::Quick => 2,
             Mode::Deep => 4,
         }
     }
@@ -54,11 +54,16 @@ impl Mode {
     pub fn coach(self) -> bool {
         self == Mode::Deep
     }
+    /// The chair rules after every round (and the run stops early on agreement) only in Deep
+    /// Think. Quick runs its rounds back to back, and the verdict weighs the last one.
+    pub fn chair_rules(self) -> bool {
+        self == Mode::Deep
+    }
     /// The last section of every seat's prompt: how long, and what to lead with.
     pub fn seat_rule(self) -> String {
         match self {
             Mode::Quick => format!(
-                "## LENGTH\nKeep your answer to about {} words. Lead with your pick and how sure you are. Then give the main trade-off, the risks that could hurt this person, and the facts you do not have that would change the pick. End with one line, CASE AGAINST: the strongest reason your pick could be wrong for this person.",
+                "## LENGTH\nKeep your answer to about {} words. Lead with your pick and how sure you are. Then give the main trade-off, the risks that could hurt this person, and the facts you do not have that would change the pick. Include one line, CASE AGAINST: the strongest reason your pick could be wrong for this person.",
                 self.seat_words()
             ),
             Mode::Deep => format!(
@@ -77,17 +82,18 @@ pub fn with_rule(prompt: &str, mode: Mode) -> String {
 /// Seconds the bench measured per part of a run (2026-11-10d, three seats on signed-in apps).
 const COACH_SECS: u32 = 45;
 const CHAIR_SECS: u32 = 30;
+const QUICK_ROUND_SECS: u32 = 50;
 
 /// About how long a run takes, in whole minutes (at least 1). The app shows it before asking:
 /// "Deep Think: about N minutes". Same numbers as `estimateMinutes` in the app (ui/src/state.ts).
 pub fn estimate_minutes(mode: Mode, rounds: u32) -> u32 {
     let rounds = rounds.clamp(1, crate::council::MAX_ROUNDS);
     let (seat, verdict, coach) = match mode {
-        Mode::Quick => (75, 30, 0),
+        Mode::Quick => (QUICK_ROUND_SECS, 30, 0),
         Mode::Deep => (140, 75, COACH_SECS),
     };
-    // A chair ruling follows every round of a deliberation; one round has none.
-    let chair = if rounds > 1 { rounds * CHAIR_SECS } else { 0 };
+    // In Deep Think a chair ruling follows every round of a deliberation; Quick has none.
+    let chair = if rounds > 1 && mode.chair_rules() { rounds * CHAIR_SECS } else { 0 };
     let secs = coach + rounds * seat + chair + verdict;
     secs.div_ceil(60).max(1)
 }
@@ -109,7 +115,8 @@ mod tests {
         assert_eq!(Mode::parse("deep_think").unwrap(), Mode::Deep);
         assert!(Mode::parse("slow").is_err());
         assert_eq!(Mode::Deep.title(), "Deep Think");
-        assert_eq!(Mode::Quick.default_rounds(), 1);
+        assert_eq!(Mode::Quick.default_rounds(), 2);
+        assert!(Mode::Deep.chair_rules() && !Mode::Quick.chair_rules());
         assert_eq!(Mode::Deep.default_rounds(), 4);
         assert!(Mode::Deep.coach() && !Mode::Quick.coach());
     }
@@ -123,6 +130,7 @@ mod tests {
 
     #[test]
     fn estimates() {
+        assert_eq!(estimate_minutes(Mode::Quick, 2), 3);
         assert_eq!(estimate_minutes(Mode::Quick, 1), 2);
         assert_eq!(estimate_minutes(Mode::Deep, 4), 14, "the app shows the same (ui/src/state.ts)");
         assert_eq!(estimate_minutes(Mode::Deep, 2), 8);
