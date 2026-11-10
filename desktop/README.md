@@ -38,7 +38,31 @@ cd core && cargo tauri build
 ```
 
 `cargo tauri dev` runs the app against the Vite dev server. Opening `http://localhost:5173/` in a plain browser shows the UI on the fake backend.
-Preview query options: `screen=1..5`, `view=main|settings`, `claude=none|app|code|both|plugin`, `keys=claude,gemini`, `os=windows`, `history=1`, `run=setup|quick|talk`, `clis=some|none` (AI apps found on the computer).
+Preview query options: `screen=1..5`, `view=main|settings`, `claude=none|app|code|both|plugin`, `keys=claude,gemini`, `os=windows`, `history=1`, `run=setup|quick|talk`, `clis=some|none` (AI apps found on the computer), `providers=1` (Ollama found here, OpenRouter added).
+
+### Other providers
+
+Settings, AI accounts, "Add a provider": OpenRouter, Ollama, LM Studio, Groq, Together, or Custom (any OpenAI-compatible base URL).
+Every ticked model is its own seat, `provider:model` (`ollama:qwen3:4b`, `openrouter:openai/gpt-4o-mini`), labelled with the model and the provider.
+A seat is asked with one plain chat completion: one user message, no tools, no system prompt (the rc8 seat isolation rule).
+Keys go to the OS keychain under `provider-<id>`, or come from the environment (`OPENROUTER_API_KEY`, `GROQ_API_KEY`, `TOGETHER_API_KEY`, `ROUNDTABLE_PROVIDER_<ID>_KEY`).
+Ollama and LM Studio are found running the way AI apps are, and say "free, on this computer".
+The model list is `GET /v1/models` (Ollama also `/api/tags`); OpenRouter's per-model prices feed the cost line under the ask box, else it says unknown.
+A model named Jebadiah counts as ours only when it is a frontier-infra build (the rule from fix/detect-ours).
+With no way to ask Claude, the first ticked provider seat chairs, so the coach, the suggested panel and the verdict still work.
+The bash CLI (`lib/core.sh`) keeps its current seats; provider seats are in the Rust engine and the app.
+
+```sh
+roundtable provider detect
+echo "$KEY" | roundtable provider add openrouter --key-stdin --check --models openai/gpt-4o-mini
+roundtable provider add custom --name "My proxy" --url https://host/v1 --models small-a,small-b
+roundtable provider models openrouter --search "llama 70b"
+roundtable provider list
+roundtable ask -q "..." --seats ollama:qwen3:4b,openrouter:openai/gpt-4o-mini --rounds 2
+roundtable provider remove openrouter
+```
+
+The MCP tool takes the same seats as `seats` (a comma list or an array).
 
 `roundtable detect` lists the AI apps on this computer and whether each is signed in. It sends no prompt.
 `roundtable test <ai> [--via auto|app|key]` asks one AI "Answer in five words: is water wet?" and prints the command, exit code, time and answer.
