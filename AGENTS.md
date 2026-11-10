@@ -116,7 +116,8 @@ roundtable ask -q "..." --out /tmp/rt.md                           # also save t
 
 Flags: `-q/--question`, `-c/--context <file>`, `--heads ...`, `--rounds N` (1 to 4), `--personas SPEC`, `--research`,
 `--timeout <secs>`, `--out <file>`, `--coach`, `--coach-answer A`, `--coach-questions`, `--brief FILE`,
-`--verdict decision|pros-cons|plan|vote`, `--no-blind`, `--attach SRC`, `--follow-up FILE`, `--personas auto`.
+`--verdict decision|pros-cons|plan|vote|none` (a table gets a decision by default; it leads the transcript), `--no-clarify`,
+`--no-blind`, `--attach SRC`, `--follow-up FILE`, `--personas auto`.
 Exit 0 if ≥1 head answered.
 
 **Output discipline:** always return the per-head results table **and** the judge's

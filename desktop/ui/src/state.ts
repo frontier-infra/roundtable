@@ -82,6 +82,10 @@ export interface FinalVerdict {
   minority?: string;
   held_by?: string;
   confidence?: string;
+  /** The ordered next steps the verdict leads with. */
+  next_steps?: string[];
+  /** The questions the chair opened with, when key facts were missing. */
+  questions?: string[];
 }
 
 export interface RunView {
@@ -119,6 +123,8 @@ export interface RunView {
   consensus?: boolean;
   /** The decision model's rating of the verdict. */
   decision?: DecisionEvent;
+  /** The chair's open questions: the question lacked key facts the pick depends on. */
+  clarify?: string[];
 }
 
 export interface ClaudeView extends Partial<ClaudeStatus> {
@@ -665,7 +671,10 @@ export function applyEvent(run: RunView, e: EngineEvent): RunView {
       r.consensus = e.consensus;
       break;
     case "verdict":
-      r.verdict = { shape: e.shape, text: e.text, minority: e.minority, held_by: e.held_by, confidence: e.confidence };
+      r.verdict = { shape: e.shape, text: e.text, minority: e.minority, held_by: e.held_by, confidence: e.confidence, next_steps: e.next_steps, questions: e.questions };
+      break;
+    case "clarify":
+      r.clarify = e.questions;
       break;
     case "process_exit":
       r.done = true;
@@ -687,15 +696,19 @@ export function cleanAnswer(t: string): string {
 /** The `## ` sections of an advisory transcript, by position: [start, end) offsets. */
 function sectionSpans(t: string): [number, number][] {
   const spans: [number, number][] = [];
-  const re = /^## .*$/gm;
+  // Seat sections only: the brief and the verdict (which leads since rc8) are not seats.
+  const re = /^## (?!Brief$|\u{1fa91} Verdict).*$/gmu;
   let m: RegExpExecArray | null;
   const starts: number[] = [];
   while ((m = re.exec(t))) starts.push(m.index);
   for (let i = 0; i < starts.length; i++) {
     const nextStart = i + 1 < starts.length ? starts[i + 1] : t.length;
-    // A section ends at the `---` line before the next heading or the footer.
-    const sep = t.lastIndexOf("\n---", nextStart);
-    spans.push([starts[i], sep > starts[i] ? sep + 1 : nextStart]);
+    // A section ends at the `---` line before the next heading or the footer,
+    // or where the folded seat answers close.
+    let end = t.lastIndexOf("\n---", nextStart);
+    const fold = t.lastIndexOf("\n</details>", nextStart);
+    if (fold > starts[i] && (end <= starts[i] || fold < end)) end = fold;
+    spans.push([starts[i], end > starts[i] ? end + 1 : nextStart]);
   }
   return spans;
 }

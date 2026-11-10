@@ -211,6 +211,36 @@ Jason approved all five on 2026-11-10.
 The parity test runs both engines with a fake chair and compares every section, with prompt hashes for
 the brief, the attachments, the follow-up, the open round, the verdict and the suggested seats.
 
+### 5.2 Useful, not a novelty (rc8, from the usefulness bench)
+
+The 2026-11-10 bench (`bench/`) found the table lost on "one clear decision", stopped after round 1
+in 10 of 12 runs, let seats read this computer's own agent setup, and dropped Grok in 5 of 12 runs.
+
+1. **The verdict leads with one decision.** Every shape starts with `DECISION`, `CONFIDENCE`,
+   `WOULD CHANGE IT` and three numbered `NEXT STEPS`, and ends with `MINORITY VIEW` and `HELD BY`.
+   - A table of two or more seats gets a decision by default; `--verdict none` turns it off.
+   - The transcript and the app show the verdict first. The seat answers and rounds fold under it.
+2. **Real deliberation.** After each round the chair names the `LEADING PICK` and lists
+   `DIFFERENCES` in numbers, thresholds or first steps. Any difference runs another round.
+   - Round 2 and later read the chair's reading, argue against the leading pick (`CASE AGAINST:`),
+     settle each difference, then revise.
+   - Early stop only on true agreement: the same pick, numbers, thresholds and first step.
+3. **Seat isolation.** Every AI app seat runs in a fresh empty folder with no tools, web off
+   (unless research), no MCP servers, and its own instructions and memory off where it can.
+   - Claude Code: `--safe-mode`, `--tools ""`, `--strict-mcp-config` with an empty config.
+   - Codex: a clean `CODEX_HOME` (the sign-in linked, settings cut to the model and provider),
+     `--ephemeral`, `--ignore-rules`, read-only, commands and code off by feature flags.
+   - Grok: no tools, no turn cap, its memory, workflows and Claude and Cursor borrowing off.
+   - Gemini, Qwen and Cursor: no extensions, safe mode or the sandbox, from each one's `--help`.
+   - `cargo test -p roundtable-engine --test seat_isolation -- --ignored` plants a file and
+     asks each app to read it and run a command. Every app must fail at both.
+4. **A failed seat is asked once more** before it is dropped (not on sign-in or usage limits).
+5. **Clarify first.** With no brief and no earlier turns, the chair checks the question. When
+   the pick flips on facts the person did not give, the seats and the verdict get its two or
+   three questions; the verdict opens with `QUESTIONS FIRST`, then the pick that holds under
+   the likely answers. The app shows "The chair asks first" while the table answers.
+   Engine: a `clarify` event; `--no-clarify` skips the check.
+
 ### Settings
 
 - **AI accounts:** the six cards from screen 3. Replace or remove a key. A live status line per AI.

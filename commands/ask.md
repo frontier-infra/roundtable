@@ -9,5 +9,5 @@ Follow the roundtable skill. Use the `roundtable` MCP tool if it is available. O
 `roundtable ask -q "<question>"` in the Bash tool. If the question is high stakes, use 3
 rounds (at most 4). If it needs named expertise, seat a preset with `--personas` (for
 example `pricing`, `security-review` or `exec-team`); run `roundtable personas` to see them. If the question is vague, use the coach first (MCP `coach: true`,
-or `--coach-questions`, then `--coach-answer` once per answer). Ask for a verdict (`--verdict decision`, or
-`pros-cons`, `plan`, `vote`) and name its minority view. Return the question recap, the results table, and the judge's decision.
+or `--coach-questions`, then `--coach-answer` once per answer). A table gets a decision verdict by default (or ask for
+`pros-cons`, `plan`, `vote`); lead with it, and with its questions when it opens with `QUESTIONS FIRST`, and name its minority view. Return the question recap, the results table, and the judge's decision.

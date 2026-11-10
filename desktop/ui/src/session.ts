@@ -95,7 +95,7 @@ export function splitFinalVerdict(text: string): { body: string; minority?: stri
   return { body: keep.join("\n").trim(), minority: none(minority), heldBy: none(heldBy) };
 }
 
-const KEY_LINE = /^\s*\**\s*(DECISION|CONFIDENCE|OPTION|RECOMMENDATION|GOAL|FIRST STEP TODAY|RESULT)\s*:\s*\**\s*(.*)$/i;
+const KEY_LINE = /^\s*\**\s*(QUESTIONS FIRST|DECISION|CONFIDENCE|WOULD CHANGE IT|NEXT STEPS|OPTION|RECOMMENDATION|GOAL|FIRST STEP TODAY|RESULT)\s*:\s*\**\s*(.*)$/i;
 
 /** The verdict's "KEY: value" lines as their own bold-led paragraphs, so they never run together. */
 export function formatVerdictBody(body: string): string {
@@ -104,7 +104,7 @@ export function formatVerdictBody(body: string): string {
     const m = KEY_LINE.exec(line);
     if (m) {
       const key = m[1].toLowerCase();
-      out.push("", `**${key[0].toUpperCase()}${key.slice(1)}:** ${m[2].replace(/\*\*$/, "").trim()}`, "");
+      out.push("", `**${key[0].toUpperCase()}${key.slice(1)}:** ${m[2].replace(/\*\*$/, "").trim()}`.trimEnd(), "");
     } else out.push(line);
   }
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();

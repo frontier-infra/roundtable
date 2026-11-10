@@ -255,7 +255,20 @@ export type EngineEvent =
   | { event: "head_done"; head: string; round: number; status: string; text: string; reason?: string; message?: string; fix?: Fix; via?: string; seat?: string }
   | { event: "round_done"; round: number }
   | { event: "chair_verdict"; round: number; consensus: boolean; text: string }
-  | { event: "verdict"; shape: VerdictShape; text: string; minority?: string; held_by?: string; confidence?: string }
+  | {
+      event: "verdict";
+      shape: VerdictShape;
+      text: string;
+      minority?: string;
+      held_by?: string;
+      confidence?: string;
+      decision?: string;
+      would_change?: string;
+      next_steps?: string[];
+      questions?: string[];
+    }
+  /** The question lacks key facts the pick depends on: the chair opens with these. */
+  | { event: "clarify"; questions: string[] }
   | { event: "run_done"; transcript: string; answered: number; consensus?: boolean; history_id?: string }
   | { event: "process_exit" }
   /** A one-head retry finished. Its transcript holds just that head. */

@@ -194,6 +194,10 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
       lastEmit = emit;
       const run = async () => {
         emit({ event: "run_started", heads: req.heads, rounds: req.rounds, mode: req.rounds > 1 ? "deliberation" : "advisory", seats });
+        // Clarify first: a question with no facts behind it (the preview asks about a database).
+        if (seats.length > 1 && !req.brief && !req.prior && /database/i.test(req.question)) {
+          emit({ event: "clarify", questions: ["What is the workload: reads, writes, and how much data?", "Which cloud and databases does your team already run?"] });
+        }
         let answered = 0;
         const rounds = Math.max(1, req.rounds);
         for (let r = 1; r <= rounds; r++) {
@@ -237,7 +241,8 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
         if (req.verdict) {
           await wait();
           const texts: Record<string, string> = {
-            decision: "DECISION: Start a small garden this Saturday.\nCONFIDENCE: Medium (65%)\n**WHY**\n- It pays off for months.\n- Bread fits a rainy day.",
+            decision:
+              "DECISION: Start a small garden this Saturday.\nCONFIDENCE: Medium (65%)\nWOULD CHANGE IT: A week of rain in the forecast.\nNEXT STEPS:\n1. Measure the sunny corner today.\n2. Buy soil and seeds on Saturday at 9 am.\n3. Bake bread on the first rainy day.\n**WHY**\n- It pays off for months.\n- Bread fits a rainy day.",
             "pros-cons": "OPTION: Start the garden.\n**PROS**\n- Pays off for months.\n**CONS**\n- Weather can spoil the day.\nRECOMMENDATION: Garden now, bread when it rains.",
             plan: "GOAL: A raised bed by Sunday.\n**STEPS**\n1. You: buy soil and seeds, Saturday 9 am.\n2. You: build the bed, Saturday noon.\nFIRST STEP TODAY: Measure the sunny corner.",
             vote: "**VOTES**\n- Claude: garden\n- Gemini: bread\n- ChatGPT: garden\nRESULT: garden wins 2 to 1",
