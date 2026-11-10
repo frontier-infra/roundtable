@@ -272,34 +272,6 @@ fn cmd_ask(args: &[String]) -> u8 {
             return 2;
         }
     };
-    if a.coach_questions {
-        return match coach::ask_questions(&a.question, &k, &settings, coach::CHAIR_WAIT) {
-            Ok(qs) if qs.is_empty() => {
-                println!("NONE");
-                0
-            }
-            Ok(qs) => {
-                for q in qs {
-                    println!("Q: {q}");
-                }
-                0
-            }
-            Err(e) => {
-                eprintln!("ERROR: {e}");
-                1
-            }
-        };
-    }
-    let mut brief = match a.brief.as_deref().map(|p| read("brief", p)).transpose() {
-        Ok(b) => b.map(|b| b.trim().to_string()).filter(|b| !b.is_empty()),
-        Err(e) => {
-            eprintln!("ERROR: {e}");
-            return 2;
-        }
-    };
-    if a.coach && brief.is_none() {
-        brief = run_coach(&a.question, &a.coach_answers, &k, &settings, a.events);
-    }
     let prior = match a.follow_up.as_deref() {
         Some(x) => match history::read(&paths::history_dir(), x).map(Ok).unwrap_or_else(|| read("follow-up", x)) {
             Ok(t) => Some(t),
@@ -338,6 +310,36 @@ fn cmd_ask(args: &[String]) -> u8 {
         }
     }
     let attachments = Some(shared.join("\n\n")).filter(|t| !t.trim().is_empty());
+    // The coach reads the attached material too, so it never asks for what is already there.
+    let coach_text = coach::with_material(&a.question, attachments.as_deref());
+    if a.coach_questions {
+        return match coach::ask_questions(&coach_text, &k, &settings, coach::CHAIR_WAIT) {
+            Ok(qs) if qs.is_empty() => {
+                println!("NONE");
+                0
+            }
+            Ok(qs) => {
+                for q in qs {
+                    println!("Q: {q}");
+                }
+                0
+            }
+            Err(e) => {
+                eprintln!("ERROR: {e}");
+                1
+            }
+        };
+    }
+    let mut brief = match a.brief.as_deref().map(|p| read("brief", p)).transpose() {
+        Ok(b) => b.map(|b| b.trim().to_string()).filter(|b| !b.is_empty()),
+        Err(e) => {
+            eprintln!("ERROR: {e}");
+            return 2;
+        }
+    };
+    if a.coach && brief.is_none() {
+        brief = run_coach(&coach_text, &a.coach_answers, &k, &settings, a.events);
+    }
     let mut spec = a.personas.clone().or_else(|| k.env.get("ROUNDTABLE_PERSONAS").cloned()).unwrap_or_default();
     let lib = personas::Library::load(&settings);
     if spec.trim().eq_ignore_ascii_case("auto") {

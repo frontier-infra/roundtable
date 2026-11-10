@@ -391,51 +391,6 @@ COACH_PY="$(dirname "$0")/coach.py"
 # chair_say <promptfile>: the chair's answer, or nothing.
 chair_say() { local t; t="$TIMEOUT"; TIMEOUT=180; anthropic_call "$CHAIR_MODEL" "$1"; TIMEOUT="$t"; }
 
-if [[ "$COACH_QUESTIONS" -eq 1 ]]; then
-  python3 "$COACH_PY" questions-prompt "$QUESTION" > "$WORK/coach.prompt"
-  _r="$(chair_say "$WORK/coach.prompt")"
-  [[ -z "$_r" ]] && { echo "ERROR: The coach did not answer. Connect Claude, or skip the coach." >&2; exit 1; }
-  printf '%s' "$_r" | python3 "$COACH_PY" parse-questions
-  exit 0
-fi
-
-BRIEF=""
-if [[ -n "$BRIEF_FILE" ]]; then
-  [[ -f "$BRIEF_FILE" ]] || { echo "ERROR: could not read the brief file: $BRIEF_FILE" >&2; exit 2; }
-  BRIEF="$(python3 -c 'import sys; print(open(sys.argv[1], encoding="utf-8").read().strip(), end="")' "$BRIEF_FILE")"
-fi
-if [[ "$COACH" -eq 1 && -z "$BRIEF" ]]; then
-  python3 "$COACH_PY" questions-prompt "$QUESTION" > "$WORK/coach.prompt"
-  _r="$(chair_say "$WORK/coach.prompt")"
-  if [[ -z "$_r" ]]; then
-    echo "NOTE: The coach did not answer. Connect Claude, or skip the coach. Asking the question as typed." >&2
-  else
-    _tty=0; [[ -t 0 && -t 2 ]] && _tty=1
-    : > "$WORK/coach.qa"; _i=0
-    while IFS= read -r _q; do
-      [[ "$_q" == "NONE" || -z "$_q" ]] && continue
-      _q="${_q#Q: }"
-      if [[ $_i -lt ${#COACH_ANSWERS[@]} ]]; then _a="${COACH_ANSWERS[$_i]}"
-      elif [[ $_tty -eq 1 ]]; then printf 'Coach: %s\n> ' "$_q" >&2; IFS= read -r _a </dev/tty || _a=""
-      else _a=""; fi
-      printf '%s\t%s\n' "$_q" "$(printf '%s' "$_a" | tr '\t\n' '  ')" >> "$WORK/coach.qa"
-      _i=$((_i+1))
-    done < <(printf '%s' "$_r" | python3 "$COACH_PY" parse-questions)
-    python3 "$COACH_PY" brief-prompt "$QUESTION" "$WORK/coach.qa" > "$WORK/brief.prompt"
-    _r="$(chair_say "$WORK/brief.prompt")"
-    if [[ -z "$_r" ]]; then
-      echo "NOTE: The coach did not answer. Connect Claude, or skip the coach. Asking the question as typed." >&2
-    else
-      BRIEF="$(printf '%s' "$_r" | python3 "$COACH_PY" parse-brief "$QUESTION")"
-      if [[ $_tty -eq 1 ]]; then
-        printf '\nThe brief the table will read:\n%s\n\nPress Enter to use it, or type s and Enter to skip it: ' "$BRIEF" >&2
-        IFS= read -r _a </dev/tty || _a=""
-        [[ "$_a" == "s" || "$_a" == "S" ]] && BRIEF=""
-      fi
-    fi
-  fi
-fi
-
 PRIOR=""
 if [[ -n "$FOLLOW_UP" ]]; then
   [[ -f "$FOLLOW_UP" ]] || { echo "ERROR: could not read the follow-up file: $FOLLOW_UP" >&2; exit 2; }
@@ -465,6 +420,59 @@ if [[ ${#ATTACH_SRCS[@]} -gt 0 ]]; then
     if [[ -n "$ATTACHMENTS" ]]; then ATTACHMENTS="$ATTACHMENTS"$'\n\n'"$_blk"; else ATTACHMENTS="$_blk"; fi
   fi
 fi
+
+# The coach reads the attached material too, so it never asks for what is already there.
+# The same words as coach::with_material in the Rust engine.
+COACH_TEXT="$QUESTION"
+if [[ -n "${ATTACHMENTS//[[:space:]]/}" ]]; then
+  COACH_TEXT="$(python3 -c 'import sys; print(sys.argv[1].strip(), end="")' "$QUESTION")"$'\n\n'"ATTACHED MATERIAL (every seat already reads this; do not ask for it):"$'\n'"$(python3 -c 'import sys; print(sys.argv[1].strip(), end="")' "$ATTACHMENTS")"
+fi
+
+if [[ "$COACH_QUESTIONS" -eq 1 ]]; then
+  python3 "$COACH_PY" questions-prompt "$COACH_TEXT" > "$WORK/coach.prompt"
+  _r="$(chair_say "$WORK/coach.prompt")"
+  [[ -z "$_r" ]] && { echo "ERROR: The coach did not answer. Connect Claude, or skip the coach." >&2; exit 1; }
+  printf '%s' "$_r" | python3 "$COACH_PY" parse-questions
+  exit 0
+fi
+
+BRIEF=""
+if [[ -n "$BRIEF_FILE" ]]; then
+  [[ -f "$BRIEF_FILE" ]] || { echo "ERROR: could not read the brief file: $BRIEF_FILE" >&2; exit 2; }
+  BRIEF="$(python3 -c 'import sys; print(open(sys.argv[1], encoding="utf-8").read().strip(), end="")' "$BRIEF_FILE")"
+fi
+if [[ "$COACH" -eq 1 && -z "$BRIEF" ]]; then
+  python3 "$COACH_PY" questions-prompt "$COACH_TEXT" > "$WORK/coach.prompt"
+  _r="$(chair_say "$WORK/coach.prompt")"
+  if [[ -z "$_r" ]]; then
+    echo "NOTE: The coach did not answer. Connect Claude, or skip the coach. Asking the question as typed." >&2
+  else
+    _tty=0; [[ -t 0 && -t 2 ]] && _tty=1
+    : > "$WORK/coach.qa"; _i=0
+    while IFS= read -r _q; do
+      [[ "$_q" == "NONE" || -z "$_q" ]] && continue
+      _q="${_q#Q: }"
+      if [[ $_i -lt ${#COACH_ANSWERS[@]} ]]; then _a="${COACH_ANSWERS[$_i]}"
+      elif [[ $_tty -eq 1 ]]; then printf 'Coach: %s\n> ' "$_q" >&2; IFS= read -r _a </dev/tty || _a=""
+      else _a=""; fi
+      printf '%s\t%s\n' "$_q" "$(printf '%s' "$_a" | tr '\t\n' '  ')" >> "$WORK/coach.qa"
+      _i=$((_i+1))
+    done < <(printf '%s' "$_r" | python3 "$COACH_PY" parse-questions)
+    python3 "$COACH_PY" brief-prompt "$COACH_TEXT" "$WORK/coach.qa" > "$WORK/brief.prompt"
+    _r="$(chair_say "$WORK/brief.prompt")"
+    if [[ -z "$_r" ]]; then
+      echo "NOTE: The coach did not answer. Connect Claude, or skip the coach. Asking the question as typed." >&2
+    else
+      BRIEF="$(printf '%s' "$_r" | python3 "$COACH_PY" parse-brief "$COACH_TEXT")"
+      if [[ $_tty -eq 1 ]]; then
+        printf '\nThe brief the table will read:\n%s\n\nPress Enter to use it, or type s and Enter to skip it: ' "$BRIEF" >&2
+        IFS= read -r _a </dev/tty || _a=""
+        [[ "$_a" == "s" || "$_a" == "S" ]] && BRIEF=""
+      fi
+    fi
+  fi
+fi
+
 
 # The shared prompt: earlier turns, background, attachments and the brief, then the question.
 _ctx=""; [[ -n "$CONTEXT_FILE" && -f "$CONTEXT_FILE" ]] && _ctx="$(cat "$CONTEXT_FILE")"
@@ -587,7 +595,9 @@ verdict_text() {
   esac
   positions "$1" > "$WORK/final.pos"
   printf '%s' "$BRIEF" > "$WORK/brief.md"
-  python3 "$COACH_PY" verdict-prompt "$VERDICT" "$QUESTION" "$WORK/brief.md" "$WORK/open.q" "$WORK/final.pos" > "$WORK/verdict.prompt"
+  # The chair reads the same files and links as every seat, or it doubts what they quote.
+  printf '%s' "$ATTACHMENTS" > "$WORK/material.md"
+  python3 "$COACH_PY" verdict-prompt "$VERDICT" "$QUESTION" "$WORK/brief.md" "$WORK/open.q" "$WORK/final.pos" "$WORK/material.md" > "$WORK/verdict.prompt"
   text="$(anthropic_call "$CHAIR_MODEL" "$WORK/verdict.prompt")"
   [[ -z "${text//[[:space:]]/}" ]] && text="_(verdict unavailable: the chair did not answer)_"
   printf '## 🪑 Verdict (%s)\n\n%s\n' "$title" "$text" > "$WORK/verdict.md"

@@ -65,11 +65,15 @@ pub const CORE: &str = "Lead with one decision. Start with exactly these lines:\
 pub const CLARIFY: &str = "Key facts are missing (the OPEN QUESTIONS above), so open with the questions, not the pick. Start with exactly this line, then two or three numbered questions (sharpen the open questions if that helps):\nQUESTIONS FIRST:\n1. <question>\n2. <question>\nThen give the decision lines below. DECISION names the pick that holds under the most likely answers and says how the answers would change it (\"If ..., then ...\").\n";
 
 /// The chair's prompt for the verdict. `table` is (label, final answer) per seat;
-/// `open` the chair's open questions when the question lacks key facts.
-pub fn prompt(shape: Shape, question: &str, brief: Option<&str>, open: &[String], table: &[(String, String)]) -> String {
+/// `attachments` the material every seat read; `open` the chair's open questions when the question lacks key facts.
+pub fn prompt(shape: Shape, question: &str, brief: Option<&str>, attachments: Option<&str>, open: &[String], table: &[(String, String)]) -> String {
     let mut p = format!("You are the neutral CHAIR of an AI council. Write the final verdict on this question:\n\n{}\n\n", question.trim());
     if let Some(b) = brief.filter(|b| !b.trim().is_empty()) {
         p.push_str(&format!("THE BRIEF:\n{}\n\n", b.trim()));
+    }
+    // The chair reads the same files and links as every seat, or it doubts what they quote.
+    if let Some(m) = attachments.filter(|m| !m.trim().is_empty()) {
+        p.push_str(&format!("THE MATERIAL EVERY SEAT READ:\n{}\n\n", m.trim()));
     }
     if !open.is_empty() {
         p.push_str("OPEN QUESTIONS:\n");
@@ -216,16 +220,19 @@ mod tests {
 
     #[test]
     fn prompt_names_the_minority_lines() {
-        let p = prompt(Shape::Vote, "Q", Some("- **Goal:** g"), &[], &[("A".into(), "x".into())]);
+        let p = prompt(Shape::Vote, "Q", Some("- **Goal:** g"), None, &[], &[("A".into(), "x".into())]);
         assert!(p.contains("THE BRIEF:\n- **Goal:** g"));
+        assert!(!p.contains("THE MATERIAL"));
+        let m = prompt(Shape::Decision, "Q", None, Some("### notes.txt\nCode word: HERON-42.\n"), &[], &[("A".into(), "x".into())]);
+        assert!(m.contains("THE MATERIAL EVERY SEAT READ:\n### notes.txt\nCode word: HERON-42.\n\n--- FINAL POSITIONS ---"));
         assert!(p.contains("MINORITY VIEW:") && p.contains("HELD BY:"));
         assert!(!p.contains('\u{2014}'));
         for s in SHAPES {
-            let p = prompt(*s, "Q", None, &[], &[]);
+            let p = prompt(*s, "Q", None, None, &[], &[]);
             assert!(p.contains("--- YOUR JOB ---\nLead with one decision.") && p.contains("WOULD CHANGE IT:") && p.contains("NEXT STEPS:\n1."), "every shape keeps the core: {p}");
             assert!(!p.contains("QUESTIONS FIRST"));
         }
-        let p = prompt(Shape::Decision, "Q", None, &["What is the workload?".into(), "How big?".into()], &[]);
+        let p = prompt(Shape::Decision, "Q", None, None, &["What is the workload?".into(), "How big?".into()], &[]);
         assert!(p.contains("OPEN QUESTIONS:\n- What is the workload?\n- How big?\n\n--- FINAL POSITIONS"));
         assert!(p.contains("--- YOUR JOB ---\nKey facts are missing") && p.find("QUESTIONS FIRST").unwrap() < p.find("DECISION:").unwrap());
     }

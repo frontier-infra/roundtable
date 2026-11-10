@@ -48,6 +48,9 @@ nothing then. It never panics. Each network call is bounded by a timeout.
      `JEV_API_KEY` or the keychain account `typesafe`.
    - `jebadiah`: the saved address, `ROUNDTABLE_JEBADIAH_URL`, or a local server found by
      `detect::find_jebadiah` (`jeb serve` on 127.0.0.1:8100, AINode on :3000 or :8000).
+     Only our builds count (`detect::is_ours`): `frontier-infra/jebadiah-*` (also under
+     `hf.co/`) and the Ollama names `frontierinfra/jebadiah` and `jbrashearfrontierinfra/jebadiah`.
+     Any other model named Jebadiah is skipped, with one line in the detect `note`.
      Optional key: `JEBADIAH_API_KEY`, `AINODE_API_KEY` or the keychain account `jebadiah`.
    - `systemone`: any other System One model (the LINK21 slot): saved name, address and model id.
 3. One choice question goes to the model. The answer becomes `Outcome::Rated(Report)`

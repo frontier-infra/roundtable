@@ -4,12 +4,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "../src/app";
 import { mockApi, type MockOptions } from "../src/mock";
+import ids from "../../engine/src/decision/jebadiah-ids.json";
 import { EXPORT_CREDIT, JASON_URL, MADE_BY, TITANIUM_URL, withCredit } from "../src/credits";
 import {
   appOrder,
   BUILDS,
   isOurModel,
   lmStudioId,
+  OUR_HOSTS,
+  OUR_NAMESPACES,
   modelPage,
   ollamaCommand,
   resetJebadiahView,
@@ -152,9 +155,19 @@ describe("Get Jebadiah", () => {
   it("knows our builds and not the other account's models", () => {
     expect(isOurModel("hf.co/frontier-infra/jebadiah-9b-v2-1-GGUF:Q4_K_M")).toBe(true);
     expect(isOurModel("frontierinfra/jebadiah:27b")).toBe(true);
-    expect(isOurModel("jebadiah-9b-v2-1-mlx-8bit")).toBe(true);
+    expect(isOurModel("jbrashearfrontierinfra/jebadiah:latest")).toBe(true);
     expect(isOurModel("Jebadiah/Aria-7b-128k-v1")).toBe(false);
     expect(isOurModel("jebadiah/hermes-lexi-fun-stone-l3-8b")).toBe(false);
+    // A stranger's account named Jebadiah, and a bare name anyone could publish.
+    expect(isOurModel("hf.co/Jebadiah/jebadiah-9b-uncensored-GGUF:Q4_K_M")).toBe(false);
+    expect(isOurModel("jebadiah-9b-v2-1-mlx-8bit")).toBe(false);
+  });
+
+  it("uses the engine's one list of our id patterns", () => {
+    expect(OUR_NAMESPACES).toEqual(ids.namespaces);
+    expect(OUR_HOSTS).toEqual(ids.hosts);
+    for (const id of ids.ours) expect(isOurModel(id), id).toBe(true);
+    for (const id of ids.not_ours) expect(isOurModel(id), id).toBe(false);
   });
 
   it("Settings shows the hint on an Apple Silicon Mac with 64 GB: LM Studio and the 27B MLX build first", async () => {

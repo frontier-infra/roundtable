@@ -19,7 +19,7 @@ Standard library only. core.sh makes the chair calls; this file builds and reads
   coach.py chair-prompt QUESTION ROUND POSFILE  the chair's prompt after a round
   coach.py deliberation-prompt BASEFILE PREV POSFILE ROUND CHAIRFILE   a round 2+ prompt
   coach.py agreed < CHAIR                       exit 0 on true agreement (no listed differences)
-  coach.py verdict-prompt SHAPE QUESTION BRIEFFILE QFILE POSFILE       the verdict prompt
+  coach.py verdict-prompt SHAPE QUESTION BRIEFFILE QFILE POSFILE [MATFILE] the verdict prompt
   coach.py codex-config CONFIG.TOML             the part of a Codex config a seat keeps
 """
 import os, re, subprocess, sys, urllib.request
@@ -166,10 +166,13 @@ VERDICT_CLARIFY = ("Key facts are missing (the OPEN QUESTIONS above), so open wi
                    "DECISION names the pick that holds under the most likely answers and says how the answers would change it (\"If ..., then ...\").\n")
 
 
-def verdict_prompt(shape, question, brief, open_qs, positions):
+def verdict_prompt(shape, question, brief, open_qs, positions, material=""):
     p = "You are the neutral CHAIR of an AI council. Write the final verdict on this question:\n\n%s\n\n" % question.strip()
     if brief.strip():
         p += "THE BRIEF:\n%s\n\n" % brief.strip()
+    # The chair reads the same files and links as every seat, or it doubts what they quote.
+    if material.strip():
+        p += "THE MATERIAL EVERY SEAT READ:\n%s\n\n" % material.strip()
     if open_qs:
         p += "OPEN QUESTIONS:\n" + "".join("- %s\n" % q for q in open_qs) + "\n"
     p += "--- FINAL POSITIONS ---\n\n" + positions + "--- YOUR JOB ---\n"
@@ -483,7 +486,8 @@ def main(argv):
         return 0 if agreed(sys.stdin.read()) else 1
     elif cmd == "verdict-prompt":
         qs = [l for l in read(argv[4]).splitlines() if l.strip()] if os.path.exists(argv[4]) else []
-        sys.stdout.write(verdict_prompt(argv[1], argv[2], read(argv[3]) if os.path.exists(argv[3]) else "", qs, read(argv[5])))
+        sys.stdout.write(verdict_prompt(argv[1], argv[2], read(argv[3]) if os.path.exists(argv[3]) else "", qs, read(argv[5]),
+                                        read(argv[6]) if len(argv) > 6 and os.path.exists(argv[6]) else ""))
     elif cmd == "codex-config":
         sys.stdout.write(filter_codex_config(read(argv[1]) if os.path.exists(argv[1]) else ""))
     elif cmd == "brief-prompt":

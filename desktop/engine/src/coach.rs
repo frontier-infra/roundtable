@@ -68,6 +68,18 @@ fn one_line(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// The text the coach reads: the question, then any attached material every seat will read.
+/// The coach is told the material is already shared, so it does not ask for it.
+pub fn with_material(question: &str, material: Option<&str>) -> String {
+    match material.map(str::trim).filter(|m| !m.is_empty()) {
+        Some(m) => format!("{}\n\n{MATERIAL_HEAD}\n{m}", question.trim()),
+        None => question.to_string(),
+    }
+}
+
+/// The heading over attached material in the coach's text. lib/core.sh and the app use the same words.
+pub const MATERIAL_HEAD: &str = "ATTACHED MATERIAL (every seat already reads this; do not ask for it):";
+
 /// The prompt that asks the coach for clarifying questions.
 pub fn questions_prompt(question: &str) -> String {
     format!(
@@ -344,6 +356,16 @@ pub fn suggest(text: &str, lib: &Library, keys: &Keys, settings: &Settings, time
 mod tests {
     use super::*;
     use crate::personas::{builtin_packs, Library};
+
+    #[test]
+    fn coach_reads_attached_material() {
+        assert_eq!(with_material("Tauri or Electron?", None), "Tauri or Electron?");
+        assert_eq!(with_material("Tauri or Electron?", Some("  ")), "Tauri or Electron?");
+        let t = with_material("Tauri or Electron? ", Some("### notes.txt\nCode word: HERON-42."));
+        assert!(t.starts_with("Tauri or Electron?\n\nATTACHED MATERIAL"));
+        assert!(t.ends_with("Code word: HERON-42."));
+        assert!(questions_prompt(&t).contains("HERON-42"));
+    }
 
     #[test]
     fn questions_are_capped_and_cleaned() {
