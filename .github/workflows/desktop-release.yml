@@ -269,6 +269,15 @@ jobs:
           HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
         run: '[ "$HAS_UPDATER_KEY" = true ] || { echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set"; exit 1; }'
 
+      # Compile first, sign after. The Azure CLI session from azure/login can
+      # only get a new code-signing token while the GitHub OIDC assertion is
+      # fresh (about 5 minutes). rc7 compiled for 10 minutes after the login
+      # and the first signCommand failed. This step does the slow compile with
+      # no Azure session, so the signed build below only bundles and signs.
+      - name: Compile before the Azure login
+        working-directory: desktop/core
+        run: tauri build --no-bundle --config "$UPDATER_CONFIG"
+
       - name: Azure login (OIDC)
         if: env.SIGN == 'true'
         uses: azure/login@v2
