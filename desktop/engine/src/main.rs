@@ -4,7 +4,7 @@
 use roundtable_engine::council::{self, AskOptions, Event, RunResult};
 use roundtable_engine::keys::{self, KeyStore, Keys};
 use roundtable_engine::settings::Settings;
-use roundtable_engine::{attach, clis, coach, decision, history, mcp, paths, personas, providers, verify, CREDIT_LINE, VERSION};
+use roundtable_engine::{attach, clis, coach, custom, decision, history, mcp, paths, personas, providers, verify, CREDIT_LINE, VERSION};
 use std::io::IsTerminal;
 use serde_json::json;
 use std::io::{Read, Write};
@@ -32,6 +32,9 @@ Commands:
   attach         FILE|URL ... [--json]: read files and links once, as a run would share them
   decision       status | detect | test [jev|jebadiah|systemone]: the decision model
                  that rates the verdict (off unless chosen)
+  provider       add <preset|custom> | list | models <id> | remove <id> | detect:
+                 OpenRouter, Ollama, LM Studio, Groq, Together or any OpenAI-compatible
+                 base URL. Each ticked model is a seat: provider:model
   mcp            serve | selftest | config
   version        Print the version
 
@@ -40,6 +43,8 @@ Ask flags:
   -c, --context FILE    Background text every AI reads first
       --heads CSV       Subset: claude,openai,grok,glm,minimax,gemini,codex,
                         qwen,kimi,opencode,cursor
+      --seats CSV       Seats by provider:model (ollama:llama3.2, openrouter:openai/gpt-4o-mini)
+                        or AI name. Alone, the table is exactly these; with --heads, added
       --rounds N        1 to 4. 1: each AI answers once (default). 2 to 4: they read
                         each other and revise toward consensus; Claude chairs
       --personas SPEC   Seat roles: a preset (pricing), a pack (business-roles),
@@ -89,6 +94,7 @@ fn main() -> ExitCode {
         "detect" => cmd_detect(rest),
         "test" => cmd_test(rest),
         "decision" => decision::cli::run(rest),
+        "provider" | "providers" => custom::cli::run(rest),
         "personas" => cmd_personas(rest),
         "coach" => cmd_coach(rest),
         "suggest" => cmd_suggest(rest),
@@ -116,6 +122,7 @@ struct AskArgs {
     question: String,
     context: Option<String>,
     heads: Option<String>,
+    seats: Option<String>,
     personas: Option<String>,
     rounds: u32,
     timeout: Option<u64>,
@@ -142,6 +149,7 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
         question: String::new(),
         context: None,
         heads: None,
+        seats: None,
         personas: None,
         rounds: 1,
         timeout: None,
@@ -172,6 +180,7 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
             "-q" | "--question" => a.question = val(&mut i)?,
             "-c" | "--context" => a.context = Some(val(&mut i)?),
             "--heads" => a.heads = Some(val(&mut i)?),
+            "--seats" => a.seats = Some(val(&mut i)?),
             "--personas" => a.personas = Some(val(&mut i)?),
             "--rounds" => a.rounds = val(&mut i)?.parse().map_err(|_| "--rounds needs a number".to_string())?,
             "--timeout" => a.timeout = Some(val(&mut i)?.parse().map_err(|_| "--timeout needs seconds".to_string())?),
@@ -250,7 +259,12 @@ fn cmd_ask(args: &[String]) -> u8 {
     };
     let store = keys::default_store();
     let k = Keys::load(store.as_ref());
-    let heads = match &a.heads {
+    custom::use_configs(&settings.providers);
+    let wanted = match (&a.heads, &a.seats) {
+        (Some(h), Some(s)) => Some(format!("{h},{s}")),
+        (h, s) => h.clone().or_else(|| s.clone()),
+    };
+    let heads = match &wanted {
         Some(csv) => {
             let (h, warn) = council::parse_heads(csv);
             for w in warn {
@@ -595,7 +609,12 @@ fn cmd_mcp(args: &[String]) -> u8 {
                     Err(e) => return (e, true),
                 };
                 let k = Keys::load(store.as_ref());
-                let hs = match c.heads.as_deref() {
+                custom::use_configs(&settings.providers);
+                let wanted = match (c.heads.as_deref(), c.seats.as_deref()) {
+                    (Some(h), Some(s)) => Some(format!("{h},{s}")),
+                    (h, s) => h.or(s).map(str::to_string),
+                };
+                let hs = match wanted.as_deref() {
                     Some(csv) => council::parse_heads(csv).0,
                     None => council::default_heads(&settings, &k),
                 };
@@ -820,6 +839,25 @@ fn cmd_doctor(args: &[String]) -> u8 {
             }
         }
         rows.push(row);
+    }
+    custom::use_configs(&settings.providers);
+    for cfg in &settings.providers {
+        for m in &cfg.models {
+            let h = custom::head_for(cfg, &m.id);
+            let mut row = json!({
+                "head": h.id,
+                "name": h.display,
+                "provider": cfg.name,
+                "model": m.id,
+                "has_key": custom::ready(cfg, &k),
+                "local": cfg.local(),
+                "in_app": false,
+            });
+            if online {
+                row["reachable"] = json!(custom::check(cfg, custom::key_for(cfg, &k).as_deref()).is_ok());
+            }
+            rows.push(row);
+        }
     }
     let v = json!({"version": VERSION, "heads": rows, "data_dir": paths::data_dir(), "history": settings.history});
     if has(args, "--json") {

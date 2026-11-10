@@ -284,7 +284,8 @@ pub fn resolve(spec: &str, heads: &[&'static Head], lib: &Library) -> Result<Vec
     // (persona, forced head)
     let mut want: Vec<(Option<Persona>, Option<&'static Head>)> = Vec::new();
     for item in spec.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-        let (key, at) = match item.rsplit_once('@') {
+        // The first `@` ends the persona: a seat id after it may hold more (`cfo@openrouter:x/y`).
+        let (key, at) = match item.split_once('@') {
             Some((k, h)) => (k.trim(), Some(h.trim())),
             None => (item, None),
         };
@@ -337,7 +338,13 @@ pub fn resolve(spec: &str, heads: &[&'static Head], lib: &Library) -> Result<Vec
                     .filter(|s| s.is_some_and(|x| x.id == h.id))
                     .count()
             };
-            let pick = heads.iter().copied().min_by_key(|h| used(h)).unwrap();
+            // The least-used AI; on a tie, the least-used provider, so a suggested panel mixes providers.
+            let fam = |h: &Head| crate::custom::family(h);
+            let used_family = |h: &Head| {
+                let f = fam(h);
+                seats.iter().filter(|s| s.is_some_and(|x| fam(x) == f)).count()
+            };
+            let pick = heads.iter().copied().min_by_key(|h| (used(h), used_family(h))).unwrap();
             seats[i] = Some(pick);
         }
     }
@@ -591,6 +598,25 @@ mod tests {
         csv.split(',')
             .map(|h| providers::find(h).unwrap())
             .collect()
+    }
+
+    #[test]
+    fn seats_mix_providers_and_take_provider_seat_ids() {
+        let mut c = crate::custom::ProviderConfig { id: "pmix".into(), preset: "custom".into(), name: "Mix".into(), base_url: "https://mix.example/v1".into(), needs_key: true, models: Vec::new() };
+        crate::custom::remember(&c);
+        c.id = "pmiy".into();
+        crate::custom::remember(&c);
+        let l = lib(true);
+        let hs = heads("pmix:a,pmix:b,pmiy:c");
+        let s = resolve("cfo,ceo,cto", &hs, &l).unwrap();
+        let fam: Vec<String> = s.iter().map(|x| crate::custom::family(x.head)).collect();
+        assert_eq!(fam, ["pmix", "pmiy", "pmix"], "the second seat goes to the other provider");
+        // A forced seat id may hold a slash and colons after the persona's @.
+        let s = resolve("cfo@pmix:org/model:free", &hs, &l).unwrap();
+        assert_eq!(s[0].head.id, "pmix:org/model:free");
+        // Built-in heads place as before.
+        let s = resolve("cfo,ceo,cto", &heads("claude,gemini"), &l).unwrap();
+        assert_eq!(s.iter().map(|x| x.head.id).collect::<Vec<_>>(), ["claude", "gemini", "claude"]);
     }
 
     #[test]

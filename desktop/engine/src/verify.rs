@@ -45,6 +45,15 @@ pub fn check_key(head: &Head, key: &str, settings: &Settings) -> KeyCheck {
         Kind::Anthropic => http::anthropic_headers(key),
         Kind::OpenAiCompat => http::bearer(key),
         Kind::Cli => return KeyCheck::ok(),
+        Kind::Provider => {
+            return match crate::custom::seat_of(head) {
+                Some((cfg, _)) => match crate::custom::list_models(&cfg, Some(key), t) {
+                    Ok(_) => KeyCheck::ok(),
+                    Err(e) => KeyCheck::fail(e.class),
+                },
+                None => KeyCheck::ok(),
+            }
+        }
     };
     match http::send("GET", &models_url(head), &headers, None, t) {
         Ok(_) => return KeyCheck::ok(),

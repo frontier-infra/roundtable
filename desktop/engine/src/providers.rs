@@ -10,6 +10,9 @@ pub enum Kind {
     Anthropic,
     /// Only through a local command-line tool (see `clis.rs`). No key card in the app.
     Cli,
+    /// A model of a provider the person added (OpenRouter, Ollama, ...; see `custom`).
+    /// The head id is `<provider>:<model>`.
+    Provider,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -186,9 +189,10 @@ const fn cli_head(id: &'static str, display: &'static str, company: &'static str
 pub const DEFAULT_HEADS: &str = "grok,codex,openai,glm,minimax,claude,gemini";
 
 /// Find a head by head id or provider name.
+/// A `<provider>:<model>` id finds the seat of an added provider (or a keyless preset).
 pub fn find(name: &str) -> Option<&'static Head> {
     let n = name.trim().to_ascii_lowercase();
-    HEADS.iter().find(|h| h.id == n || h.provider == n)
+    HEADS.iter().find(|h| h.id == n || h.provider == n).or_else(|| crate::custom::head(name))
 }
 
 fn env_nonempty(name: &str) -> Option<String> {
@@ -228,6 +232,9 @@ pub fn label(head: &Head, settings: &Settings) -> String {
 
 /// The label for a head that did (`tool`) or did not answer through the person's own tool.
 pub fn label_via(head: &Head, settings: &Settings, tool: bool) -> String {
+    if head.kind == Kind::Provider {
+        return crate::custom::label(head);
+    }
     let m = model_for(head, settings);
     if head.kind != Kind::Cli && tool {
         if let Some(c) = crate::clis::for_head(head.id) {

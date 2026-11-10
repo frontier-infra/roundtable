@@ -16,6 +16,7 @@ pub fn tool() -> Value {
             "properties": {
                 "question": {"type": "string", "description": "The question to put to the council."},
                 "heads": {"type": "string", "description": "Optional comma-separated subset of heads to convene (any of: grok,codex,openai,glm,minimax,claude,gemini). Defaults to all configured heads."},
+                "seats": {"description": "Optional. Seats from providers added in the Roundtable app or with `roundtable provider add` (OpenRouter, Ollama, LM Studio, Groq, Together, any OpenAI-compatible URL), as provider:model, for example ollama:llama3.2 or openrouter:openai/gpt-4o-mini. A comma-separated string or an array. Alone, the table is exactly these seats; with heads, they are added.", "anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]},
                 "rounds": {"type": "integer", "description": "Optional number of rounds, 1 to 4. 1 (default) = advisory (blind, independent answers); 2 to 4 = the seats read each other and revise toward consensus, and a Claude chair gives the verdict, stopping early when they agree.", "minimum": 1, "maximum": 4},
                 "personas": {"type": "string", "description": "Optional seat roles. A preset (security-review, go-to-market, hiring-decision, pricing, architecture-review, exec-team, board-review, frontier-four), a pack (business-roles, frontier-labs), or a comma list of persona ids or names, each optionally ending in @<head> (cfo,ceo@claude). 'generic' or empty = plain seats. Lab seats are simulated perspectives drawn from public positions, not affiliated with or endorsed by the lab."},
                 "research": {"type": "boolean", "description": "Optional. Enable web research / deeper reasoning for heads that support it (longer per-head timeout). Defaults to false."},
@@ -37,6 +38,8 @@ pub fn tool() -> Value {
 pub struct Call {
     pub question: String,
     pub heads: Option<String>,
+    /// Provider seats (`provider:model`), comma-separated. Rust engine only.
+    pub seats: Option<String>,
     pub rounds: Option<u32>,
     pub research: bool,
     pub personas: Option<String>,
@@ -124,6 +127,7 @@ pub fn dispatch(msg: &Value, run: &Runner) -> Option<Value> {
             let call = Call {
                 question: q,
                 heads: text_arg("heads"),
+                seats: Some(strings(args.get("seats")).join(",")).filter(|s| !s.is_empty()),
                 rounds,
                 research: args.get("research").and_then(|v| v.as_bool()).unwrap_or(false),
                 personas: text_arg("personas"),
@@ -212,7 +216,8 @@ mod tests {
         let t = tool();
         assert_eq!(t["inputSchema"]["required"], json!(["question"]));
         let props: Vec<_> = t["inputSchema"]["properties"].as_object().unwrap().keys().cloned().collect();
-        assert_eq!(props, vec!["question", "heads", "rounds", "personas", "research", "coach", "coach_answers", "verdict", "blind", "attach", "decision"]);
+        // The Python server's arguments, plus `seats` (provider seats live in the Rust engine only).
+        assert_eq!(props, vec!["question", "heads", "seats", "rounds", "personas", "research", "coach", "coach_answers", "verdict", "blind", "attach", "decision"]);
     }
 
     #[test]
@@ -232,12 +237,13 @@ mod tests {
             *got.lock().unwrap() = c.clone();
             (String::new(), false)
         };
-        let m = json!({"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"roundtable","arguments":{"question":"Hi","coach":true,"coach_answers":["a1","a2"],"verdict":"vote","blind":false,"attach":"/tmp/x.md","decision":"jebadiah"}}});
+        let m = json!({"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"roundtable","arguments":{"question":"Hi","coach":true,"coach_answers":["a1","a2"],"verdict":"vote","blind":false,"attach":"/tmp/x.md","decision":"jebadiah","seats":["ollama:llama3.2","openrouter:openai/gpt-4o-mini"]}}});
         dispatch(&m, &run).unwrap();
         let c = got.lock().unwrap().clone();
         assert!(c.coach);
         assert_eq!(c.coach_answers, vec!["a1", "a2"]);
         assert_eq!(c.verdict.as_deref(), Some("vote"));
+        assert_eq!(c.seats.as_deref(), Some("ollama:llama3.2,openrouter:openai/gpt-4o-mini"));
         assert_eq!(c.blind, Some(false));
         assert_eq!(c.attach, vec!["/tmp/x.md"]);
         assert_eq!(c.decision.as_deref(), Some("jebadiah"));
