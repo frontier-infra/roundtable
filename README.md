@@ -214,6 +214,7 @@ AI agent to install, configure, run, and wire Roundtable into its own harness.
 - **Website & docs** — https://roundtable.sh
 - **Source** — https://github.com/frontier-infra/roundtable
 - **Frontier Infra** — https://frontierinfra.org
+- **Jebadiah, our free decision model**: `ollama pull frontierinfra/jebadiah` (9B; also `:4b` and `:27b`), https://ollama.com/frontierinfra/jebadiah
 
 ## About
 

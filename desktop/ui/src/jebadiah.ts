@@ -17,8 +17,8 @@ export const HF_ORG = "frontier-infra";
 export const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
 export const LMSTUDIO_DOWNLOAD_URL = "https://lmstudio.ai";
 
-/** Turn on once frontierinfra/jebadiah is live in the Ollama library. Until then, pull from Hugging Face. */
-export const OLLAMA_LIBRARY_LIVE = false;
+/** On since 2026-11-10: frontierinfra/jebadiah is live in the Ollama library (4b, 9b, 27b, latest = 9b). */
+export const OLLAMA_LIBRARY_LIVE = true;
 export const OLLAMA_LIBRARY = "frontierinfra/jebadiah";
 
 interface Build {
