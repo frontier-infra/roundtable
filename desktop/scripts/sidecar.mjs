@@ -28,8 +28,15 @@ function build(t) {
 
 const dest = join(outDir, `roundtable-engine-${triple}${exe}`);
 if (triple === "universal-apple-darwin") {
-  const parts = ["aarch64-apple-darwin", "x86_64-apple-darwin"].map(build);
+  const arches = ["aarch64-apple-darwin", "x86_64-apple-darwin"];
+  const parts = arches.map(build);
   execFileSync("lipo", ["-create", "-output", dest, ...parts], { stdio: "inherit" });
+  // Tauri compiles the app once per chip and checks the sidecar for each one.
+  for (const [i, t] of arches.entries()) {
+    const one = join(outDir, `roundtable-engine-${t}`);
+    copyFileSync(parts[i], one);
+    chmodSync(one, 0o755);
+  }
 } else {
   copyFileSync(build(triple), dest);
 }
