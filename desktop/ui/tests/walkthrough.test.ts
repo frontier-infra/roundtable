@@ -312,8 +312,8 @@ describe("screen 5, first roundtable", () => {
 describe("main screen", () => {
   it("updates the request count with the rounds and runs to a verdict", async () => {
     const { app } = await start({ keys: ["claude", "gemini", "openai"], onboarded: true }, { view: "main" });
-    // Quick by default: one round.
-    expect(text()).toContain("This will ask 3 AIs, about 3 requests.");
+    // Quick by default: two short rounds.
+    expect(text()).toContain("This will ask 3 AIs, 2 rounds, at most 8 requests.");
     expect(root.querySelector('[data-depth="quick"]')?.getAttribute("aria-checked")).toBe("true");
     // Deep Think says how long it takes before it asks.
     root.querySelector<HTMLButtonElement>('[data-depth="deep"]')!.click();
@@ -323,7 +323,7 @@ describe("main screen", () => {
     expect(text()).toContain("4 rounds, at most 16 requests");
     root.querySelector<HTMLButtonElement>('[data-depth="quick"]')!.click();
     await tick();
-    expect(text()).toContain("This will ask 3 AIs, about 3 requests.");
+    expect(text()).toContain("This will ask 3 AIs, 2 rounds, at most 8 requests.");
     // Three rounds, as the CLI's --rounds 3 would run.
     app.set({ ask: { ...app.state.ask, rounds: 3 } });
     await tick();

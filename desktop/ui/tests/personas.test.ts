@@ -94,13 +94,13 @@ describe("the ask box", () => {
     expect(text()).toContain("4 seats on 2 AIs.");
     expect(text()).toContain("The NVIDIA view on Claude");
     expect(text()).toContain("Not affiliated with or endorsed by NVIDIA.");
-    expect(text()).toContain("This will ask 2 AIs in 4 seats, about 4 requests.");
+    expect(text()).toContain("This will ask 2 AIs in 4 seats, 2 rounds, at most 10 requests.");
     const q = root.querySelector<HTMLTextAreaElement>("textarea.question")!;
     q.value = "Build or rent GPUs?";
     q.dispatchEvent(new Event("input"));
     await click("Ask the table");
     await tick(30);
-    expect(api.calls).toContain("askStart:claude,gemini:1:nvidia-view@claude,openai-view@gemini,xai-view@claude,anthropic-view@gemini");
+    expect(api.calls).toContain("askStart:claude,gemini:2:nvidia-view@claude,openai-view@gemini,xai-view@claude,anthropic-view@gemini");
     const cards = [...root.querySelectorAll<HTMLElement>(".answer")];
     expect(cards.map((c) => c.querySelector("header strong")?.textContent)).toEqual(["The NVIDIA view", "The OpenAI view", "The xAI view", "The Anthropic view"]);
     expect(cards[0].querySelector(".who small")?.textContent).toBe("on Claude");
@@ -146,7 +146,7 @@ describe("the ask box", () => {
     q.dispatchEvent(new Event("input"));
     await click("Ask the table");
     await tick(20);
-    expect(api.calls).toContain("askStart:claude,gemini:1:cfo@claude,ceo@claude,generic@gemini");
+    expect(api.calls).toContain("askStart:claude,gemini:2:cfo@claude,ceo@claude,generic@gemini");
     expect([...root.querySelectorAll(".answer")].map((c) => c.getAttribute("data-seat"))).toEqual(["cfo@claude", "ceo@claude", "gemini"]);
   });
 });

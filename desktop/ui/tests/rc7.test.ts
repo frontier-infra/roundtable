@@ -163,7 +163,7 @@ describe("the question coach", () => {
     const brief = api.calls.find((c) => c.startsWith("brief:"))!;
     expect(brief).toContain("- **Constraints:** Under 50 dollars");
     expect(brief).toContain("- **Context:** Something that lasts About 50 dollars");
-    expect(api.calls.find((c) => c.startsWith("askStart:"))).toBe("askStart:claude,gemini:1:cfo@claude,head-of-product@gemini,customer-advocate@claude");
+    expect(api.calls.find((c) => c.startsWith("askStart:"))).toBe("askStart:claude,gemini:2:cfo@claude,head-of-product@gemini,customer-advocate@claude");
     expect(api.calls).toContain("verdict:decision");
     expect(app.state.run?.brief).toContain("Under 50 dollars");
     expect(text()).toContain("The brief");
@@ -177,7 +177,7 @@ describe("the question coach", () => {
     await click("My seats");
     await click("Ask the table");
     await tick(20);
-    expect(api.calls.find((c) => c.startsWith("askStart:"))).toBe("askStart:claude,gemini:1");
+    expect(api.calls.find((c) => c.startsWith("askStart:"))).toBe("askStart:claude,gemini:2");
   });
 
   it("can be skipped, or turned off, and says so when it cannot answer", async () => {
@@ -289,7 +289,7 @@ describe("follow-ups and material", () => {
     await type(".follow-up textarea", "So which first?");
     await click("Ask");
     await tick(30);
-    expect(api.calls.filter((c) => c.startsWith("askStart:"))[2]).toBe("askStart:claude,gemini:1");
+    expect(api.calls.filter((c) => c.startsWith("askStart:"))[2]).toBe("askStart:claude,gemini:2");
     expect(app.state.session.length).toBe(2);
     await click("Export session");
     expect(app.state.toast).toBe("Session saved.");
