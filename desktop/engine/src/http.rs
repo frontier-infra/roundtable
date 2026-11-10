@@ -98,7 +98,17 @@ pub fn send(
         Err(ureq::Error::Transport(t)) => {
             let msg = t.to_string();
             let low = msg.to_ascii_lowercase();
-            let class = if low.contains("timed out") || low.contains("timeout") {
+            // Windows words a read timeout as "did not properly respond after a period
+            // of time" (os error 10060), so read the io error kind first.
+            let io_timeout = std::iter::successors(std::error::Error::source(&t), |e| e.source())
+                .filter_map(|e| e.downcast_ref::<std::io::Error>())
+                .any(|e| matches!(e.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock));
+            let class = if io_timeout
+                || low.contains("timed out")
+                || low.contains("timeout")
+                || low.contains("os error 10060")
+                || low.contains("period of time")
+            {
                 ErrorClass::Timeout
             } else {
                 ErrorClass::Network

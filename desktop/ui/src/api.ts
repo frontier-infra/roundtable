@@ -112,6 +112,114 @@ export interface Settings {
   decision?: DecisionSettings;
   /** End Markdown exports with the one Roundtable credit line. */
   export_credit: boolean;
+  /** Providers added in Settings (owned by `roundtable provider`; the app reads them only). */
+  providers?: ProviderConfig[];
+}
+
+// ---- Providers the person adds: OpenRouter, Ollama, LM Studio, Groq, Together, Custom ----
+
+/** One ticked model: a seat. Prices are US dollars per million tokens, when published. */
+export interface SeatModel {
+  id: string;
+  price_in?: number | null;
+  price_out?: number | null;
+}
+
+/** An added provider as settings.json keeps it. Never a key. */
+export interface ProviderConfig {
+  id: string;
+  preset: string;
+  name: string;
+  base_url: string;
+  needs_key: boolean;
+  models: SeatModel[];
+}
+
+export interface ProviderPreset {
+  id: string;
+  name: string;
+  base_url: string;
+  needs_key: boolean;
+  local: boolean;
+  key_page: string;
+}
+
+/** `roundtable provider list --json`: one added provider. */
+export interface ProviderRow {
+  id: string;
+  preset: string;
+  name: string;
+  base_url: string;
+  needs_key: boolean;
+  has_key: boolean;
+  key_source: "env" | "keychain" | null;
+  local: boolean;
+  note: string | null;
+  key_page: string;
+  /** Local, or has its key. */
+  ready: boolean;
+  models: (SeatModel & { seat: string })[];
+}
+
+export interface ProvidersList {
+  providers: ProviderRow[];
+  presets: ProviderPreset[];
+}
+
+/** One model a provider lists. */
+export interface ModelInfo {
+  id: string;
+  name?: string;
+  context?: number;
+  price_in?: number;
+  price_out?: number;
+  /** Runs on this computer. */
+  free: boolean;
+  /** One of our frontier-infra Jebadiah builds. Any other model named Jebadiah is not. */
+  ours: boolean;
+  note?: string;
+}
+
+export interface ModelsResult {
+  ok: boolean;
+  provider?: string;
+  local?: boolean;
+  total?: number;
+  models?: ModelInfo[];
+  ticked?: string[];
+  reason?: string;
+  message?: string;
+}
+
+/** Ollama or LM Studio, found running on this computer. */
+export interface LocalProvider {
+  preset: string;
+  name: string;
+  base_url: string;
+  models: ModelInfo[];
+  /** "free, on this computer". */
+  note: string;
+}
+
+export interface ProviderAddRequest {
+  preset: string;
+  id?: string;
+  name?: string;
+  url?: string;
+  /** Goes straight to the engine's stdin, then the keychain. */
+  key?: string;
+  /** The ticked models. Each one is a seat. Leave out to keep the ticks. */
+  models?: string[];
+  /** Check the address and key with one model list before saving. */
+  check?: boolean;
+}
+
+export interface ProviderAddResult {
+  ok: boolean;
+  reason?: string;
+  message?: string;
+  seats?: string[];
+  provider?: ProviderRow;
 }
 
 /** The chair's final verdict: a decision with confidence, pros and cons, an action plan, or a vote. */
@@ -322,6 +430,12 @@ export interface Api {
   keyRemove(head: string): Promise<void>;
   keysImport(remove: boolean): Promise<{ ok: boolean; imported?: string[] }>;
   clisDetect(): Promise<CliDetection[]>;
+  providersList(): Promise<ProvidersList>;
+  /** Ollama and LM Studio running on this computer. Sends no prompt. */
+  providersDetect(): Promise<{ found: LocalProvider[] }>;
+  providerModels(id: string): Promise<ModelsResult>;
+  providerAdd(req: ProviderAddRequest): Promise<ProviderAddResult>;
+  providerRemove(id: string): Promise<ActionResult>;
   cliLogin(id: string): Promise<ActionResult>;
   claudeStatus(): Promise<ClaudeStatus>;
   claudeConnectApp(): Promise<ActionResult>;
@@ -402,6 +516,12 @@ export async function tauriApi(): Promise<Api> {
     },
     keysImport: (remove) => invoke("keys_import", { remove }),
     clisDetect: () => invoke("clis_detect"),
+    providersList: () => invoke("providers_list"),
+    providersDetect: () => invoke("providers_detect"),
+    providerModels: (id) => invoke("provider_models", { id }),
+    providerAdd: (req) =>
+      invoke("provider_add", { preset: req.preset, id: req.id ?? null, name: req.name ?? null, url: req.url ?? null, key: req.key ?? null, models: req.models ?? null, check: !!req.check }),
+    providerRemove: (id) => invoke("provider_remove", { id }),
     cliLogin: (id) => invoke("cli_login", { id }),
     claudeStatus: () => invoke("claude_status"),
     claudeConnectApp: () => invoke("claude_connect_app"),

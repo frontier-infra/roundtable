@@ -4,7 +4,7 @@ import { mockApi } from "./mock";
 
 // The browser preview (no Tauri) runs on the mock backend.
 // Query: ?screen=1..5, ?view=main|settings, ?claude=none|app|code|both|plugin, ?keys=claude,gemini, ?os=windows,
-// ?clis=some|none (AI tools found on the computer)
+// ?clis=some|none (AI tools found on the computer), ?providers=1 (Ollama found here and OpenRouter added with a key)
 async function boot() {
   const root = document.getElementById("app")!;
   const q = new URLSearchParams(location.search);
@@ -25,6 +25,12 @@ async function boot() {
       noLabPack: q.get("labpack") === "0",
       memoryGb: q.get("mem") ? Number(q.get("mem")) : undefined,
       arch: q.get("arch") ?? undefined,
+      localProviders: q.get("providers") === "1" ? "ollama" : undefined,
+      providers:
+        q.get("providers") === "1"
+          ? [{ id: "openrouter", preset: "openrouter", name: "OpenRouter", base_url: "https://openrouter.ai/api/v1", needs_key: true, models: [{ id: "openai/gpt-4o-mini", price_in: 0.15, price_out: 0.6 }] }]
+          : undefined,
+      providerKeys: q.get("providers") === "1" ? ["openrouter"] : undefined,
       custom: q.get("custom") === "1" ? [{ id: "head-of-support", name: "Head of Support", expertise: "Customers after they buy", brief: "Weigh repeat contacts.", ai: "gemini" }] : [],
     });
   }

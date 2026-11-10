@@ -1,9 +1,9 @@
 // Pure state for the walkthrough and the live roundtable. No DOM here, so it is easy to test.
 
-import type { Attachment, Brief, PanelSuggestion, VerdictShape } from "./api";
+import type { Attachment, Brief, LocalProvider, ModelsResult, PanelSuggestion, ProviderPreset, ProviderRow, VerdictShape } from "./api";
 import type { ClaudeStatus, CliDetection, EngineEvent, Fix, HeadId, HeadTest, HistoryEntry, KeySaveResult, KeysStatus, Persona, PersonaLibrary, Preset, SeatInfo, Settings } from "./api";
 import { defaultDecision, type DecisionEvent } from "./decision";
-import { HEAD_ORDER, PROVIDERS } from "./providers";
+import { family, HEAD_ORDER, isProviderSeat, LOCAL_NOTE, PROVIDERS, providerName, splitSeat } from "./providers";
 
 export const STEPS = 5;
 export type Step = 1 | 2 | 3 | 4 | 5;
@@ -201,6 +201,38 @@ export interface State {
   update: { version: string } | null;
   toast: string | null;
   engineReady: boolean;
+  /** Providers the person added, and the local ones found running. */
+  providers: ProvidersView;
+}
+
+/** The "Other providers" part of Settings, AI accounts. */
+export interface ProvidersView {
+  loaded: boolean;
+  loading: boolean;
+  list: ProviderRow[];
+  presets: ProviderPreset[];
+  /** Ollama and LM Studio found running (free, on this computer). */
+  found: LocalProvider[];
+  /** Model lists by provider id (an added one, or a found preset). */
+  models: Record<string, ModelsResult & { loading?: boolean }>;
+  /** The search box text by provider id. */
+  search: Record<string, string>;
+  /** The "Add a provider" form, when open. */
+  form: ProviderForm | null;
+  /** The provider id an action is running on. */
+  busy: string | null;
+  error?: string;
+}
+
+export interface ProviderForm {
+  /** Set when changing an added provider (its key or address). */
+  id?: string;
+  preset: string;
+  name: string;
+  url: string;
+  key: string;
+  status: "editing" | "checking" | "error";
+  message?: string;
 }
 
 /** Who sits at the table for one question. */
@@ -292,6 +324,7 @@ export function initialState(): State {
     update: null,
     toast: null,
     engineReady: false,
+    providers: { loaded: false, loading: false, list: [], presets: [], found: [], models: {}, search: {}, form: null, busy: null },
   };
 }
 
@@ -311,10 +344,73 @@ export function canSkip(step: Step): boolean {
 }
 
 /** Every head that can answer: a working key, or a ticked tool. In table order. */
+/** Every AI that can sit: the built-in ones in table order, then provider seats
+ * (`provider:model`, passed in with `cliHeads`) in the order they were ticked. */
 export function connectedHeads(keys: Record<string, KeyCard>, cliHeads: string[] = []): string[] {
   const on = new Set<string>(cliHeads);
   for (const p of PROVIDERS) if (keys[p.id]?.status === "connected") on.add(p.id);
-  return HEAD_ORDER.filter((h) => on.has(h));
+  return [...HEAD_ORDER.filter((h) => on.has(h)), ...cliHeads.filter((h) => isProviderSeat(h) && !HEAD_ORDER.includes(h))];
+}
+
+// ---- Provider seats ----
+
+/** Ticked provider seats a run can ask now: local ones, and keyed ones with their key.
+ * Before the list loads, the saved ticks stand. */
+export function providerSeatsOn(s: Pick<State, "providers" | "settings">): string[] {
+  if (s.providers.loaded) return s.providers.list.filter((p) => p.ready).flatMap((p) => p.models.map((m) => m.seat));
+  return (s.settings.providers ?? []).flatMap((p) => p.models.map((m) => `${p.id}:${m.id}`));
+}
+
+/** One model's price line: free on this computer, the published price, or unknown. */
+export function priceText(m: { free?: boolean; price_in?: number | null; price_out?: number | null }): string {
+  if (m.free) return LOCAL_NOTE;
+  if (m.price_in == null || m.price_out == null) return "price unknown";
+  if (m.price_in === 0 && m.price_out === 0) return "free";
+  return `$${fmtPrice(m.price_in)} in, $${fmtPrice(m.price_out)} out per million tokens`;
+}
+
+function fmtPrice(n: number): string {
+  return n >= 1 ? String(Number(n.toFixed(2))) : String(Number(n.toPrecision(2)));
+}
+
+/** Tokens one seat reads and writes in one round (a planning guess, said as "about"). */
+export const TOKENS_IN = 1500;
+export const TOKENS_PER_ANSWER = 700;
+
+/** What one seat costs over a run, in dollars: round 1 reads the question, later rounds read every seat. */
+export function seatCost(priceIn: number, priceOut: number, seats: number, rounds: number): number {
+  let total = 0;
+  for (let r = 1; r <= rounds; r++) {
+    const read = TOKENS_IN + (r > 1 ? TOKENS_PER_ANSWER * seats : 0);
+    total += (read * priceIn + TOKENS_PER_ANSWER * priceOut) / 1_000_000;
+  }
+  return total;
+}
+
+/** The cost line under the ask box, when a provider seat sits at the table. Built-in AIs
+ * have no published price here and count as unknown; seats on this computer are free. */
+export function costLine(seats: string[], rounds: number | Mode, providers: ProviderRow[]): string | null {
+  if (!seats.some(isProviderSeat)) return null;
+  const r = roundsOf(rounds);
+  let dollars = 0;
+  let priced = 0;
+  let free = 0;
+  const unknown: string[] = [];
+  for (const id of seats) {
+    const sp = splitSeat(id);
+    const row = sp ? providers.find((p) => p.id === sp.provider) : undefined;
+    const m = row?.models.find((x) => x.id === sp?.model);
+    if (row?.local) free++;
+    else if (m && m.price_in != null && m.price_out != null) {
+      dollars += seatCost(m.price_in, m.price_out, seats.length, r);
+      priced++;
+    } else if (!unknown.includes(providerName(id))) unknown.push(providerName(id));
+  }
+  const parts: string[] = [];
+  if (priced) parts.push(dollars < 0.01 ? "under $0.01 at published prices" : `about $${dollars.toFixed(2)} at published prices`);
+  if (free) parts.push(`${free === 1 ? "1 seat" : `${free} seats`} ${LOCAL_NOTE}`);
+  if (unknown.length) parts.push(`unknown for ${unknown.join(", ")}`);
+  return `Cost: ${parts.join("; ")}.`;
 }
 
 /** Tools found and signed in. These start ticked until the person changes a tick. */
@@ -511,13 +607,17 @@ export function placeSeats(personas: (Persona | null)[], heads: string[]): SeatP
   const at: (string | null)[] = personas.map((p) => (p?.ai && heads.includes(p.ai) ? p.ai : null));
   for (let i = 0; i < at.length; i++) {
     if (at[i]) continue;
+    // The least-used AI; on a tie, the least-used provider, so the table mixes providers (as the engines do).
     let best = heads[0];
     let bestN = Infinity;
+    let bestF = Infinity;
     for (const h of heads) {
       const n = at.filter((x) => x === h).length;
-      if (n < bestN) {
+      const f = at.filter((x) => x !== null && family(x) === family(h)).length;
+      if (n < bestN || (n === bestN && f < bestF)) {
         best = h;
         bestN = n;
+        bestF = f;
       }
     }
     at[i] = best;

@@ -72,7 +72,53 @@ export const CLI_ONLY_NAMES: Record<string, string> = {
 export const HEAD_ORDER = ["claude", "codex", "gemini", "openai", "grok", "glm", "minimax", "qwen", "kimi", "opencode", "cursor"];
 
 export function providerName(id: string): string {
-  return PROVIDERS.find((p) => p.id === id)?.name ?? CLI_ONLY_NAMES[id] ?? id;
+  const seat = splitSeat(id);
+  if (seat) return `${seat.model} (${addedNames[seat.provider] ?? PRESET_NAMES[seat.provider] ?? seat.provider})`;
+  return PROVIDERS.find((p) => p.id === id)?.name ?? CLI_ONLY_NAMES[id] ?? PRESET_NAMES[id] ?? id;
+}
+
+// ---- Seats from providers the person adds ----
+
+/** Preset names, as desktop/engine/src/custom/mod.rs lists them. */
+export const PRESET_NAMES: Record<string, string> = {
+  openrouter: "OpenRouter",
+  ollama: "Ollama",
+  lmstudio: "LM Studio",
+  groq: "Groq",
+  together: "Together",
+  custom: "Custom",
+};
+
+/** The order "Add a provider" offers them. */
+export const PRESET_ORDER = ["openrouter", "ollama", "lmstudio", "groq", "together", "custom"];
+
+export const LOCAL_NOTE = "free, on this computer";
+
+/** Names of the added providers, by id, for seat labels. */
+const addedNames: Record<string, string> = {};
+
+/** Remember the added providers' names (after each provider list). */
+export function setProviderNames(list: { id: string; name: string }[]): void {
+  for (const k of Object.keys(addedNames)) delete addedNames[k];
+  for (const p of list) addedNames[p.id] = p.name;
+}
+
+/** A provider seat id is `<provider>:<model>`; the provider part ends at the first colon. */
+export function splitSeat(id: string): { provider: string; model: string } | null {
+  const i = id.indexOf(":");
+  if (i <= 0 || i === id.length - 1) return null;
+  const provider = id.slice(0, i);
+  if (provider.includes("/") || provider.includes("@")) return null;
+  return { provider, model: id.slice(i + 1) };
+}
+
+export function isProviderSeat(id: string): boolean {
+  return splitSeat(id) !== null;
+}
+
+/** The family a head belongs to, for mixing providers: the provider on a provider seat, else the head. */
+export function family(head: string): string {
+  return splitSeat(head)?.provider ?? head;
 }
 
 export const HELP_URL = "https://roundtable.sh";

@@ -1,10 +1,10 @@
 // A fake backend with the same shape as the Rust core. Used by the UI tests and by the
 // browser preview (`?mock=1`), so every screen can be seen without keys or network.
 
-import type { Api, ClaudeStatus, CliDetection, EngineEvent, Fix, HeadTest, HistoryEntry, KeysStatus, Pack, Persona, SeatInfo, Settings } from "./api";
+import type { Api, ClaudeStatus, CliDetection, EngineEvent, Fix, HeadTest, HistoryEntry, KeysStatus, LocalProvider, ModelInfo, Pack, Persona, ProviderConfig, ProviderRow, SeatInfo, Settings } from "./api";
 import { defaultSettings, findPersona, labLabel, seatKeys, slug } from "./state";
 import { builtinPacks, libraryOf } from "./mock-personas";
-import { PROVIDERS } from "./providers";
+import { LOCAL_NOTE, PRESET_NAMES, PROVIDERS, splitSeat } from "./providers";
 
 export interface MockOptions {
   os?: string;
@@ -38,6 +38,52 @@ export interface MockOptions {
   jebadiahFound?: { app: string; model: string };
   /** `roundtable decision detect` found a Jebadiah server (jeb serve, AINode). */
   jebadiahServed?: { url: string; model: string; via: string };
+  /** Ollama or LM Studio running on this computer. "ollama" is a sample Ollama. */
+  localProviders?: "ollama" | LocalProvider[];
+  /** Providers already added. */
+  providers?: ProviderConfig[];
+  /** Added providers whose key is saved, by id. */
+  providerKeys?: string[];
+}
+
+const PRESET_URLS: Record<string, { url: string; key: boolean; page: string }> = {
+  openrouter: { url: "https://openrouter.ai/api/v1", key: true, page: "https://openrouter.ai/settings/keys" },
+  ollama: { url: "http://127.0.0.1:11434/v1", key: false, page: "" },
+  lmstudio: { url: "http://127.0.0.1:1234/v1", key: false, page: "" },
+  groq: { url: "https://api.groq.com/openai/v1", key: true, page: "https://console.groq.com/keys" },
+  together: { url: "https://api.together.xyz/v1", key: true, page: "https://api.together.ai/settings/api-keys" },
+  custom: { url: "", key: false, page: "" },
+};
+
+const isLocal = (url: string) => /^https?:\/\/(localhost|127\.|\[::1\]|0\.0\.0\.0)/i.test(url);
+
+/** A sample Ollama with two small models. */
+export function sampleOllama(): LocalProvider {
+  return {
+    preset: "ollama",
+    name: "Ollama",
+    base_url: "http://127.0.0.1:11434/v1",
+    note: LOCAL_NOTE,
+    models: [
+      { id: "llama3.2:3b", free: true, ours: false, price_in: 0, price_out: 0 },
+      { id: "qwen3:4b", free: true, ours: false, price_in: 0, price_out: 0 },
+    ],
+  };
+}
+
+/** What each preset lists in the preview. OpenRouter publishes prices; a stranger's Jebadiah is not ours. */
+function sampleModels(preset: string, local: boolean): ModelInfo[] {
+  const m = (id: string, price_in?: number, price_out?: number, note?: string): ModelInfo => ({ id, free: local, ours: false, price_in: local ? 0 : price_in, price_out: local ? 0 : price_out, note });
+  if (preset === "openrouter")
+    return [
+      m("meta-llama/llama-3.3-70b-instruct", 0.12, 0.3),
+      m("openai/gpt-4o-mini", 0.15, 0.6),
+      m("openrouter/auto"),
+      m("someone/jebadiah-7b", 0.1, 0.1, "Not a frontier-infra build. It sits as a plain seat only."),
+    ];
+  if (preset === "groq") return [m("llama-3.1-8b-instant"), m("qwen/qwen3-32b")];
+  if (preset === "ollama" || preset === "lmstudio") return sampleOllama().models;
+  return [m("small-a"), m("small-b")];
 }
 
 function tool(id: string, head: string, name: string, version: string | null, signed_in: boolean | null, note: string, login: string): CliDetection {
@@ -103,8 +149,91 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
     for (let n = 2; ; n++) if (!used(`${base}-${n}`)) return `${base}-${n}`;
   };
 
+  const found: LocalProvider[] = o.localProviders === "ollama" ? [sampleOllama()] : Array.isArray(o.localProviders) ? o.localProviders : [];
+  settings.providers = (o.providers ?? []).map((p) => ({ ...p, models: [...p.models] }));
+  const provKeys = new Set(o.providerKeys ?? []);
+  const provRow = (c: ProviderConfig): ProviderRow => {
+    const local = isLocal(c.base_url);
+    const has = provKeys.has(c.id);
+    return {
+      id: c.id,
+      preset: c.preset,
+      name: c.name,
+      base_url: c.base_url,
+      needs_key: c.needs_key,
+      has_key: has,
+      key_source: has ? "keychain" : null,
+      local,
+      note: local ? LOCAL_NOTE : null,
+      key_page: PRESET_URLS[c.preset]?.page ?? "",
+      ready: !c.needs_key || has,
+      models: c.models.map((x) => ({ ...x, seat: `${c.id}:${x.id}` })),
+    };
+  };
+  const provOf = (seat: string) => {
+    const sp = splitSeat(seat);
+    return sp ? settings.providers?.find((p) => p.id === sp.provider) ?? null : null;
+  };
+
   return {
     calls,
+    async providersList() {
+      calls.push("providersList");
+      return {
+        providers: (settings.providers ?? []).map(provRow),
+        presets: Object.entries(PRESET_URLS).map(([id, v]) => ({ id, name: PRESET_NAMES[id], base_url: v.url, needs_key: v.key, local: !!v.url && isLocal(v.url), key_page: v.page })),
+      };
+    },
+    async providersDetect() {
+      calls.push("providersDetect");
+      return { found: found.map((f) => ({ ...f, models: [...f.models] })) };
+    },
+    async providerModels(id) {
+      calls.push(`providerModels:${id}`);
+      await wait();
+      const c = settings.providers?.find((p) => p.id === id);
+      if (!c) return { ok: false, message: `No provider '${id}'.` };
+      if (c.needs_key && !provKeys.has(id)) return { ok: false, reason: "add_key", message: `${c.name} needs a key.` };
+      const local = isLocal(c.base_url);
+      const models = found.find((f) => f.preset === c.preset)?.models ?? sampleModels(c.preset, local);
+      return { ok: true, provider: id, local, total: models.length, models, ticked: c.models.map((m) => m.id) };
+    },
+    async providerAdd(req) {
+      calls.push(`providerAdd:${req.preset}${req.models ? `:${req.models.join(",")}` : ""}${req.key ? ":key" : ""}`);
+      await wait();
+      const pre = PRESET_URLS[req.preset];
+      if (!pre) return { ok: false, message: `Unknown provider '${req.preset}'.` };
+      const id = req.id ?? (req.preset === "custom" ? slug(req.name || "custom") || "custom" : req.preset);
+      const list = settings.providers ?? [];
+      const cur = list.find((p) => p.id === id);
+      const c: ProviderConfig = cur ? { ...cur, models: [...cur.models] } : { id, preset: req.preset, name: req.preset === "custom" ? req.name?.trim() || "Custom" : PRESET_NAMES[req.preset], base_url: pre.url, needs_key: pre.key, models: [] };
+      if (req.url?.trim()) c.base_url = req.url.trim().replace(/\/+$/, "");
+      if (!c.base_url) return { ok: false, message: "A custom provider needs its base URL: --url https://host/v1" };
+      if (req.preset === "custom" && req.key) c.needs_key = true;
+      if (req.check) {
+        if (req.key?.includes("bad")) return { ok: false, reason: "bad_key", message: `${c.name} needs a working key. Check you copied all of it.` };
+        if (c.needs_key && !req.key && !provKeys.has(id)) return { ok: false, reason: "bad_key", message: `${c.name} needs a working key. Check you copied all of it.` };
+      }
+      if (req.key) provKeys.add(id);
+      if (req.models) {
+        const listed = found.find((f) => f.preset === c.preset)?.models ?? sampleModels(c.preset, isLocal(c.base_url));
+        c.models = req.models.map((m) => {
+          const info = listed.find((x) => x.id === m);
+          return { id: m, price_in: info?.price_in ?? null, price_out: info?.price_out ?? null };
+        });
+      }
+      settings.providers = [...list.filter((p) => p.id !== id), c];
+      return { ok: true, provider: provRow(c), seats: c.models.map((m) => `${id}:${m.id}`), message: `Saved ${c.name}.` };
+    },
+    async providerRemove(id) {
+      calls.push(`providerRemove:${id}`);
+      const c = settings.providers?.find((p) => p.id === id);
+      if (!c) return { ok: false, message: `No provider '${id}'.` };
+      settings.providers = (settings.providers ?? []).filter((p) => p.id !== id);
+      settings.default_heads = settings.default_heads.filter((h) => !h.startsWith(`${id}:`));
+      provKeys.delete(id);
+      return { ok: true, message: `Removed ${c.name} and its ${c.models.length} seat${c.models.length === 1 ? "" : "s"}.` };
+    },
     appInfo: async () => ({ version: "0.1.1", os: o.os ?? "macos", arch: "aarch64" }),
     engineStatus: async () => ({ installed, current: installed, version: installed ? "0.1.1" : null, expected: "0.1.1" }),
     async engineSetup(onStep) {
@@ -204,11 +333,14 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
           for (const st of seats) emit({ event: "head_started", head: st.head, round: r, seat: st.seat });
           for (const st of seats) {
             const h = st.head;
-            const said = st.persona ? `As ${st.persona}: ${SAMPLE[h] ?? "OK"}` : SAMPLE[h] ?? "OK";
+            const sample = SAMPLE[h] ?? (splitSeat(h) ? `Answer from ${splitSeat(h)!.model}.` : "OK");
+            const said = st.persona ? `As ${st.persona}: ${sample}` : sample;
             await wait();
             const viaTool = settings.cli_heads.includes(h) && tools.some((t) => t.head === h && t.signed_in);
             const fail = o.runFails?.[h];
-            const ok = !fail && (keys.has(h) || viaTool);
+            const prov = provOf(h);
+            const provOk = !!prov && (!prov.needs_key || provKeys.has(prov.id));
+            const ok = !fail && (keys.has(h) || viaTool || provOk);
             if (ok) answered++;
             emit({
               event: "head_done",
@@ -220,7 +352,7 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
               reason: ok || fail ? undefined : "bad_key",
               message: ok ? undefined : fail?.message ?? "That key did not work. Check you copied all of it.",
               fix: ok ? undefined : fail?.fix ?? "add_key",
-              via: viaTool ? toolName(h) : keys.has(h) ? "API key" : undefined,
+              via: prov ? prov.name : viaTool ? toolName(h) : keys.has(h) ? "API key" : undefined,
             });
           }
           emit({ event: "round_done", round: r });
@@ -380,9 +512,10 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
     async historyClear() {
       history = [];
     },
-    settingsGet: async () => ({ ...settings }),
+    settingsGet: async () => ({ ...settings, providers: (settings.providers ?? []).map((p) => ({ ...p, models: [...p.models] })) }),
     async settingsSet(s) {
-      settings = { ...s };
+      // As the core does: the engine owns the added providers.
+      settings = { ...s, providers: settings.providers };
     },
     terminalCommand: async () => "Ready.",
     diagnostics: async () => "Roundtable 0.1.1\nOS: macos aarch64\n",

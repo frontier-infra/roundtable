@@ -38,6 +38,8 @@ pub struct Settings {
     pub decision: crate::decision::DecisionSettings,
     /// End Markdown exports (`--out`, the app's Save and Copy) with the one Roundtable credit line.
     pub export_credit: bool,
+    /// Providers the person added (OpenRouter, Ollama, LM Studio, ...). Each ticked model is a seat.
+    pub providers: Vec<crate::custom::ProviderConfig>,
 }
 
 impl Default for Settings {
@@ -59,6 +61,7 @@ impl Default for Settings {
             verdict_shape: "decision".into(),
             decision: Default::default(),
             export_credit: true,
+            providers: Vec::new(),
         }
     }
 }

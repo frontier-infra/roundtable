@@ -2,13 +2,14 @@
 
 import type { App } from "../app";
 import { button, h, toggle } from "../dom";
-import { CHAIR_DEFAULT_MODEL, HEAD_ORDER, HELP_URL, ISSUES_URL, PROVIDERS, providerName } from "../providers";
+import { CHAIR_DEFAULT_MODEL, HELP_URL, ISSUES_URL, PROVIDERS, providerName } from "../providers";
 import { connectedHeads, helpUrl, keychainName } from "../state";
 import { claudeConnect, cliList, keyCard } from "./onboarding";
 import { select, withGlyph } from "./main";
 import { VERDICT_SHAPES } from "../session";
 import { lockup } from "../brand";
 import { personasSection } from "./personas";
+import { providersSection } from "./providers";
 import { decisionSection } from "../decision";
 import { aboutSection } from "../credits";
 
@@ -31,7 +32,7 @@ export function renderSettings(app: App): HTMLElement {
         app.render();
         return;
       }
-      void app.saveSettings({ default_heads: HEAD_ORDER.filter((id) => next.has(id)) });
+      void app.saveSettings({ default_heads: connected.filter((id) => next.has(id)) });
     }),
   );
 
@@ -77,6 +78,7 @@ export function renderSettings(app: App): HTMLElement {
         h("h3", { text: "API keys" }),
         h("p", { class: "small muted", text: `Keys are saved in ${keychainName(s.os)}. Roundtable never shows a saved key again.` }),
         h("div", { class: "cards" }, PROVIDERS.map((p) => keyCard(app, p, { removable: true }))),
+        ...providersSection(app),
       ),
       section(
         "Who sits at the table",

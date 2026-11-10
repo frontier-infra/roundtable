@@ -1,6 +1,6 @@
 // The controller: holds state, runs actions against the backend, re-renders.
 
-import { errorText, type Api, type EngineEvent, type HeadId, type VerdictShape } from "./api";
+import { errorText, type Api, type EngineEvent, type HeadId, type ProviderAddRequest, type VerdictShape } from "./api";
 import { attachmentLabel, attachmentsBlock, briefMarkdown, coachText, emptyBrief, looksLikeLink, mdFileName, priorText, runMarkdown, runSeats, sessionMarkdown } from "./session";
 import { withCredit } from "./credits";
 import {
@@ -15,6 +15,7 @@ import {
   newRun,
   next,
   planSeats,
+  providerSeatsOn,
   roundsOf,
   seatInfos,
   seatSpec,
@@ -29,7 +30,7 @@ import { renderOnboarding } from "./views/onboarding";
 import { renderMain } from "./views/main";
 import { renderSettings } from "./views/settings";
 import { h } from "./dom";
-import { HEAD_ORDER } from "./providers";
+import { HEAD_ORDER, setProviderNames } from "./providers";
 
 const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
 
@@ -85,6 +86,8 @@ export class App {
     await this.refreshKeys();
     // Look for Claude Code, Codex and the rest in the background. No prompt is sent.
     void this.refreshClis();
+    // Added providers, and Ollama or LM Studio running here. No prompt is sent.
+    void this.refreshProviders();
     // Back from a sign-in window: look again.
     if (typeof window !== "undefined") {
       window.addEventListener("focus", () => {
@@ -326,8 +329,128 @@ export class App {
     this.render();
   }
 
+  /** AIs that sit without a key card: ticked apps, then ticked provider seats (`provider:model`). */
   cliHeads(): string[] {
-    return cliHeadsOn(this.state);
+    return [...cliHeadsOn(this.state), ...providerSeatsOn(this.state)];
+  }
+
+  // ---- Providers the person adds ----
+
+  /** The added providers, and Ollama or LM Studio found running (the way apps are found). */
+  async refreshProviders() {
+    const pv = this.state.providers;
+    this.state.providers = { ...pv, loading: true };
+    this.render();
+    try {
+      const [list, local] = await Promise.all([this.api.providersList(), this.api.providersDetect().catch(() => ({ found: [] }))]);
+      setProviderNames(list.providers);
+      this.state.providers = { ...this.state.providers, loaded: true, loading: false, list: list.providers, presets: list.presets, found: local.found, error: undefined };
+      // Found models need no second request.
+      const models = { ...this.state.providers.models };
+      for (const f of local.found) models[f.preset] ??= { ok: true, provider: f.preset, local: true, total: f.models.length, models: f.models };
+      this.state.providers.models = models;
+    } catch (e) {
+      this.state.providers = { ...this.state.providers, loaded: true, loading: false, error: errorText(e) };
+    }
+    this.render();
+  }
+
+  /** Read one provider's model list. */
+  async loadModels(id: string) {
+    const pv = this.state.providers;
+    this.state.providers = { ...pv, models: { ...pv.models, [id]: { ...(pv.models[id] ?? { ok: true }), loading: true } } };
+    this.render();
+    let r;
+    try {
+      r = await this.api.providerModels(id);
+    } catch (e) {
+      r = { ok: false, message: errorText(e) };
+    }
+    this.state.providers = { ...this.state.providers, models: { ...this.state.providers.models, [id]: { ...r, loading: false } } };
+    this.render();
+  }
+
+  /** Add or change a provider, then reload the list and settings (the engine owns them). */
+  async saveProvider(req: ProviderAddRequest): Promise<boolean> {
+    const id = req.id ?? req.preset;
+    this.state.providers = { ...this.state.providers, busy: id };
+    this.render();
+    let ok = false;
+    try {
+      const r = await this.api.providerAdd(req);
+      ok = r.ok;
+      if (!ok) this.showToast(r.message ?? "Could not save the provider.");
+    } catch (e) {
+      this.showToast(errorText(e));
+    }
+    this.state.providers = { ...this.state.providers, busy: null };
+    if (ok) {
+      try {
+        this.state.settings = await this.api.settingsGet();
+      } catch {
+        /* keep */
+      }
+      await this.refreshProviders();
+    } else this.render();
+    return ok;
+  }
+
+  /** Tick or untick one model. Ticking a model of a found local provider adds that provider. */
+  async tickModel(provider: string, model: string, on: boolean) {
+    const row = this.state.providers.list.find((p) => p.id === provider);
+    const now = row ? row.models.map((m) => m.id) : [];
+    const next = on ? [...now.filter((m) => m !== model), model] : now.filter((m) => m !== model);
+    const found = !row ? this.state.providers.found.find((f) => f.preset === provider) : undefined;
+    await this.saveProvider({ preset: row?.preset ?? found?.preset ?? provider, id: provider, url: found?.base_url, models: next });
+    // A newly ticked seat gets one five-word test, so a broken one shows before a run.
+    if (on) void this.testHead(`${provider}:${model}`, "auto");
+  }
+
+  /** The "Add a provider" form's Connect button: check the address and key, then save. */
+  async addProviderFromForm() {
+    const f = this.state.providers.form;
+    if (!f) return;
+    this.state.providers = { ...this.state.providers, form: { ...f, status: "checking", message: undefined } };
+    this.render();
+    let r;
+    try {
+      r = await this.api.providerAdd({ preset: f.preset, id: f.id, name: f.name.trim() || undefined, url: f.url.trim() || undefined, key: f.key.trim() || undefined, check: true });
+    } catch (e) {
+      r = { ok: false, message: errorText(e) };
+    }
+    if (!r.ok) {
+      this.state.providers = { ...this.state.providers, form: { ...f, key: "", status: "error", message: r.message ?? "Could not add that provider." } };
+      this.render();
+      return;
+    }
+    const id = r.provider?.id ?? f.preset;
+    this.state.providers = { ...this.state.providers, form: null };
+    try {
+      this.state.settings = await this.api.settingsGet();
+    } catch {
+      /* keep */
+    }
+    await this.refreshProviders();
+    await this.loadModels(id);
+    this.showToast(`${r.provider?.name ?? "Provider"} added. Tick the models you want at the table.`);
+  }
+
+  async removeProvider(id: string) {
+    try {
+      const r = await this.api.providerRemove(id);
+      if (r.message) this.showToast(r.message);
+    } catch (e) {
+      this.showToast(errorText(e));
+    }
+    const models = { ...this.state.providers.models };
+    delete models[id];
+    this.state.providers = { ...this.state.providers, models };
+    try {
+      this.state.settings = await this.api.settingsGet();
+    } catch {
+      /* keep */
+    }
+    await this.refreshProviders();
   }
 
   async refreshClaude() {
@@ -787,7 +910,7 @@ export class App {
 
   async openSettings() {
     this.set({ view: "settings" });
-    await Promise.all([this.refreshKeys(), this.refreshClaude(), this.refreshClis(), this.refreshPersonas()]);
+    await Promise.all([this.refreshKeys(), this.refreshClaude(), this.refreshClis(), this.refreshPersonas(), this.refreshProviders()]);
     this.render();
   }
 

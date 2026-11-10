@@ -197,7 +197,8 @@ pub fn parse_heads(csv: &str) -> (Vec<&'static Head>, Vec<String>) {
     let mut out = Vec::new();
     let mut warn = Vec::new();
     for name in csv.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-        match HEADS.iter().find(|h| h.id == name) {
+        let found = HEADS.iter().find(|h| h.id == name).or_else(|| crate::custom::head(name));
+        match found {
             Some(h) if !out.iter().any(|o: &&Head| o.id == h.id) => out.push(h),
             Some(_) => {}
             None => warn.push(format!("WARN: unknown head '{name}'")),
@@ -224,7 +225,7 @@ pub fn default_heads(settings: &Settings, keys: &Keys) -> Vec<&'static Head> {
     }
     let (all, _) = parse_heads(providers::DEFAULT_HEADS);
     let chosen = |h: &Head| settings.cli_heads.iter().any(|c| c == h.id);
-    let ready: Vec<_> = HEADS
+    let mut ready: Vec<&'static Head> = HEADS
         .iter()
         .filter(|h| match h.kind {
             // codex sits by default when installed, as in the bash engine; other tools when chosen.
@@ -232,6 +233,8 @@ pub fn default_heads(settings: &Settings, keys: &Keys) -> Vec<&'static Head> {
             _ => keys.key(h).is_some() || ((chosen(h) || h.id == "grok") && cli_found(h)),
         })
         .collect();
+    // Every ticked model of an added provider that can be asked now is a seat too.
+    ready.extend(crate::custom::ticked_ready(&settings.providers, keys));
     if ready.is_empty() {
         all
     } else {
@@ -455,6 +458,8 @@ fn via_key(head: &Head, key: &str, prompt: &str, research: bool, settings: &Sett
         Kind::Anthropic => anthropic(key, &model.map(str::to_string).unwrap_or_else(|| providers::model_for(head, settings)), prompt, timeout),
         Kind::OpenAiCompat => openai_compat(head, key, prompt, research, settings, timeout),
         Kind::Cli => missing(head, Route::Key),
+        // `ask_head` asks provider seats before it gets here.
+        Kind::Provider => missing(head, Route::Key),
     }
 }
 
@@ -463,6 +468,11 @@ fn via_key(head: &Head, key: &str, prompt: &str, research: bool, settings: &Sett
 /// `key_model` overrides the key's model (the chair asks Claude with its own model).
 #[allow(clippy::too_many_arguments)]
 pub fn ask_head(head: &Head, prompt: &str, research: bool, timeout: Duration, keys: &Keys, settings: &Settings, route: Route, key_model: Option<&str>) -> HeadRun {
+    // A provider seat: one plain chat completion, no tools (the rc8 seat isolation rule).
+    if head.kind == Kind::Provider {
+        let (outcome, via) = crate::custom::ask(head, prompt, timeout, keys);
+        return HeadRun { outcome, via: Some(via).filter(|v| !v.is_empty()), trial: None };
+    }
     let tool = if route == Route::Key { None } else { clis::for_head(head.id).and_then(|c| clis::find_cli(c).map(|e| (c, e))) };
     let key = if route == Route::Tool || head.kind == Kind::Cli { None } else { keys.key(head) };
     let mut tried: Option<HeadRun> = None;
@@ -499,10 +509,19 @@ pub fn run_head(head: &Head, prompt: &str, opts: &AskOptions, keys: &Keys, setti
 }
 
 /// The chair: Claude by the same route as a head, with the chair's model on a key.
+/// With no way to ask Claude at all, the first ticked provider seat that can be asked
+/// chairs instead, so the coach, the panel and the verdict work on a provider-only table.
 pub fn chair(keys: &Keys, settings: &Settings, prompt: &str, timeout: Duration) -> String {
     let claude = providers::find("claude").unwrap();
     match ask_head(claude, prompt, false, timeout, keys, settings, Route::Auto, Some(&providers::chair_model(settings))).outcome {
         Outcome::Answered(t) => t,
+        Outcome::Missing(..) => match crate::custom::ticked_ready(&settings.providers, keys).first() {
+            Some(h) => match crate::custom::ask(h, prompt, timeout, keys).0 {
+                Outcome::Answered(t) => t,
+                _ => String::new(),
+            },
+            None => String::new(),
+        },
         _ => String::new(),
     }
 }
