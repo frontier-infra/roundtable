@@ -62,9 +62,34 @@ A progress dot row shows "Step 2 of 5". Every screen has Back. Screens 3 to 5 ha
 
 ### Screen 3. Connect your AI accounts
 
-- Title: **Connect at least one AI**
-- One line: "Two or more make a real roundtable. You can add more later."
-- Two cards show first. The rest sit under **More AIs**.
+Most people already have an AI app on this computer, signed in with their plan.
+Roundtable finds those first. An API key is the fallback.
+
+- Title: **We found these on your computer** (when at least one app is found).
+- One line: "Roundtable can use them with the plans you already have. Two or more make a real roundtable."
+- One card per app found (`roundtable detect`, `desktop/engine/src/clis.rs`). Detection sends no prompt and reads no secret:
+
+| App | Head | Found by | Signed in by | Called as |
+|---|---|---|---|---|
+| Claude Code | claude | `claude` on PATH or the install folders | `claude auth status --json` | `claude -p --output-format text --strict-mcp-config --no-session-persistence`, question on stdin |
+| Codex | codex | `codex` | `codex login status`, else `auth.json` in `CODEX_HOME` (as `lib/config.sh`) | `codex exec --skip-git-repo-check -s read-only [-c tools.web_search=false] -o FILE "question"` (as `lib/core.sh`) |
+| Gemini CLI | gemini | `gemini` | `~/.gemini/oauth_creds.json` exists | `gemini --output-format text`, question on stdin |
+| Grok | grok | `grok` | `~/.grok/auth.json` or `~/.grok/api-key` exists | `grok -p "question" -m grok-composer-2.5-fast --max-turns 6 --disable-web-search` (as `lib/core.sh`) |
+| Qwen Code | qwen | `qwen` | `~/.qwen/oauth_creds.json`; a key-based setup shows as unknown | `qwen --output-format text`, question on stdin |
+| Kimi | kimi | `kimi` | `~/.kimi-code/credentials` or `~/.kimi/credentials` not empty | `kimi --quiet --plan -p "question"` |
+| OpenCode | opencode | `opencode` | `opencode auth list` | `opencode run "question"` |
+| Cursor Agent | cursor | `cursor-agent` | `cursor-agent status` | `cursor-agent -p --output-format text --trust --mode ask "question"` |
+
+- Install folders searched besides PATH: the login shell's PATH, `~/.local/bin`, `~/.claude/local`, `~/.bun/bin`, npm, Volta, nvm and fnm folders, `/opt/homebrew/bin`, `/usr/local/bin`; on Windows `%APPDATA%\npm`, WinGet links, scoop shims.
+- Each card: a tick box, the name and version, and at most two sentences.
+  - Signed in: "Claude Code, signed in. Uses your Claude plan." Ticked by default.
+  - Signed out: "Grok is installed but not signed in. Click Sign in to open it in Terminal." A **Sign in** button opens the app's own sign-in in a Terminal window (a terminal window on Windows). Then **Check again**.
+  - Unknown: "Qwen Code is installed. We could not tell if you are signed in." Not ticked.
+- Ticks are saved in settings (`cli_heads`). Default ticks follow detection until the person changes one (`clis_chosen`).
+- Heads run through the ticked apps headless: an empty folder, no terminal, a time limit, output captured.
+- **Look again** runs detection again. The app also looks again when its window regains focus after a sign-in.
+- Under them, collapsed: **Or use an API key**. It opens by itself when no app is found.
+  Then the title is **Connect at least one AI** and the line says no app was found.
 
 | Card | Provider | Key name the engine uses | "Get a key" opens |
 |---|---|---|---|
@@ -86,8 +111,8 @@ A build script checks every link. A dead link fails the build.
   - Red result: "That key did not work. Check you copied all of it."
   - Or: "That account has no credit left. Add credit on the provider's site."
 - Claude's card carries a tag: **Recommended. Claude also acts as the chair.**
-- Footer note: "A Claude or ChatGPT chat plan is not an API key. Use the link to get a key."
-- Button: **Continue** (enabled once one card shows Connected).
+- Note in the key section: "A chat plan like Claude Pro or ChatGPT Plus is not an API key. Your plan already works through the apps above." With no app found, the second sentence is "Use the link on a card to get a key."
+- Button: **Continue** (enabled once one app is ticked or one key card shows Connected).
 
 ### Screen 4. Connect to Claude
 

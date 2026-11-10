@@ -8,8 +8,8 @@ pub enum Kind {
     OpenAiCompat,
     /// Anthropic `/v1/messages`.
     Anthropic,
-    /// The local `codex` CLI. Hidden in the app.
-    CodexCli,
+    /// Only through a local command-line tool (see `clis.rs`). No key card in the app.
+    Cli,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -71,7 +71,7 @@ pub const HEADS: &[Head] = &[
         url_env: "",
         default_url: "",
         max_tokens: 0,
-        kind: Kind::CodexCli,
+        kind: Kind::Cli,
         key_page: "",
         in_app: false,
     },
@@ -155,7 +155,32 @@ pub const HEADS: &[Head] = &[
         key_page: "https://aistudio.google.com/apikey",
         in_app: true,
     },
+    cli_head("qwen", "Qwen", "Qwen Code CLI", "\u{1f7e1}"),
+    cli_head("kimi", "Kimi", "Kimi CLI", "\u{1f319}"),
+    cli_head("opencode", "OpenCode", "OpenCode CLI", "\u{2b1b}"),
+    cli_head("cursor", "Cursor", "Cursor Agent CLI", "\u{1f7e6}"),
 ];
+
+/// A head that only runs through a local tool, with the tool's own default model.
+const fn cli_head(id: &'static str, display: &'static str, company: &'static str, emoji: &'static str) -> Head {
+    Head {
+        id,
+        provider: id,
+        display,
+        company,
+        emoji,
+        env_keys: &[],
+        model_env: "",
+        default_model: "",
+        url_env: "",
+        default_url: "",
+        max_tokens: 0,
+        kind: Kind::Cli,
+        key_page: "",
+        in_app: false,
+    }
+}
+
 
 /// The bash engine's default head list.
 pub const DEFAULT_HEADS: &str = "grok,codex,openai,glm,minimax,claude,gemini";
@@ -190,9 +215,20 @@ pub fn url_for(head: &Head) -> String {
     env_nonempty(head.url_env).unwrap_or_else(|| head.default_url.to_string())
 }
 
+/// True when this head runs through its local tool rather than a key.
+pub fn uses_cli(head: &Head, settings: &Settings) -> bool {
+    head.kind == Kind::Cli || settings.cli_heads.iter().any(|h| h == head.id)
+}
+
 /// The transcript label, same text as `label_for` in `lib/core.sh`.
+/// A head the person set to run through their own tool says so.
 pub fn label(head: &Head, settings: &Settings) -> String {
     let m = model_for(head, settings);
+    if head.kind != Kind::Cli && settings.cli_heads.iter().any(|h| h == head.id) {
+        if let Some(c) = crate::clis::for_head(head.id) {
+            return format!("{} {} ({}, your plan)", head.emoji, head.display, c.name);
+        }
+    }
     match head.id {
         "grok" => format!("{} Grok ({m}, xAI)", head.emoji),
         "codex" => format!("{} Codex / GPT (OpenAI CLI)", head.emoji),
@@ -201,6 +237,7 @@ pub fn label(head: &Head, settings: &Settings) -> String {
         "minimax" => format!("{} MiniMax ({m})", head.emoji),
         "claude" => format!("{} Claude ({m}, Anthropic)", head.emoji),
         "gemini" => format!("{} Gemini ({m}, Google)", head.emoji),
+        _ if head.kind == Kind::Cli => format!("{} {} ({})", head.emoji, head.display, head.company),
         other => other.to_string(),
     }
 }
@@ -222,6 +259,18 @@ mod tests {
         let ids: Vec<_> = HEADS.iter().filter(|h| h.in_app).map(|h| h.id).collect();
         assert_eq!(ids.len(), 6);
         assert!(!ids.contains(&"codex"));
+    }
+
+    #[test]
+    fn cli_heads_and_labels() {
+        let mut s = Settings::default();
+        assert_eq!(label(find("qwen").unwrap(), &s), "\u{1f7e1} Qwen (Qwen Code CLI)");
+        assert!(uses_cli(find("codex").unwrap(), &s));
+        assert!(!uses_cli(find("claude").unwrap(), &s));
+        s.cli_heads = vec!["claude".into()];
+        assert!(uses_cli(find("claude").unwrap(), &s));
+        assert_eq!(label(find("claude").unwrap(), &s), "\u{1f535} Claude (Claude Code, your plan)");
+        assert_eq!(label(find("grok").unwrap(), &Settings::default()), "\u{1f916} Grok (grok-4.3, xAI)");
     }
 
     #[test]

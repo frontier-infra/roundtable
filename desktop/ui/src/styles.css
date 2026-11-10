@@ -539,6 +539,92 @@ textarea.question.big {
   margin-bottom: 10px;
 }
 
+/* ---- AI apps found on this computer ---- */
+
+.cli-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--surface-2);
+  align-self: start;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.cli-card.on {
+  border-color: color-mix(in srgb, var(--ok) 55%, var(--line));
+  background: color-mix(in srgb, var(--ok-bg) 45%, var(--surface-2));
+}
+
+.cli-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.cli-card.signed-out .cli-main {
+  cursor: default;
+}
+
+.cli-check {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+  accent-color: var(--ok);
+  cursor: inherit;
+}
+
+.cli-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cli-name {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cli-version {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.cli-line {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.cli-card.on .cli-line {
+  color: var(--ink);
+}
+
+.cli-actions {
+  display: flex;
+  gap: 8px;
+  padding-left: 32px;
+}
+
+.keys-toggle {
+  margin-top: 6px;
+}
+
+.key-section {
+  padding-top: 4px;
+}
+
+.plan-note {
+  margin-top: 4px;
+}
+
 /* ---- Claude connect ---- */
 
 .connect-row {

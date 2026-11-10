@@ -3,7 +3,8 @@ import { tauriApi, type Api } from "./api";
 import { mockApi } from "./mock";
 
 // The browser preview (no Tauri) runs on the mock backend.
-// Query: ?screen=1..5, ?view=main|settings, ?claude=none|app|code|both|plugin, ?keys=claude,gemini, ?os=windows
+// Query: ?screen=1..5, ?view=main|settings, ?claude=none|app|code|both|plugin, ?keys=claude,gemini, ?os=windows,
+// ?clis=some|none (AI tools found on the computer)
 async function boot() {
   const root = document.getElementById("app")!;
   const q = new URLSearchParams(location.search);
@@ -20,6 +21,7 @@ async function boot() {
       setupFails: q.get("fail") === "1",
       delay: Number(q.get("delay") ?? 400),
       history: q.get("history") === "1" ? sampleHistory() : [],
+      clis: q.get("clis") === "none" ? "none" : "some",
     });
   }
   const app = new App(api, root);

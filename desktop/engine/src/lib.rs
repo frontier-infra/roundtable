@@ -3,6 +3,7 @@
 //! The desktop app ships this as one signed binary. It runs the council,
 //! serves the MCP tool for Claude, and owns the keychain items.
 
+pub mod clis;
 pub mod council;
 pub mod history;
 pub mod http;

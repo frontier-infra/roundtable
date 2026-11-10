@@ -44,7 +44,7 @@ pub fn check_key(head: &Head, key: &str, settings: &Settings) -> KeyCheck {
     let headers = match head.kind {
         Kind::Anthropic => http::anthropic_headers(key),
         Kind::OpenAiCompat => http::bearer(key),
-        Kind::CodexCli => return KeyCheck::ok(),
+        Kind::Cli => return KeyCheck::ok(),
     };
     match http::send("GET", &models_url(head), &headers, None, t) {
         Ok(_) => return KeyCheck::ok(),

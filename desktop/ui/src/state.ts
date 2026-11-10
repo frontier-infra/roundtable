@@ -1,7 +1,7 @@
 // Pure state for the walkthrough and the live roundtable. No DOM here, so it is easy to test.
 
-import type { ClaudeStatus, EngineEvent, HeadId, HistoryEntry, KeySaveResult, KeysStatus, Settings } from "./api";
-import { PROVIDERS } from "./providers";
+import type { ClaudeStatus, CliDetection, EngineEvent, HeadId, HistoryEntry, KeySaveResult, KeysStatus, Settings } from "./api";
+import { HEAD_ORDER, PROVIDERS } from "./providers";
 
 export const STEPS = 5;
 export type Step = 1 | 2 | 3 | 4 | 5;
@@ -65,6 +65,16 @@ export interface ClaudeView extends Partial<ClaudeStatus> {
   error?: string;
 }
 
+export interface CliView {
+  /** Detection finished at least once. */
+  loaded: boolean;
+  loading: boolean;
+  list: CliDetection[];
+  error?: string;
+  /** Tool ids whose sign-in window we opened. */
+  signingIn: string[];
+}
+
 export type View = "onboarding" | "main" | "settings";
 
 export interface State {
@@ -76,6 +86,9 @@ export interface State {
   keys: Record<HeadId, KeyCard>;
   importable: string[];
   moreOpen: boolean;
+  clis: CliView;
+  /** The "Or use an API key" section. null: open only when no tool was found. */
+  keysOpen: boolean | null;
   claude: ClaudeView;
   firstQuestion: string;
   run: RunView | null;
@@ -100,6 +113,8 @@ export function defaultSettings(): Settings {
     auto_update: true,
     onboarded: false,
     terminal_command: false,
+    cli_heads: [],
+    clis_chosen: false,
   };
 }
 
@@ -119,6 +134,8 @@ export function initialState(): State {
     keys: emptyKeys(),
     importable: [],
     moreOpen: false,
+    clis: { loaded: false, loading: false, list: [], signingIn: [] },
+    keysOpen: null,
     claude: { loading: true },
     firstQuestion: FIRST_QUESTION,
     run: null,
@@ -148,14 +165,45 @@ export function canSkip(step: Step): boolean {
   return step >= 3;
 }
 
-export function connectedHeads(keys: Record<string, KeyCard>): HeadId[] {
-  return PROVIDERS.filter((p) => keys[p.id]?.status === "connected").map((p) => p.id);
+/** Every head that can answer: a working key, or a ticked tool. In table order. */
+export function connectedHeads(keys: Record<string, KeyCard>, cliHeads: string[] = []): string[] {
+  const on = new Set<string>(cliHeads);
+  for (const p of PROVIDERS) if (keys[p.id]?.status === "connected") on.add(p.id);
+  return HEAD_ORDER.filter((h) => on.has(h));
 }
 
-/** Continue on screen 2 needs a finished setup; on screen 3, one connected AI. */
-export function canContinue(s: Pick<State, "step" | "setup" | "keys">): boolean {
+/** Tools found and signed in. These start ticked until the person changes a tick. */
+export function defaultCliHeads(list: CliDetection[]): string[] {
+  const on = new Set(list.filter((d) => d.found && d.signed_in === true).map((d) => d.head));
+  return HEAD_ORDER.filter((h) => on.has(h));
+}
+
+/** Heads running through a ticked tool that is still on this computer.
+ * Before detection finishes, the saved list stands. */
+export function cliHeadsOn(s: Pick<State, "clis" | "settings">): string[] {
+  const on = s.settings.cli_heads ?? [];
+  if (!s.clis.loaded) return HEAD_ORDER.filter((h) => on.includes(h));
+  const found = new Set(s.clis.list.filter((d) => d.found && d.signed_in !== false).map((d) => d.head));
+  return HEAD_ORDER.filter((h) => on.includes(h) && found.has(h));
+}
+
+/** The line under a tool's name. Two sentences at most. */
+export function cliCardText(d: CliDetection, os: string): string {
+  if (d.signed_in === true) return `${d.name}, signed in. ${d.note}`;
+  if (d.signed_in === false) return `${d.name} is installed but not signed in. Click Sign in to open it in ${os === "windows" ? "a terminal window" : "Terminal"}.`;
+  return `${d.name} is installed. We could not tell if you are signed in.`;
+}
+
+type ContinueState = Pick<State, "step" | "setup" | "keys"> & Partial<Pick<State, "clis" | "settings">>;
+
+function cliHeadsOf(s: Partial<Pick<State, "clis" | "settings">>): string[] {
+  return s.clis && s.settings ? cliHeadsOn({ clis: s.clis, settings: s.settings }) : [];
+}
+
+/** Continue on screen 2 needs a finished setup; on screen 3, one AI: a ticked tool or a key. */
+export function canContinue(s: ContinueState): boolean {
   if (s.step === 2) return s.setup.status === "done";
-  if (s.step === 3) return connectedHeads(s.keys).length > 0;
+  if (s.step === 3) return connectedHeads(s.keys, cliHeadsOf(s)).length > 0;
   return true;
 }
 
@@ -352,14 +400,14 @@ export function shortDate(ts: number, now = Date.now()): string {
 }
 
 /** Status dot: green when the engine runs and at least one AI is ready. */
-export function statusDot(s: Pick<State, "engineReady" | "keys">): "ok" | "warn" {
-  return s.engineReady && connectedHeads(s.keys).length > 0 ? "ok" : "warn";
+export function statusDot(s: Pick<State, "engineReady" | "keys"> & Partial<Pick<State, "clis" | "settings">>): "ok" | "warn" {
+  return s.engineReady && connectedHeads(s.keys, cliHeadsOf(s)).length > 0 ? "ok" : "warn";
 }
 
 /** Who sits at the table: the saved choice, limited to connected AIs; else every connected AI. */
-export function tableHeads(settings: Settings, keys: Record<string, KeyCard>): HeadId[] {
-  const connected = connectedHeads(keys);
-  const chosen = settings.default_heads.filter((h): h is HeadId => connected.includes(h as HeadId));
+export function tableHeads(settings: Settings, keys: Record<string, KeyCard>, cliHeads: string[] = []): string[] {
+  const connected = connectedHeads(keys, cliHeads);
+  const chosen = settings.default_heads.filter((h) => connected.includes(h));
   return chosen.length ? chosen : connected;
 }
 

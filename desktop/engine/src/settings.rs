@@ -20,6 +20,10 @@ pub struct Settings {
     pub onboarded: bool,
     /// "Use Roundtable in Terminal too".
     pub terminal_command: bool,
+    /// Head ids that run through the person's own installed tool (Claude Code, Codex, ...).
+    pub cli_heads: Vec<String>,
+    /// The person has ticked or unticked a tool, so detection stops choosing for them.
+    pub clis_chosen: bool,
 }
 
 impl Default for Settings {
@@ -32,6 +36,8 @@ impl Default for Settings {
             auto_update: true,
             onboarded: false,
             terminal_command: false,
+            cli_heads: Vec::new(),
+            clis_chosen: false,
         }
     }
 }

@@ -4,7 +4,9 @@ import { errorText, type Api, type EngineEvent, type HeadId } from "./api";
 import {
   applyEvent,
   back,
+  cliHeadsOn,
   connectedHeads,
+  defaultCliHeads,
   initialState,
   keyCardFromResult,
   keysFromStatus,
@@ -19,6 +21,7 @@ import { renderOnboarding } from "./views/onboarding";
 import { renderMain } from "./views/main";
 import { renderSettings } from "./views/settings";
 import { h } from "./dom";
+import { HEAD_ORDER } from "./providers";
 
 const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
 
@@ -38,6 +41,8 @@ export class App {
       const info = await this.api.appInfo();
       this.state.os = info.os;
       this.state.version = info.version;
+      if (info.start === "settings") opts = { ...opts, view: "settings" };
+      else if (info.start && Number(info.start) >= 1) opts = { ...opts, screen: Number(info.start) };
     } catch {
       /* keep defaults */
     }
@@ -54,6 +59,14 @@ export class App {
       /* not set up */
     }
     await this.refreshKeys();
+    // Look for Claude Code, Codex and the rest in the background. No prompt is sent.
+    void this.refreshClis();
+    // Back from a sign-in window: look again.
+    if (typeof window !== "undefined") {
+      window.addEventListener("focus", () => {
+        if (this.state.clis.signingIn.length && !this.state.clis.loading) void this.refreshClis();
+      });
+    }
     if (opts.view) this.state.view = opts.view;
     else this.state.view = this.state.settings.onboarded && this.state.engineReady ? "main" : "onboarding";
     if (opts.screen) this.state.step = Math.min(5, Math.max(1, opts.screen)) as Step;
@@ -166,6 +179,50 @@ export class App {
     }
   }
 
+  // ---- AI tools on this computer ----
+
+  async refreshClis() {
+    const before = this.state.clis;
+    this.state.clis = { ...before, loading: true };
+    this.render();
+    try {
+      const list = await this.api.clisDetect();
+      const nowIn = (id: string) => list.find((d) => d.id === id)?.signed_in === true;
+      const justSignedIn = before.signingIn.filter(nowIn).map((id) => list.find((d) => d.id === id)!.head);
+      this.state.clis = { loaded: true, loading: false, list, signingIn: before.signingIn.filter((id) => !nowIn(id)) };
+      const cur = this.state.settings.cli_heads ?? [];
+      let next = cur;
+      if (!this.state.settings.clis_chosen) next = defaultCliHeads(list);
+      else if (justSignedIn.length) next = HEAD_ORDER.filter((h) => cur.includes(h) || justSignedIn.includes(h));
+      if (next.join(",") !== cur.join(",")) await this.saveSettings({ cli_heads: next });
+    } catch (e) {
+      this.state.clis = { ...before, loaded: true, loading: false, error: errorText(e) };
+    }
+    this.render();
+  }
+
+  async setCli(head: string, on: boolean) {
+    const set = new Set(this.state.settings.cli_heads ?? []);
+    if (on) set.add(head);
+    else set.delete(head);
+    await this.saveSettings({ cli_heads: HEAD_ORDER.filter((h) => set.has(h)), clis_chosen: true });
+  }
+
+  async cliSignIn(id: string) {
+    try {
+      await this.api.cliLogin(id);
+      const signingIn = [...new Set([...this.state.clis.signingIn, id])];
+      this.state.clis = { ...this.state.clis, signingIn };
+    } catch (e) {
+      this.showToast(errorText(e));
+    }
+    this.render();
+  }
+
+  cliHeads(): string[] {
+    return cliHeadsOn(this.state);
+  }
+
   async refreshClaude() {
     this.state.claude = { ...this.state.claude, loading: true };
     this.render();
@@ -210,7 +267,7 @@ export class App {
 
   /** Start a roundtable. Used by screen 5 and the main screen. */
   async ask(question: string, mode: "quick" | "talk", research: boolean, context?: { path?: string | null; text?: string | null }) {
-    const heads = tableHeads(this.state.settings, this.state.keys);
+    const heads = tableHeads(this.state.settings, this.state.keys, this.cliHeads());
     if (!question.trim() || !heads.length) return;
     this.state.run = newRun(question.trim(), heads, mode);
     this.state.opened = null;
@@ -309,7 +366,7 @@ export class App {
 
   async openSettings() {
     this.set({ view: "settings" });
-    await Promise.all([this.refreshKeys(), this.refreshClaude()]);
+    await Promise.all([this.refreshKeys(), this.refreshClaude(), this.refreshClis()]);
     this.render();
   }
 
@@ -368,6 +425,6 @@ export class App {
   }
 
   connectedCount(): number {
-    return connectedHeads(this.state.keys).length;
+    return connectedHeads(this.state.keys, this.cliHeads()).length;
   }
 }

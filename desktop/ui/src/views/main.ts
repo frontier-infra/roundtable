@@ -13,7 +13,7 @@ export function renderMain(app: App): HTMLElement {
 
 function topbar(app: App): HTMLElement {
   const dot = statusDot(app.state);
-  const n = tableHeads(app.state.settings, app.state.keys).length;
+  const n = tableHeads(app.state.settings, app.state.keys, app.cliHeads()).length;
   return h(
     "div",
     { class: "topbar" },
@@ -122,7 +122,7 @@ function centre(app: App): HTMLElement {
 function askBox(app: App): HTMLElement {
   const s = app.state;
   const ask = s.ask;
-  const n = tableHeads(s.settings, s.keys).length;
+  const n = tableHeads(s.settings, s.keys, app.cliHeads()).length;
   const est = h("p", { class: "estimate small muted", text: estimateLine(n, ask.mode) });
   const go = button("Ask the table", () => void app.ask(ask.question, ask.mode, ask.research, { path: ask.contextPath, text: ask.contextText }), "btn primary large", n === 0 || !ask.question.trim());
   const choice = (mode: "quick" | "talk", title: string, sub: string) =>

@@ -59,8 +59,20 @@ export const PROVIDERS: Provider[] = [
 
 export const CHAIR_DEFAULT_MODEL = "claude-opus-4-8";
 
+/** Heads that only run through a local tool. Ids match desktop/engine/src/providers.rs. */
+export const CLI_ONLY_NAMES: Record<string, string> = {
+  codex: "Codex",
+  qwen: "Qwen",
+  kimi: "Kimi",
+  opencode: "OpenCode",
+  cursor: "Cursor",
+};
+
+/** Every head, in the order it sits at the table. */
+export const HEAD_ORDER = ["claude", "codex", "gemini", "openai", "grok", "glm", "minimax", "qwen", "kimi", "opencode", "cursor"];
+
 export function providerName(id: string): string {
-  return PROVIDERS.find((p) => p.id === id)?.name ?? id;
+  return PROVIDERS.find((p) => p.id === id)?.name ?? CLI_ONLY_NAMES[id] ?? id;
 }
 
 export const HELP_URL = "https://roundtable.sh";
