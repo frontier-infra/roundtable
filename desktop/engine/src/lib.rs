@@ -24,3 +24,16 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Tests that set or read provider URLs in the process environment take this lock.
 #[cfg(test)]
 pub(crate) static TEST_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// The one credit line the CLI prints under `version` and `help`.
+pub const CREDIT_LINE: &str = "Free from Titanium Computing. Need AI in your business? https://titaniumcomputing.com/?utm_source=roundtable&utm_medium=cli";
+
+/// The one line a Markdown export ends with (the app's `EXPORT_CREDIT`, ui/src/credits.ts).
+pub const EXPORT_CREDIT: &str = "Made with Roundtable (https://roundtable.sh), free from Titanium Computing (https://titaniumcomputing.com/?utm_source=roundtable&utm_medium=export)";
+
+/// A transcript as exported: the text, then the credit line, once, unless it is turned off.
+pub fn with_credit(markdown: &str, on: bool) -> String {
+    if !on || markdown.contains(EXPORT_CREDIT) {
+        return markdown.to_string();
+    }
+    format!("{}\n\n---\n\n{EXPORT_CREDIT}\n", markdown.trim_end())
+}

@@ -442,6 +442,7 @@ rt_cmd_version() {
   [ -f "$RT_REPODIR/VERSION" ] && v="$(head -n1 "$RT_REPODIR/VERSION" 2>/dev/null | tr -d '[:space:]')"
   [ -z "$v" ] && v="0.1.1"
   echo "roundtable $v"
+  echo "Free from Titanium Computing. Need AI in your business? https://titaniumcomputing.com/?utm_source=roundtable&utm_medium=cli"
 }
 
 rt_cmd_update() {

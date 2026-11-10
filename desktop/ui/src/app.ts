@@ -2,6 +2,7 @@
 
 import { errorText, type Api, type EngineEvent, type HeadId, type VerdictShape } from "./api";
 import { attachmentLabel, attachmentsBlock, briefMarkdown, emptyBrief, looksLikeLink, mdFileName, priorText, runMarkdown, runSeats, sessionMarkdown } from "./session";
+import { withCredit } from "./credits";
 import {
   applyEvent,
   back,
@@ -633,7 +634,7 @@ export class App {
   async copyMarkdown(run = this.state.run) {
     if (!run) return;
     try {
-      await this.api.copyText(runMarkdown(run));
+      await this.api.copyText(withCredit(runMarkdown(run), this.state.settings.export_credit));
       this.showToast("Copied as Markdown.");
     } catch (e) {
       this.showToast(errorText(e));
@@ -643,7 +644,7 @@ export class App {
   async downloadMarkdown(run = this.state.run) {
     if (!run) return;
     try {
-      if (await this.api.saveTextFile(mdFileName(run.question), runMarkdown(run))) this.showToast("Saved.");
+      if (await this.api.saveTextFile(mdFileName(run.question), withCredit(runMarkdown(run), this.state.settings.export_credit))) this.showToast("Saved.");
     } catch (e) {
       this.showToast(errorText(e));
     }
@@ -654,7 +655,7 @@ export class App {
     const turns = [...this.state.session, ...(this.state.run ? [this.state.run] : [])];
     if (!turns.length) return;
     try {
-      if (await this.api.saveTextFile(mdFileName(turns[0].question, true), sessionMarkdown(turns))) this.showToast("Session saved.");
+      if (await this.api.saveTextFile(mdFileName(turns[0].question, true), withCredit(sessionMarkdown(turns), this.state.settings.export_credit))) this.showToast("Session saved.");
     } catch (e) {
       this.showToast(errorText(e));
     }

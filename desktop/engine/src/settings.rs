@@ -36,6 +36,8 @@ pub struct Settings {
     pub verdict_shape: String,
     /// The decision model that rates the verdict. Off unless a provider is chosen.
     pub decision: crate::decision::DecisionSettings,
+    /// End Markdown exports (`--out`, the app's Save and Copy) with the one Roundtable credit line.
+    pub export_credit: bool,
 }
 
 impl Default for Settings {
@@ -56,6 +58,7 @@ impl Default for Settings {
             blind_first_round: true,
             verdict_shape: "decision".into(),
             decision: Default::default(),
+            export_credit: true,
         }
     }
 }

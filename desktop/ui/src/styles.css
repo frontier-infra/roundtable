@@ -2831,3 +2831,45 @@ details.pack summary {
     max-width: 100%;
   }
 }
+
+/* Credits: the About links, the main screen's footer line, the last setup screen */
+
+.credit-links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.credit-footer {
+  margin-top: auto;
+  padding-top: 14px;
+  padding-bottom: 14px;
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+}
+
+.credit-line {
+  margin-top: 28px;
+  color: var(--faint);
+}
+
+/* Credit links stay quiet: pink is for the one main action and what is chosen. */
+.credit-footer a,
+.credit-line a,
+.credit-links a {
+  color: var(--muted);
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+}
+
+.credit-footer a:hover,
+.credit-line a:hover,
+.credit-links a:hover {
+  color: var(--ink);
+  text-decoration-color: currentColor;
+}
+
+.setting-body .copy-box {
+  margin: 4px 0 10px;
+}

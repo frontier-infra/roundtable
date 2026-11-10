@@ -3,6 +3,7 @@
 pub mod claude;
 pub mod commands;
 pub mod engine_install;
+pub mod jebadiah;
 
 pub fn run() {
     tauri::Builder::default()
@@ -54,6 +55,7 @@ pub fn run() {
             commands::save_text,
             commands::terminal_command,
             commands::diagnostics,
+            jebadiah::jebadiah_local,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Roundtable");

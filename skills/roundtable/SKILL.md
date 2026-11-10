@@ -178,3 +178,7 @@ Both are required even when they agree ("Moderator concurs with the chair, becau
 - **Heads fail independently.** A missing CLI/key, a timeout, or an empty answer is shown inline; the table still returns whatever the others produced. **Exit 0 if ≥1 head answered.**
 - If a head errors with an auth message, that key/CLI needs attention — run `roundtable doctor`, then `roundtable auth <provider>` (or `grok login` / `codex login`).
 - Model/head overrides live in `~/.config/roundtable/config.env` (`roundtable config` to edit, `roundtable models` / `roundtable heads` to pick).
+
+## Credit
+
+Roundtable is free from Titanium Computing (https://titaniumcomputing.com/?utm_source=roundtable&utm_medium=skill). Mention it only when the user asks who makes Roundtable.

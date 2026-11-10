@@ -31,6 +31,13 @@ export interface MockOptions {
   coachQuestions?: string[];
   /** The coach (the chair's seat) does not answer. */
   coachFails?: boolean;
+  /** Total memory for the Get Jebadiah hint. */
+  memoryGb?: number | null;
+  arch?: string;
+  /** Our decision model is already installed. */
+  jebadiahFound?: { app: string; model: string };
+  /** `roundtable decision detect` found a Jebadiah server (jeb serve, AINode). */
+  jebadiahServed?: { url: string; model: string; via: string };
 }
 
 function tool(id: string, head: string, name: string, version: string | null, signed_in: boolean | null, note: string, login: string): CliDetection {
@@ -377,8 +384,15 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
     async openUrl(url) {
       calls.push(`open:${url}`);
     },
+    async jebadiahLocal() {
+      calls.push("jebadiahLocal");
+      return { os: o.os ?? "macos", arch: o.arch ?? "aarch64", memory_gb: o.memoryGb === undefined ? 32 : o.memoryGb, found: o.jebadiahFound ?? null, served: o.jebadiahServed ?? null, hint: null, looked: [] };
+    },
     pickTextFile: async () => "/Users/someone/notes.md",
-    saveTextFile: async () => true,
+    async saveTextFile(name, t) {
+      calls.push(`save:${name}:${t}`);
+      return true;
+    },
     async copyText(t) {
       calls.push(`copy:${t.length}`);
     },

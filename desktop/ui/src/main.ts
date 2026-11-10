@@ -23,6 +23,8 @@ async function boot() {
       history: q.get("history") === "1" ? sampleHistory() : [],
       clis: q.get("clis") === "none" ? "none" : "some",
       noLabPack: q.get("labpack") === "0",
+      memoryGb: q.get("mem") ? Number(q.get("mem")) : undefined,
+      arch: q.get("arch") ?? undefined,
       custom: q.get("custom") === "1" ? [{ id: "head-of-support", name: "Head of Support", expertise: "Customers after they buy", brief: "Weigh repeat contacts.", ai: "gemini" }] : [],
     });
   }
