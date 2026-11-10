@@ -29,6 +29,8 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/ui/package-lock.json
       - run: npm ci
+      - name: Version, release tags, changelog and update manifest
+        run: node --test ../scripts/release.test.mjs
       - run: npx tsc --noEmit
       - run: npx vitest run
       # The release runs vite build; a CSS error must fail the PR, not the tag.

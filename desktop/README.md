@@ -72,13 +72,38 @@ A debug build opens on a given screen with `ROUNDTABLE_START_SCREEN=3` (or `sett
 
 ## Releases
 
-A `desktop-v0.1.N` tag runs `.github/workflows/desktop-release.yml` on Blacksmith runners only (this repo is public, so no self-hosted runner):
+### Versions
 
-- Mac: universal `.dmg`, signed with the Developer ID, notarized and stapled.
-- Windows: per-user NSIS `.exe`, signed with Azure Trusted Signing (`desktop/scripts/sign-windows.ps1`).
-- The updater manifest goes to the tag release and to the rolling `desktop-latest` release.
+One number for the app, the engine and the UI: `desktop/Cargo.toml`, `[workspace.package]`. Tauri reads it from there, and the UI asks the core. `desktop/scripts/version.mjs` reads and writes it.
 
-A tag with a dash, such as `desktop-v0.1.1-rc1`, is a test build. It uploads workflow artifacts and publishes nothing.
+- The repo holds the next release, such as `0.1.2`. After a release, `node desktop/scripts/version.mjs bump` moves it on.
+- The patch digit climbs to 99 (0.1.8, 0.1.9 ... 0.1.99), then 0.2.0. Only Jason moves the minor digit early.
+- A test build is `0.1.2-rc.1`, `0.1.2-rc.2` and so on, with a dot. The release workflow stamps that number into the build, so every test build reports its own version. Semver puts `0.1.2-rc.10` after `rc.9` and every rc before `0.1.2`.
+- The About section and Settings, Updates show the version.
+
+### Changelog
+
+`desktop/CHANGELOG.md`, in plain words, with Added, Improved and Fixed under `## X.Y.Z - date`. Every release needs its section: the tag fails without one. The release workflow puts it in the GitHub release notes and the update manifest. The app ships the file for What's new, and roundtable.sh/changelog reads it.
+
+### Release tags
+
+A tag runs `.github/workflows/desktop-release.yml` on Blacksmith runners only (this repo is public, so no self-hosted runner):
+
+- Mac: universal `.dmg`, signed with the Developer ID, notarized and stapled, and the updater bundle `Roundtable_<version>_universal.app.tar.gz` with its `.sig`.
+- Windows: per-user NSIS `.exe`, signed with Azure Trusted Signing (`desktop/scripts/sign-windows.ps1`), with its updater `.sig`.
+
+| Tag | Channel | Where it goes |
+|---|---|---|
+| `desktop-v0.1.2-rc.1` | Test builds | The rolling pre-release `desktop-test` and its `latest.json`. Only apps with Settings, Updates, **Test builds** on read it. It keeps the newest two test builds. |
+| `desktop-v0.1.2` | Stable | The release `desktop-v0.1.2`, the rolling `desktop-latest` manifest every app reads, and `desktop-test` too. Jason approves every stable tag. |
+
+### Updates in the app
+
+- Checks at launch and every 6 hours: `desktop-latest/latest.json`, or `desktop-test/latest.json` with Test builds on.
+- A newer version shows a banner: "Roundtable 0.1.3 is ready." with **What's new**, **Update now** and **Later**.
+- "Install updates automatically" (on by default) downloads in the background and installs on the next quit. **Update now** installs and restarts at once.
+- The first launch after an update opens What's new for every version since the last one seen. Settings, Updates has **Check now** and **What's new**.
+- Every package is checked against the updater public key in `core/tauri.conf.json` before it installs.
 
 Release secrets (GitHub repository secrets, values in Bitwarden):
 

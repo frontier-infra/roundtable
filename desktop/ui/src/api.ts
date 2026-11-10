@@ -92,6 +92,10 @@ export interface Settings {
   timeout_secs: number | null;
   history: boolean;
   auto_update: boolean;
+  /** "stable" or "test": which updates the app looks for. */
+  update_channel: "stable" | "test";
+  /** The version that last showed What's new. */
+  last_seen_version: string;
   onboarded: boolean;
   terminal_command: boolean;
   /** Head ids that run through the person's own installed tool. */
@@ -418,9 +422,16 @@ export interface RetryRequest {
   attached?: string | null;
 }
 
+/** A newer version on the chosen channel. */
 export interface UpdateInfo {
   version: string;
-  install: () => Promise<void>;
+  current: string;
+  /** That version's changelog section. */
+  notes: string;
+  date: string | null;
+  channel: string;
+  /** Downloaded and checked. */
+  ready: boolean;
 }
 
 export interface Api {
@@ -486,8 +497,13 @@ export interface Api {
   pickTextFile(): Promise<string | null>;
   saveTextFile(defaultName: string, text: string): Promise<boolean>;
   copyText(text: string): Promise<void>;
-  checkUpdate(): Promise<UpdateInfo | null>;
-  restart(): Promise<void>;
+  /** Look for a newer version on a channel. null: this is the newest. */
+  updateCheck(channel: string): Promise<UpdateInfo | null>;
+  /** Download the found update in the background; with `installOnQuit` it installs when the app quits. */
+  updateDownload(installOnQuit: boolean): Promise<void>;
+  updateOnQuit(on: boolean): Promise<void>;
+  /** Install now and restart into the new version. */
+  updateInstall(): Promise<void>;
 }
 
 export function errorText(e: unknown): string {
@@ -615,15 +631,9 @@ export async function tauriApi(): Promise<Api> {
       return true;
     },
     copyText: (text) => navigator.clipboard.writeText(text),
-    async checkUpdate() {
-      const { check } = await import("@tauri-apps/plugin-updater");
-      const u = await check();
-      if (!u) return null;
-      return { version: u.version, install: () => u.downloadAndInstall() };
-    },
-    async restart() {
-      const { relaunch } = await import("@tauri-apps/plugin-process");
-      await relaunch();
-    },
+    updateCheck: (channel) => invoke("update_check", { channel }),
+    updateDownload: (installOnQuit) => invoke("update_download", { installOnQuit }),
+    updateOnQuit: (on) => invoke("update_on_quit", { on }),
+    updateInstall: () => invoke("update_install"),
   };
 }

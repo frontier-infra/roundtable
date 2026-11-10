@@ -7,6 +7,10 @@ import { builtinPacks, libraryOf } from "./mock-personas";
 import { LOCAL_NOTE, PRESET_NAMES, PROVIDERS, splitSeat } from "./providers";
 
 export interface MockOptions {
+  /** A newer version on a channel (default stable). */
+  update?: { version: string; notes: string; channel?: string };
+  /** The app's version (default 0.1.1). */
+  version?: string;
   os?: string;
   /** "none", "app", "code", "both" or "plugin" (both, with the old plugin installed). */
   claude?: string;
@@ -115,6 +119,7 @@ const SAMPLE: Record<string, string> = {
 
 export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
   const calls: string[] = [];
+  let downloaded: string | null = null;
   const delay = o.delay ?? 0;
   const keys = new Set(o.keys ?? []);
   let settings: Settings = { ...defaultSettings(), onboarded: !!o.onboarded };
@@ -237,7 +242,7 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
       provKeys.delete(id);
       return { ok: true, message: `Removed ${c.name} and its ${c.models.length} seat${c.models.length === 1 ? "" : "s"}.` };
     },
-    appInfo: async () => ({ version: "0.1.1", os: o.os ?? "macos", arch: "aarch64" }),
+    appInfo: async () => ({ version: o.version ?? "0.1.1", os: o.os ?? "macos", arch: "aarch64" }),
     engineStatus: async () => ({ installed, current: installed, version: installed ? "0.1.1" : null, expected: "0.1.1" }),
     async engineSetup(onStep) {
       calls.push("engineSetup");
@@ -560,7 +565,21 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
     async copyText(t) {
       calls.push(`copy:${t.length}`);
     },
-    checkUpdate: async () => null,
-    restart: async () => {},
+    async updateCheck(channel) {
+      calls.push(`updateCheck:${channel}`);
+      const u = o.update && (o.update.channel ?? "stable") === channel ? o.update : null;
+      if (!u) return null;
+      return { version: u.version, current: "0.1.1", notes: u.notes, date: null, channel, ready: downloaded === u.version };
+    },
+    async updateDownload(installOnQuit) {
+      calls.push(`updateDownload:${installOnQuit}`);
+      if (o.update) downloaded = o.update.version;
+    },
+    async updateOnQuit(on) {
+      calls.push(`updateOnQuit:${on}`);
+    },
+    async updateInstall() {
+      calls.push("updateInstall");
+    },
   };
 }

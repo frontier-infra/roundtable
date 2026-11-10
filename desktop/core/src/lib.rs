@@ -4,14 +4,17 @@ pub mod claude;
 pub mod commands;
 pub mod engine_install;
 pub mod jebadiah;
+pub mod update;
+
+use tauri::Manager;
 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
         .manage(commands::AppState::default())
+        .manage(update::Updates::default())
         .setup(|_app| {
             commands::refresh_engine_on_launch();
             commands::purge_history_trash();
@@ -64,7 +67,16 @@ pub fn run() {
             commands::terminal_command,
             commands::diagnostics,
             jebadiah::jebadiah_local,
+            update::update_check,
+            update::update_download,
+            update::update_on_quit,
+            update::update_install,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Roundtable");
+        .build(tauri::generate_context!())
+        .expect("error while running Roundtable")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                update::install_on_exit(&app.state::<update::Updates>());
+            }
+        });
 }
