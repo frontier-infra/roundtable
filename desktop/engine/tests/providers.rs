@@ -87,6 +87,9 @@ fn fake(mode: Mode) -> Fake {
                             std::thread::sleep(Duration::from_secs(2));
                             (200, json!({"choices": [{"message": {"content": "late"}}]}))
                         }
+                        // Spends a 4000-token budget thinking; answers when given more room.
+                        _ if model == "thinker" && v["max_tokens"].as_u64().unwrap_or(0) <= 4000 => (200, json!({"choices": [{"message": {"content": "", "reasoning_content": "long thought"}, "finish_reason": "length"}]})),
+                        _ if model == "always-thinking" => (200, json!({"choices": [{"message": {"content": "<think>still going"}, "finish_reason": "length"}]})),
                         _ if model == "empty" => (200, json!({"choices": [{"message": {"content": "  "}}]})),
                         _ if model == "gone" => (404, json!({"error": {"message": "model not found"}})),
                         _ => (200, json!({"choices": [{"message": {"content": format!("<think>x</think>answer from {model}")}}]})),
@@ -175,6 +178,27 @@ fn chat_errors() {
         Outcome::ToolFailed(_, m) => assert!(m.contains("not answering on this computer")),
         o => panic!("{o:?}"),
     }
+}
+
+#[test]
+fn a_thinking_model_out_of_room_is_asked_once_more_with_more_room() {
+    let f = fake(Mode::Ok);
+    let c = cfg("x", &f.base, false);
+    assert_eq!(custom::chat(&c, "thinker", None, "Q", Duration::from_secs(5)), Outcome::Answered("answer from thinker".into()));
+    {
+        let seen = f.seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        let budgets: Vec<u64> = seen.iter().map(|s| serde_json::from_str::<Value>(&s.3).unwrap()["max_tokens"].as_u64().unwrap()).collect();
+        assert_eq!(budgets, vec![custom::MAX_TOKENS as u64, custom::THINKING_MAX_TOKENS as u64]);
+    }
+    match custom::chat(&c, "always-thinking", None, "Q", Duration::from_secs(5)) {
+        Outcome::Empty(m) => assert!(m.contains("whole answer budget thinking"), "{m}"),
+        o => panic!("{o:?}"),
+    }
+    assert_eq!(f.seen.lock().unwrap().len(), 4, "only once more");
+    // A plain empty answer (not out of room) is not asked again.
+    assert!(matches!(custom::chat(&c, "empty", None, "Q", Duration::from_secs(5)), Outcome::Empty(_)));
+    assert_eq!(f.seen.lock().unwrap().len(), 5);
 }
 
 #[test]
