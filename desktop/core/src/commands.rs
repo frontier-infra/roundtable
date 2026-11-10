@@ -3,7 +3,7 @@
 
 use crate::claude;
 use crate::engine_install::{self, RealProbe};
-use roundtable_engine::{clis, history, paths, settings::Settings, VERSION};
+use roundtable_engine::{clis, history, paths, personas, settings::Settings, VERSION};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
@@ -395,6 +395,7 @@ struct RunEvent {
 
 /// Start a roundtable. Events arrive on `rt-event` as `{run, data}`.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn ask_start(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -404,6 +405,7 @@ pub fn ask_start(
     research: bool,
     context_path: Option<String>,
     context_text: Option<String>,
+    personas: Option<String>,
 ) -> Result<u64, String> {
     if question.trim().is_empty() {
         return Err("Type a question first.".into());
@@ -413,10 +415,14 @@ pub fn ask_start(
         let _ = old.kill();
     }
     let csv = heads.join(",");
-    let rounds_s = rounds.clamp(1, 10).to_string();
+    let rounds_s = rounds.clamp(1, roundtable_engine::council::MAX_ROUNDS).to_string();
     let mut args: Vec<&str> = vec!["ask", "--events", "--source", "app", "--rounds", &rounds_s];
     if !csv.is_empty() {
         args.extend(["--heads", &csv]);
+    }
+    let spec = personas.unwrap_or_default();
+    if !spec.trim().is_empty() {
+        args.extend(["--personas", &spec]);
     }
     if research {
         args.push("--research");
@@ -461,6 +467,7 @@ pub fn ask_start(
 /// Ask one head again, alone, without touching the rest of the run. Its events
 /// arrive on `rt-event` with the same run id, plus `retry_done` with its transcript.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn ask_retry(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -469,11 +476,19 @@ pub fn ask_retry(
     question: String,
     research: bool,
     context_path: Option<String>,
+    seat: Option<String>,
+    persona: Option<String>,
 ) -> Result<(), String> {
     if question.trim().is_empty() {
         return Err("Type a question first.".into());
     }
+    let seat = seat.unwrap_or_else(|| head.clone());
     let mut args: Vec<&str> = vec!["ask", "--events", "--no-history", "--source", "app", "--rounds", "1", "--heads", &head];
+    // A persona seat asks again with the same persona on the same AI.
+    let spec = persona.filter(|p| !p.trim().is_empty()).map(|p| format!("{p}@{head}"));
+    if let Some(sp) = spec.as_deref() {
+        args.extend(["--personas", sp]);
+    }
     if research {
         args.push("--research");
     }
@@ -495,8 +510,8 @@ pub fn ask_retry(
         for line in BufReader::new(out).lines().map_while(Result::ok) {
             let Ok(mut v) = serde_json::from_str::<Value>(&line) else { continue };
             match v["event"].as_str() {
-                Some("head_started") | Some("head_done") => {}
-                Some("run_done") => v = json!({"event": "retry_done", "head": head, "transcript": v["transcript"]}),
+                Some("head_started") | Some("head_done") => v["seat"] = json!(seat),
+                Some("run_done") => v = json!({"event": "retry_done", "head": head, "seat": seat, "transcript": v["transcript"]}),
                 _ => continue,
             }
             let _ = app.emit("rt-event", RunEvent { run, data: v });
@@ -521,6 +536,47 @@ pub fn ask_stop(state: State<'_, AppState>) {
         let _ = c.wait();
     }
 }
+
+// ---- Personas (Settings, Personas) ----
+
+/// Packs, presets and the switch state, for the Seats control and the Personas settings.
+#[tauri::command]
+pub fn personas_list() -> Value {
+    personas::library_json(&Settings::load())
+}
+
+/// Create (empty id) or update one of the person's own personas.
+#[tauri::command]
+pub fn persona_save(persona: personas::Persona) -> Result<personas::Persona, String> {
+    let lib = personas::Library::load(&Settings::load());
+    personas::save_custom_at(&personas::custom_file(), &lib, persona)
+}
+
+/// Copy any persona into the person's own pack, to edit.
+#[tauri::command]
+pub fn persona_duplicate(id: String) -> Result<personas::Persona, String> {
+    let lib = personas::Library::load(&Settings::load());
+    personas::duplicate_at(&personas::custom_file(), &lib, &id)
+}
+
+#[tauri::command]
+pub fn persona_delete(id: String) -> Result<(), String> {
+    personas::delete_custom_at(&personas::custom_file(), &id)
+}
+
+/// Write the person's own pack to a file they picked. Returns how many personas.
+#[tauri::command]
+pub fn personas_export(path: String) -> Result<usize, String> {
+    personas::export_at(&personas::custom_file(), std::path::Path::new(&path))
+}
+
+/// Add every persona in a pack file to the person's own pack. Returns how many.
+#[tauri::command]
+pub fn personas_import(path: String) -> Result<usize, String> {
+    let lib = personas::Library::load(&Settings::load());
+    personas::import_at(&personas::custom_file(), &lib, std::path::Path::new(&path))
+}
+
 
 // ---- History and settings ----
 

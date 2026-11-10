@@ -22,5 +22,10 @@ ureq = { version = "2", features = ["json"] }
 dirs = "5"
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 
+[features]
+# The Frontier labs persona pack. Build with --no-default-features to leave it out.
+default = ["lab-pack"]
+lab-pack = []
+
 [dev-dependencies]
 tempfile = "3"

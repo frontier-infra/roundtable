@@ -24,6 +24,10 @@ pub struct Settings {
     pub cli_heads: Vec<String>,
     /// The person has ticked or unticked a tool, so detection stops choosing for them.
     pub clis_chosen: bool,
+    /// Show the Frontier labs persona pack. The single switch, with the `lab-pack` build feature.
+    pub show_lab_pack: bool,
+    /// Seats for a run with no `--personas`: a preset, pack or persona list. Empty is Generic.
+    pub personas: String,
 }
 
 impl Default for Settings {
@@ -38,6 +42,8 @@ impl Default for Settings {
             terminal_command: false,
             cli_heads: Vec::new(),
             clis_chosen: false,
+            show_lab_pack: true,
+            personas: String::new(),
         }
     }
 }

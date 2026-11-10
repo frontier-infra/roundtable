@@ -3,6 +3,7 @@
 // core/binaries/roundtable-engine-<target triple>[.exe].
 // Target: TAURI_ENV_TARGET_TRIPLE (set by `cargo tauri build --target`), else the host.
 // universal-apple-darwin builds both Mac targets and joins them with lipo.
+// ROUNDTABLE_NO_LAB_PACK=1 builds the engine without the Frontier labs persona pack.
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, chmodSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -22,6 +23,7 @@ mkdirSync(outDir, { recursive: true });
 function build(t) {
   const args = ["build", "-p", "roundtable-engine", "--target", t];
   if (!debug) args.push("--release");
+  if (env.ROUNDTABLE_NO_LAB_PACK === "1") args.push("--no-default-features");
   execFileSync("cargo", args, { cwd: desktop, stdio: "inherit", env: { ...env, CARGO_TARGET_DIR: targetDir } });
   return join(targetDir, t, profile, `roundtable-engine${exe}`);
 }

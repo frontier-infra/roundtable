@@ -104,13 +104,14 @@ Per-head model/enable overrides: `roundtable models` and `roundtable heads` (or 
 ```bash
 roundtable "Should we use Postgres or SQLite for this service?"     # shorthand
 roundtable ask -q "..." --heads grok,claude,gemini                  # subset of heads
-roundtable ask -q "..." --rounds 3                                  # deliberate to consensus
+roundtable ask -q "..." --rounds 3                                  # deliberate to consensus (1 to 4)
+roundtable ask -q "..." --personas pricing                          # seat roles: preset, pack or names
 roundtable ask -q "..." -c ./context.md                            # shared background for every head
 roundtable ask -q "..." --research                                 # web on
 roundtable ask -q "..." --out /tmp/rt.md                           # also save the transcript
 ```
 
-Flags: `-q/--question`, `-c/--context <file>`, `--heads ...`, `--rounds N`, `--research`,
+Flags: `-q/--question`, `-c/--context <file>`, `--heads ...`, `--rounds N` (1 to 4), `--personas SPEC`, `--research`,
 `--timeout <secs>`, `--out <file>`. Exit 0 if ≥1 head answered.
 
 **Output discipline:** always return the per-head results table **and** the judge's
@@ -121,7 +122,7 @@ decision (chair verdict + your own moderator call). Never summarize without the 
 Roundtable ships an MCP server as a subcommand of the one binary:
 
 ```bash
-roundtable mcp serve     # stdio JSON-RPC; one tool: roundtable(question, heads?, rounds?, research?)
+roundtable mcp serve     # stdio JSON-RPC; one tool: roundtable(question, heads?, rounds?, personas?, research?)
 roundtable mcp config    # prints the server JSON block to paste manually
 ```
 

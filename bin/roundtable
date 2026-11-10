@@ -39,6 +39,7 @@ Commands:
   heads      Choose which heads are enabled by default
   doctor     Show per-head config + reachability
   config     Show (masked) or edit the config file ('config edit')
+  personas   List persona packs, presets and seats ('personas --json')
   mcp        Run the MCP server (e.g. 'roundtable mcp serve')
   install    Auto-wire Roundtable into detected harnesses
   version    Print the version
@@ -49,7 +50,9 @@ Engine flags (passed through to 'ask'):
   -q, --question TEXT   The question (also accepted as a positional)
   -c, --context FILE    Prepend a shared context file
       --heads CSV       Subset: claude,openai,grok,glm,minimax,gemini,codex
-      --rounds N        N>=2 -> deliberation to consensus (default 1 = advisory)
+      --rounds N        1 to 4. 2 to 4 -> deliberation to consensus (default 1 = advisory)
+      --personas SPEC   Seat roles: a preset (pricing), a pack (business-roles),
+                        or names (cfo,ceo@claude). generic = plain seats
       --timeout S       Per-head timeout, seconds
       --research        Allow web/tool use where heads support it
       --out FILE        Also save the transcript to FILE
@@ -101,6 +104,10 @@ case "$cmd" in
     shift
     if [ -f "$LIBDIR/mcp.py" ]; then exec python3 "$LIBDIR/mcp.py" "$@"; fi
     echo "roundtable: MCP server not available ($LIBDIR/mcp.py missing)" >&2; exit 1 ;;
+
+  personas)
+    shift
+    exec python3 "$LIBDIR/personas.py" list "$@" ;;
 
   install)
     shift

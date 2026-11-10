@@ -7,6 +7,7 @@
 use crate::clis::{self, Fix};
 use crate::http::{self, ErrorClass};
 use crate::keys::Keys;
+use crate::personas::{self, Seat};
 use crate::providers::{self, Head, Kind, HEADS};
 use crate::settings::Settings;
 use serde::Serialize;
@@ -19,9 +20,39 @@ pub struct AskOptions {
     /// Background text every head reads first.
     pub context: Option<String>,
     pub heads: Vec<&'static Head>,
+    /// Who sits where. Empty means one Generic seat per head (the old table).
+    pub seats: Vec<Seat>,
     pub rounds: u32,
     pub research: bool,
     pub timeout: Duration,
+}
+
+/// Most rounds a run may have.
+pub const MAX_ROUNDS: u32 = 4;
+
+impl AskOptions {
+    /// The seats this run uses.
+    pub fn table(&self) -> Vec<Seat> {
+        if self.seats.is_empty() {
+            personas::generic_seats(&self.heads)
+        } else {
+            self.seats.clone()
+        }
+    }
+}
+
+/// One seat as the app sees it before any answer.
+#[derive(Debug, Clone, Serialize)]
+pub struct SeatInfo {
+    pub seat: String,
+    pub head: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persona: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expertise: Option<String>,
+    /// The lab label, on lab seats.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -90,11 +121,13 @@ impl Outcome {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
-    RunStarted { heads: Vec<String>, rounds: u32, mode: String },
-    HeadStarted { head: String, round: u32 },
+    RunStarted { heads: Vec<String>, rounds: u32, mode: String, seats: Vec<SeatInfo> },
+    HeadStarted { head: String, round: u32, seat: String },
     HeadDone {
         head: String,
         round: u32,
+        /// The seat key: the head id on a Generic seat, else `<persona>@<head>`.
+        seat: String,
         status: String,
         text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -359,16 +392,19 @@ fn chair(keys: &Keys, settings: &Settings, prompt: &str, timeout: Duration) -> S
     }
 }
 
-fn run_round(prompt: &str, round: u32, opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&Event) + Sync)) -> Vec<HeadRun> {
+#[allow(clippy::too_many_arguments)]
+fn run_round(prompt: &str, round: u32, seats: &[Seat], keys_of: &[String], opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&Event) + Sync)) -> Vec<HeadRun> {
     std::thread::scope(|s| {
-        let handles: Vec<_> = opts
-            .heads
+        let handles: Vec<_> = seats
             .iter()
-            .map(|h| {
-                emit(&Event::HeadStarted { head: h.id.into(), round });
+            .zip(keys_of)
+            .map(|(seat, key)| {
+                let h = seat.head;
+                emit(&Event::HeadStarted { head: h.id.into(), round, seat: key.clone() });
                 s.spawn(move || {
-                    let r = ask_head(h, prompt, opts.research, opts.timeout, keys, settings, Route::Auto, None);
-                    emit(&head_done(h, round, &r));
+                    let p = personas::seat_prompt(seat, prompt);
+                    let r = ask_head(h, &p, opts.research, opts.timeout, keys, settings, Route::Auto, None);
+                    emit(&head_done_at(h, key, round, &r));
                     r
                 })
             })
@@ -382,10 +418,16 @@ fn run_round(prompt: &str, round: u32, opts: &AskOptions, keys: &Keys, settings:
 
 /// The `head_done` event for one head's result.
 pub fn head_done(h: &Head, round: u32, r: &HeadRun) -> Event {
+    head_done_at(h, h.id, round, r)
+}
+
+/// The `head_done` event for one seat's result.
+pub fn head_done_at(h: &Head, seat: &str, round: u32, r: &HeadRun) -> Event {
     let o = &r.outcome;
     Event::HeadDone {
         head: h.id.into(),
         round,
+        seat: seat.into(),
         status: o.status().into(),
         text: if let Outcome::Answered(t) = o { t.clone() } else { String::new() },
         reason: o.reason(),
@@ -401,15 +443,42 @@ fn label_for(h: &Head, settings: &Settings, r: &HeadRun) -> String {
     providers::label_via(h, settings, tool)
 }
 
+/// A seat's body in the transcript: the lab label first on a lab seat.
+fn seat_body(seat: &Seat, body: &str) -> String {
+    match personas::seat_disclaimer(seat) {
+        Some(d) => format!("_{d}_\n\n{body}"),
+        None => body.to_string(),
+    }
+}
+
 /// Run the council. `emit` gets every event as it happens; the transcript comes back.
 pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&Event) + Sync)) -> RunResult {
-    let n = opts.heads.len();
-    let mut labels: Vec<String> = opts.heads.iter().map(|h| providers::label(h, settings)).collect();
-    let advisory = opts.rounds <= 1;
+    let seats = opts.table();
+    let seat_keys = personas::seat_keys(&seats);
+    let n = seats.len();
+    let rounds = opts.rounds.clamp(1, MAX_ROUNDS);
+    let advisory = rounds <= 1;
+    let mut heads_seen: Vec<String> = Vec::new();
+    for s in &seats {
+        if !heads_seen.iter().any(|h| h == s.head.id) {
+            heads_seen.push(s.head.id.to_string());
+        }
+    }
     emit(&Event::RunStarted {
-        heads: opts.heads.iter().map(|h| h.id.to_string()).collect(),
-        rounds: opts.rounds.max(1),
+        heads: heads_seen,
+        rounds,
         mode: if advisory { "advisory".into() } else { "deliberation".into() },
+        seats: seats
+            .iter()
+            .zip(&seat_keys)
+            .map(|(s, k)| SeatInfo {
+                seat: k.clone(),
+                head: s.head.id.into(),
+                persona: s.persona.as_ref().map(|p| p.name.clone()),
+                expertise: s.persona.as_ref().map(|p| p.expertise.clone()).filter(|e| !e.is_empty()),
+                label: personas::seat_disclaimer(s),
+            })
+            .collect(),
     });
 
     let mut out = String::new();
@@ -417,8 +486,9 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
         out.push_str(s);
         out.push('\n');
     };
-    let mode = if advisory { "advisory".to_string() } else { format!("deliberation (\u{2264}{} rounds)", opts.rounds) };
-    say(&format!("# \u{1fa91} Round Table - {n} heads - {mode}"));
+    let unit = if seats.iter().any(|s| s.persona.is_some()) { "seats" } else { "heads" };
+    let mode = if advisory { "advisory".to_string() } else { format!("deliberation (\u{2264}{rounds} rounds)") };
+    say(&format!("# \u{1fa91} Round Table - {n} {unit} - {mode}"));
     say("");
     say(&format!("_Question:_ {}", opts.question));
     say("");
@@ -426,43 +496,45 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
     let base = base_prompt(&opts.question, opts.context.as_deref());
     let mut answered = 0usize;
     let mut consensus = None;
+    let labels_of = |res: &[HeadRun]| -> Vec<String> { seats.iter().zip(res).map(|(s, r)| personas::seat_label(s, &label_for(s.head, settings, r))).collect() };
 
     if advisory {
-        let res = run_round(&base, 1, opts, keys, settings, emit);
+        let res = run_round(&base, 1, &seats, &seat_keys, opts, keys, settings, emit);
         emit(&Event::RoundDone { round: 1 });
-        labels = opts.heads.iter().zip(&res).map(|(h, r)| label_for(h, settings, r)).collect();
+        let labels = labels_of(&res);
         let res: Vec<Outcome> = res.into_iter().map(|r| r.outcome).collect();
-        for (label, o) in labels.iter().zip(&res) {
+        for ((label, o), seat) in labels.iter().zip(&res).zip(&seats) {
             if matches!(o, Outcome::Answered(_)) {
                 answered += 1;
             }
             say("---");
             say(&format!("## {label}"));
             say("");
-            say(&o.body());
+            say(&seat_body(seat, &o.body()));
             say("");
         }
         say("---");
         say("_Advisory mode: independent answers, no cross-talk. Use `--rounds N` for deliberation to consensus._");
     } else {
+        let mut labels: Vec<String> = Vec::new();
         let mut prev: Vec<(String, String)> = Vec::new();
         let mut cons = false;
-        for r in 1..=opts.rounds {
+        for r in 1..=rounds {
             let prompt = if r == 1 { base.clone() } else { deliberation_prompt(&base, r - 1, &prev, r) };
-            let res = run_round(&prompt, r, opts, keys, settings, emit);
+            let res = run_round(&prompt, r, &seats, &seat_keys, opts, keys, settings, emit);
             emit(&Event::RoundDone { round: r });
             if r == 1 {
-                labels = opts.heads.iter().zip(&res).map(|(h, x)| label_for(h, settings, x)).collect();
+                labels = labels_of(&res);
             }
             let res: Vec<Outcome> = res.into_iter().map(|x| x.outcome).collect();
             answered = answered.max(res.iter().filter(|o| matches!(o, Outcome::Answered(_))).count());
             prev = labels.iter().cloned().zip(res.iter().map(|o| o.body())).collect();
             say(&format!("## \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500} Round {r} \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}"));
             say("");
-            for (label, body) in &prev {
+            for ((label, body), seat) in prev.iter().zip(&seats) {
                 say(&format!("### {label}"));
                 say("");
-                say(body);
+                say(&seat_body(seat, body));
                 say("");
             }
             let chair = chair(keys, settings, &chair_prompt(&opts.question, r, &prev), opts.timeout);
@@ -488,10 +560,7 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
         if cons {
             say("_Deliberation converged. The chair's final verdict above is the council consensus._");
         } else {
-            say(&format!(
-                "_Reached the round cap ({}) without full consensus. The chair's last verdict lists the remaining disagreements._",
-                opts.rounds
-            ));
+            say(&format!("_Reached the round cap ({rounds}) without full consensus. The chair's last verdict lists the remaining disagreements._"));
         }
         consensus = Some(cons);
     }
@@ -602,6 +671,7 @@ mod tests {
             question: "Bread or garden?".into(),
             context: None,
             heads,
+            seats: Vec::new(),
             rounds: 1,
             research: false,
             timeout: Duration::from_secs(10),
@@ -632,6 +702,7 @@ mod tests {
             question: "Q".into(),
             context: None,
             heads: parse_heads("minimax").0,
+            seats: Vec::new(),
             rounds: 2,
             research: false,
             timeout: Duration::from_secs(10),
@@ -643,5 +714,46 @@ mod tests {
         assert!(r.transcript.contains("That key did not work"));
         assert!(r.transcript.contains("chair unavailable"));
         assert!(r.transcript.contains("Round 2"));
+    }
+
+    #[test]
+    fn persona_run_labels_seats_and_caps_rounds() {
+        no_tools();
+        let url = fake_server(200, r#"{"choices":[{"message":{"content":"Hold prices."}}]}"#);
+        std::env::set_var("ROUNDTABLE_GROK_XAI_URL", &url);
+        let store = MemoryStore::default();
+        let k = Keys { store: &store, env: [("XAI_API_KEY".to_string(), "test".to_string())].into(), file: BTreeMap::new() };
+        let heads = parse_heads("grok").0;
+        let lib = personas::Library::from_packs(personas::builtin_packs(), false);
+        let spec = if personas::lab_pack_built() { "cfo,nvidia-view" } else { "cfo,ceo" };
+        let seats = personas::resolve(spec, &heads, &lib).unwrap();
+        let opts = AskOptions {
+            question: "Raise prices?".into(),
+            context: None,
+            heads,
+            seats,
+            rounds: 9,
+            research: false,
+            timeout: Duration::from_secs(10),
+        };
+        let events = Mutex::new(Vec::new());
+        let r = run(&opts, &k, &Settings::default(), &|e| events.lock().unwrap().push(serde_json::to_value(e).unwrap()));
+        std::env::remove_var("ROUNDTABLE_GROK_XAI_URL");
+        assert!(r.transcript.starts_with("# \u{1fa91} Round Table - 2 seats - deliberation (\u{2264}4 rounds)\n"), "{}", r.transcript);
+        assert!(r.transcript.contains("### CFO \u{b7} \u{1f916} Grok"), "{}", r.transcript);
+        assert!(r.transcript.contains("Round 4"));
+        assert!(!r.transcript.contains("Round 5"));
+        let ev = events.lock().unwrap();
+        let start = &ev[0];
+        assert_eq!(start["rounds"], 4);
+        assert_eq!(start["seats"][0]["seat"], "cfo@grok");
+        assert_eq!(start["seats"][0]["persona"], "CFO");
+        if personas::lab_pack_built() {
+            assert_eq!(start["seats"][1]["label"], "Simulated perspective drawn from public positions. Not affiliated with or endorsed by NVIDIA.");
+            assert!(r.transcript.contains("_Simulated perspective drawn from public positions. Not affiliated with or endorsed by NVIDIA._\n\nHold prices."));
+        }
+        let done: Vec<_> = ev.iter().filter(|e| e["event"] == "head_done").collect();
+        assert_eq!(done.len(), 8, "two seats, four rounds");
+        assert!(done.iter().all(|e| e["seat"] != e["head"]));
     }
 }

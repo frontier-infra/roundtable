@@ -4,7 +4,28 @@ import type { App } from "../app";
 import { button, h, toggle } from "../dom";
 import { renderMarkdown } from "../markdown";
 import { providerName } from "../providers";
-import { allFailed, estimateLine, filterHistory, firstFailure, firstLine, shortDate, splitVerdict, statusDot, tableHeads, type RunView } from "../state";
+import {
+  allFailed,
+  allPersonas,
+  cleanAnswer,
+  estimateLine,
+  filterHistory,
+  findPersona,
+  firstFailure,
+  firstLine,
+  MAX_ROUNDS,
+  planSeats,
+  roundsHint,
+  seatInfos,
+  shortDate,
+  splitVerdict,
+  statusDot,
+  tableHeads,
+  type RoundStep,
+  type RunView,
+  type SeatPick,
+} from "../state";
+import type { PersonaLibrary } from "../api";
 import { answerCard } from "./onboarding";
 import { glyph, headLogo, lockup } from "../brand";
 
@@ -129,20 +150,10 @@ function askBox(app: App): HTMLElement {
   const ask = s.ask;
   const heads = tableHeads(s.settings, s.keys, app.cliHeads());
   const n = heads.length;
-  const est = h("p", { class: "estimate small muted", text: estimateLine(n, ask.mode) });
-  const go = button("Ask the table", () => void app.ask(ask.question, ask.mode, ask.research, { path: ask.contextPath, text: ask.contextText }), "btn primary large", n === 0 || !ask.question.trim());
-  const choice = (mode: "quick" | "talk", title: string, sub: string) =>
-    h(
-      "button",
-      {
-        type: "button",
-        class: `choice${ask.mode === mode ? " on" : ""}`,
-        attrs: { "aria-pressed": String(ask.mode === mode), "data-mode": mode },
-        on: { click: () => app.set({ ask: { ...ask, mode } }) },
-      },
-      h("strong", { text: title }),
-      h("span", { text: sub }),
-    );
+  const plan = planSeats(ask, heads, s.personas);
+  const est = h("p", { class: "estimate small muted", text: estimateLine(n, ask.rounds, plan.length) });
+  const go = button("Ask the table", () => void app.ask(ask.question, ask.rounds, ask.research, { path: ask.contextPath, text: ask.contextText }, plan), "btn primary large", n === 0 || !ask.question.trim());
+  const chairMissing = s.keys.claude.status !== "connected" && !app.cliHeads().includes("claude");
   return h(
     "div",
     { class: "pane ask" },
@@ -163,12 +174,7 @@ function askBox(app: App): HTMLElement {
         },
       },
     }),
-    h(
-      "div",
-      { class: "choices" },
-      choice("quick", "Quick answers", "Each AI answers once, on its own."),
-      choice("talk", "Talk it through", "They read each other and revise. Claude, as chair, says when they agree."),
-    ),
+    h("div", { class: "ask-grid" }, roundsControl(app), seatsControl(app, heads, plan)),
     h(
       "div",
       { class: "options" },
@@ -196,29 +202,157 @@ function askBox(app: App): HTMLElement {
       ),
       h("div", { class: "actions" }, n === 0 ? button("Open Settings", () => void app.openSettings(), "btn") : null, go),
     ),
-    ask.mode === "talk" && s.keys.claude.status !== "connected" && !app.cliHeads().includes("claude")
-      ? h("p", { class: "small muted", text: "Talk it through works best with Claude connected, because Claude is the chair." })
-      : null,
+    ask.rounds > 1 && chairMissing ? h("p", { class: "small muted", text: "Two or more rounds work best with Claude connected, because Claude is the chair." }) : null,
+  );
+}
+
+/** Rounds: 1 to 4. One round is independent answers; more rounds talk it through. */
+function roundsControl(app: App): HTMLElement {
+  const ask = app.state.ask;
+  return h(
+    "div",
+    { class: "ask-field" },
+    h("span", { class: "field-label", attrs: { id: "rounds-label" }, text: "Rounds" }),
+    h(
+      "div",
+      { class: "seg", role: "radiogroup", attrs: { "aria-labelledby": "rounds-label" } },
+      Array.from({ length: MAX_ROUNDS }, (_, i) => i + 1).map((r) =>
+        h("button", {
+          type: "button",
+          class: `seg-btn${ask.rounds === r ? " on" : ""}`,
+          text: String(r),
+          attrs: { role: "radio", "aria-checked": String(ask.rounds === r), "data-rounds": String(r), "aria-label": `${r} round${r === 1 ? "" : "s"}` },
+          on: { click: () => app.set({ ask: { ...ask, rounds: r } }) },
+        }),
+      ),
+    ),
+    h("small", { class: "muted field-hint", text: roundsHint(ask.rounds) }),
+  );
+}
+
+/** The Seats choices: Generic, each preset, each whole pack, or every seat by hand. */
+export function seatOptions(lib: PersonaLibrary | null): { value: string; label: string; group?: string }[] {
+  const out: { value: string; label: string; group?: string }[] = [{ value: "", label: "Generic: one plain seat per AI" }];
+  for (const p of lib?.packs ?? []) {
+    for (const pr of p.presets) out.push({ value: `preset:${pr.id}`, label: `${pr.name} (${pr.seats.length})`, group: p.name });
+    if (p.personas.length) out.push({ value: `pack:${p.id}`, label: `Every seat in ${p.name} (${p.personas.length})`, group: p.name });
+  }
+  out.push({ value: "custom", label: "Set each seat" });
+  return out;
+}
+
+export function select(label: string, value: string, options: { value: string; label: string; group?: string }[], onChange: (v: string) => void, cls = ""): HTMLSelectElement {
+  const groups = new Map<string, HTMLElement>();
+  const el = h("select", { class: `select ${cls}`.trim(), attrs: { "aria-label": label }, on: { change: (e) => onChange((e.target as HTMLSelectElement).value) } });
+  for (const o of options) {
+    const opt = h("option", { value: o.value, text: o.label });
+    if (o.group) {
+      let g = groups.get(o.group);
+      if (!g) {
+        g = h("optgroup", { attrs: { label: o.group } });
+        groups.set(o.group, g);
+        el.appendChild(g);
+      }
+      g.appendChild(opt);
+    } else el.appendChild(opt);
+  }
+  el.value = value;
+  return el;
+}
+
+function seatsControl(app: App, heads: string[], plan: SeatPick[]): HTMLElement {
+  const s = app.state;
+  const ask = s.ask;
+  const lib = s.personas;
+  const choose = (v: string) => {
+    const seatList = v === "custom" ? (ask.seats === "custom" && ask.seatList.length ? ask.seatList : plan) : ask.seatList;
+    app.set({ ask: { ...ask, seats: v, seatList } });
+    if (v !== "custom") void app.saveSettings({ personas: v });
+  };
+  const personaOptions = [{ value: "", label: "Generic seat" }, ...(lib?.packs ?? []).flatMap((p) => p.personas.map((x) => ({ value: x.id, label: x.name, group: p.name })))];
+  const aiOptions = heads.map((hd) => ({ value: hd, label: providerName(hd) }));
+  const edit = (i: number, patch: Partial<SeatPick>) => {
+    const list = ask.seatList.map((x, j) => (j === i ? { ...x, ...patch } : x));
+    app.set({ ask: { ...ask, seatList: list } });
+  };
+  const preferred = (id: string, fallback: string) => {
+    const ai = findPersona(lib, id)?.ai;
+    return ai && heads.includes(ai) ? ai : fallback;
+  };
+  const infos = seatInfos(plan, lib);
+  const ais = new Set(plan.map((x) => x.head)).size;
+  const preview =
+    ask.seats === "custom"
+      ? h(
+          "div",
+          { class: "seat-edit" },
+          ask.seatList.map((x, i) =>
+            h(
+              "div",
+              { class: "seat-pick", attrs: { "data-seat": String(i) } },
+              select(`Seat ${i + 1} persona`, x.persona, personaOptions, (v) => edit(i, { persona: v, head: preferred(v, x.head) })),
+              h("span", { class: "seat-on muted", text: "on" }),
+              select(`Seat ${i + 1} AI`, heads.includes(x.head) ? x.head : heads[0] ?? "", aiOptions, (v) => edit(i, { head: v }), "ai-select"),
+              h("button", {
+                type: "button",
+                class: "chip-x",
+                text: "×",
+                disabled: ask.seatList.length <= 1,
+                attrs: { "aria-label": `Remove seat ${i + 1}` },
+                on: { click: () => app.set({ ask: { ...ask, seatList: ask.seatList.filter((_, j) => j !== i) } }) },
+              }),
+              x.persona && findPersona(lib, x.persona)?.lab ? h("small", { class: "lab-label", text: infos[i]?.label ?? "" }) : null,
+            ),
+          ),
+          heads.length
+            ? withGlyph(
+                button("Add a seat", () => app.set({ ask: { ...ask, seatList: [...ask.seatList, { persona: allPersonas(lib)[0]?.id ?? "", head: heads[ask.seatList.length % heads.length] }] } }), "btn small ghost", ask.seatList.length >= 16),
+                "plus",
+              )
+            : null,
+        )
+      : ask.seats
+        ? h(
+            "ul",
+            { class: "seat-preview", attrs: { "aria-label": "Who sits where" } },
+            infos.map((x) =>
+              h(
+                "li",
+                null,
+                headLogo(x.head, "sm"),
+                h("span", { class: "seat-text" }, h("span", { class: "seat-name", text: x.persona ?? providerName(x.head) }), h("span", { class: "muted", text: ` on ${providerName(x.head)}` })),
+                x.label ? h("small", { class: "lab-label", text: x.label }) : null,
+              ),
+            ),
+          )
+        : null;
+  return h(
+    "div",
+    { class: "ask-field" },
+    h("span", { class: "field-label", attrs: { id: "seats-label" }, text: "Seats" }),
+    select("Seats", ask.seats, seatOptions(lib), choose, "seats-select"),
+    h("small", { class: "muted field-hint", text: ask.seats ? `${plan.length} seat${plan.length === 1 ? "" : "s"} on ${ais} AI${ais === 1 ? "" : "s"}.` : "Each AI answers as itself." }),
+    preview,
   );
 }
 
 function results(app: App, run: RunView): HTMLElement {
   const last = run.verdicts[run.verdicts.length - 1];
   const verdict =
-    run.mode === "talk" && last
+    run.rounds > 1 && last
       ? (() => {
           const v = splitVerdict(last.text);
           return h(
             "section",
             { class: `verdict ${last.consensus ? "agree" : "disagree"}` },
-            h("p", { class: "verdict-by" }, headLogo("claude", "sm"), h("span", { text: "Claude, as chair" })),
-            h("h2", { text: last.consensus ? "They agree" : run.done ? "They still disagree" : `Round ${last.round}: not yet agreed` }),
+            h("p", { class: "verdict-by" }, headLogo("claude", "sm"), h("span", { text: `Claude, as chair, after round ${last.round}` })),
+            h("h2", { text: last.consensus ? "They agree" : run.done ? "They still differ" : `Round ${last.round}: not yet agreed` }),
             renderMarkdown(v.body),
           );
         })()
       : null;
   const progress = !run.done
-    ? h("p", { class: "muted", role: "status", text: run.mode === "talk" ? `Round ${run.round} of up to ${run.rounds}...` : "Asking the table..." })
+    ? h("p", { class: "muted", role: "status", text: run.rounds > 1 ? `Round ${run.round} of up to ${run.rounds}...` : "Asking the table..." })
     : null;
   return h(
     "div",
@@ -240,8 +374,59 @@ function results(app: App, run: RunView): HTMLElement {
     run.stopped ? h("p", { class: "status bad", text: "Stopped." }) : null,
     run.done && !run.stopped && allFailed(run) ? h("p", { class: "status bad", role: "alert", text: firstFailure(run) }) : null,
     verdict,
-    h("div", { class: "answers grid" }, run.heads.map((hd) => answerCard(run.cards[hd] ?? { head: hd, status: "waiting", text: "", round: 1 }, app, run))),
-    h("p", { class: "small muted", text: `At the table: ${run.heads.map(providerName).join(", ")}.` }),
+    h("div", { class: "answers grid" }, run.heads.map((k) => answerCard(run.cards[k] ?? { head: k, seat: k, status: "waiting", text: "", round: 1 }, app, run))),
+    run.rounds > 1 && run.steps.length ? roundSteps(run) : null,
+    h("p", { class: "small muted", text: `At the table: ${run.heads.map((k) => seatName(run, k)).join(", ")}.` }),
+  );
+}
+
+/** "CFO on Claude", or "Claude" on a Generic seat. */
+function seatName(run: RunView, key: string): string {
+  const c = run.cards[key];
+  const head = c?.head ?? run.seats[key]?.head ?? key;
+  const p = c?.persona ?? run.seats[key]?.persona;
+  return p ? `${p} on ${providerName(head)}` : providerName(head);
+}
+
+/** Every round as a step the person can open: the answers in it, then the chair's verdict. */
+function roundSteps(run: RunView): HTMLElement {
+  const lastRound = run.steps[run.steps.length - 1]?.round;
+  return h(
+    "section",
+    { class: "steps", attrs: { "aria-label": "Rounds" } },
+    h("h3", { text: "Round by round" }),
+    run.steps.map((st: RoundStep) =>
+      h(
+        "details",
+        { class: "step", attrs: { "data-round": String(st.round) } },
+        h(
+          "summary",
+          null,
+          h("span", { class: "step-n", text: String(st.round) }),
+          h("span", { class: "step-title", text: st.round === 1 ? "First answers, each on its own" : "They read the others and revised" }),
+          st.verdict
+            ? h("span", { class: `state ${st.verdict.consensus ? "answered" : "differ"}`, text: st.verdict.consensus ? "Agreed" : "Still differ" })
+            : h("span", { class: "state", text: st.round === lastRound && !run.done ? "Running" : "" }),
+        ),
+        h(
+          "div",
+          { class: "step-body" },
+          run.heads
+            .filter((k) => st.answers[k])
+            .map((k) =>
+              h(
+                "div",
+                { class: "step-answer" },
+                h("p", { class: "step-who" }, headLogo(run.cards[k]?.head ?? k, "sm"), h("strong", { text: seatName(run, k) })),
+                st.answers[k].text ? renderMarkdown(cleanAnswer(st.answers[k].text)) : h("p", { class: "muted", text: "No answer this round." }),
+              ),
+            ),
+          st.verdict
+            ? h("div", { class: "step-verdict" }, h("p", { class: "step-who" }, headLogo("claude", "sm"), h("strong", { text: "Chair" })), renderMarkdown(splitVerdict(st.verdict.text).body))
+            : null,
+        ),
+      ),
+    ),
   );
 }
 

@@ -483,16 +483,20 @@ export function answerCard(c: HeadCard, app?: App, run?: RunView): HTMLElement {
   // One button: the fix the engine named, else Retry when the run allows it.
   const fix = c.fix === "sign_in" || c.fix === "add_key" ? c.fix : run && canRetry(run, c) ? "retry" : undefined;
   const label = fixLabel(fix, name);
+  const seat = c.seat ?? c.head;
   return h(
     "article",
-    { class: `answer ${c.status}`, attrs: { "data-head": c.head } },
+    { class: `answer ${c.status}${c.persona ? " persona" : ""}`, attrs: { "data-head": c.head, "data-seat": seat } },
     h(
       "header",
       null,
       headLogo(c.head, "sm"),
-      h("strong", { text: providerName(c.head) }),
+      c.persona
+        ? h("span", { class: "who" }, h("strong", { text: c.persona }), h("small", { class: "muted", text: `on ${providerName(c.head)}` }))
+        : h("strong", { text: providerName(c.head) }),
       h("span", { class: `state ${c.status}`, text: cardStatusText(c) }),
     ),
+    c.label ? h("p", { class: "lab-label", text: c.label }) : null,
     c.text
       ? renderMarkdown(c.text.replace(/^\s*\**POSITION:\**\s*/i, ""))
       : c.status === "thinking" || c.status === "waiting"
@@ -502,8 +506,8 @@ export function answerCard(c: HeadCard, app?: App, run?: RunView): HTMLElement {
       ? h(
           "div",
           { class: "row" },
-          button(label, () => void app.applyFix(c.head, fix), fix === "retry" ? "btn small" : "btn small primary"),
-          fix !== "retry" && run && canRetry(run, c) ? button("Retry", () => void app.retryHead(c.head), "btn small ghost") : null,
+          button(label, () => void app.applyFix(seat, fix), fix === "retry" ? "btn small" : "btn small primary"),
+          fix !== "retry" && run && canRetry(run, c) ? button("Retry", () => void app.retryHead(seat), "btn small ghost") : null,
         )
       : null,
     c.status === "answered" && c.via ? h("p", { class: "via small muted", text: c.via === "API key" ? "Answered with your API key." : `Answered through ${c.via}.` }) : null,

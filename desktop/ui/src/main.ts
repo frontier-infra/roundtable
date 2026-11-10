@@ -22,6 +22,8 @@ async function boot() {
       delay: Number(q.get("delay") ?? 400),
       history: q.get("history") === "1" ? sampleHistory() : [],
       clis: q.get("clis") === "none" ? "none" : "some",
+      noLabPack: q.get("labpack") === "0",
+      custom: q.get("custom") === "1" ? [{ id: "head-of-support", name: "Head of Support", expertise: "Customers after they buy", brief: "Weigh repeat contacts.", ai: "gemini" }] : [],
     });
   }
   const app = new App(api, root);
@@ -34,7 +36,14 @@ async function boot() {
     const run = q.get("run");
     if (run === "setup") void app.runSetup();
     if (run === "quick") void app.ask(app.state.firstQuestion, "quick", false);
-    if (run === "talk") void app.ask("Should we move the product launch to March or keep February?", "talk", true);
+    // ?seats=preset:pricing|custom, ?rounds=1..4, ?persona=new (Settings editor), ?open=1 (open every round)
+    const seats = q.get("seats");
+    if (seats) app.set({ ask: { ...app.state.ask, seats, seatList: seats === "custom" ? [{ persona: "cfo", head: "claude" }, { persona: "nvidia-view", head: "gemini" }, { persona: "", head: "gemini" }] : [] } });
+    if (q.get("rounds")) app.set({ ask: { ...app.state.ask, rounds: Number(q.get("rounds")) } });
+    if (q.get("persona") === "new") app.set({ personaEdit: { id: "", name: "Head of Support", expertise: "Customers after they buy", brief: "Reason from the support queue. Weigh time to first answer and repeat contacts. Be skeptical of features nobody asked for.", ai: "gemini" } });
+    if (run === "talk") void app.ask("Should we move the product launch to March or keep February?", Number(q.get("rounds") ?? 2), true);
+    if (run === "ask") void app.ask("Should we raise prices 20% for new customers?", app.state.ask.rounds, false);
+    if (q.get("open") === "1") setInterval(() => document.querySelectorAll("details.step").forEach((d) => d.setAttribute("open", "")), 200);
   }
 }
 

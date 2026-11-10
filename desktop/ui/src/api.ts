@@ -96,6 +96,56 @@ export interface Settings {
   cli_heads: string[];
   /** The person ticked or unticked a tool, so detection stops choosing for them. */
   clis_chosen: boolean;
+  /** Show the Frontier labs persona pack. */
+  show_lab_pack: boolean;
+  /** The ask box's last Seats choice: "", "preset:<id>" or "pack:<id>". */
+  personas: string;
+}
+
+/** A seat role: it sits on an AI seat and shapes how that seat reasons. */
+export interface Persona {
+  id: string;
+  name: string;
+  expertise: string;
+  brief: string;
+  /** Preferred head id. */
+  ai?: string;
+  /** On lab seats: the lab whose public view this simulates. */
+  lab?: string;
+}
+
+export interface Preset {
+  id: string;
+  name: string;
+  description: string;
+  seats: string[];
+}
+
+export interface Pack {
+  id: string;
+  name: string;
+  description: string;
+  labs?: boolean;
+  personas: Persona[];
+  presets: Preset[];
+  builtin: boolean;
+}
+
+export interface PersonaLibrary {
+  packs: Pack[];
+  lab_pack_built: boolean;
+  labs_hidden: boolean;
+  custom_pack: string;
+}
+
+/** One seat at the start of a run. */
+export interface SeatInfo {
+  seat: string;
+  head: string;
+  persona?: string;
+  expertise?: string;
+  /** The lab label on a lab seat. */
+  label?: string;
 }
 
 export interface AskRequest {
@@ -105,19 +155,21 @@ export interface AskRequest {
   research: boolean;
   contextPath?: string | null;
   contextText?: string | null;
+  /** Seat spec for `--personas`, e.g. "cfo@claude,ceo@gemini". Empty is Generic. */
+  personas?: string;
 }
 
 /** One line from `roundtable ask --events`, plus `process_exit` from the app. */
 export type EngineEvent =
-  | { event: "run_started"; heads: string[]; rounds: number; mode: string }
-  | { event: "head_started"; head: string; round: number }
-  | { event: "head_done"; head: string; round: number; status: string; text: string; reason?: string; message?: string; fix?: Fix; via?: string }
+  | { event: "run_started"; heads: string[]; rounds: number; mode: string; seats?: SeatInfo[] }
+  | { event: "head_started"; head: string; round: number; seat?: string }
+  | { event: "head_done"; head: string; round: number; status: string; text: string; reason?: string; message?: string; fix?: Fix; via?: string; seat?: string }
   | { event: "round_done"; round: number }
   | { event: "chair_verdict"; round: number; consensus: boolean; text: string }
   | { event: "run_done"; transcript: string; answered: number; consensus?: boolean; history_id?: string }
   | { event: "process_exit" }
   /** A one-head retry finished. Its transcript holds just that head. */
-  | { event: "retry_done"; head: string; transcript: string };
+  | { event: "retry_done"; head: string; transcript: string; seat?: string };
 
 /** What to do about a head that did not answer. */
 export type Fix = "sign_in" | "add_key" | "install" | "retry";
@@ -143,6 +195,9 @@ export interface RetryRequest {
   research: boolean;
   /** A file path, or "follow-up" for the last roundtable's transcript. */
   contextPath?: string | null;
+  /** The seat key, and its persona id on a persona seat. */
+  seat?: string;
+  persona?: string;
 }
 
 export interface UpdateInfo {
@@ -171,6 +226,15 @@ export interface Api {
   askRetry(head: string, req: RetryRequest): Promise<void>;
   /** Ask one AI a five-word question. `via`: "auto", "app" or "key". */
   headTest(head: string, via: "auto" | "app" | "key"): Promise<HeadTest>;
+  personasList(): Promise<PersonaLibrary>;
+  /** Create (empty id) or update one of the person's own personas. */
+  personaSave(p: Persona): Promise<Persona>;
+  personaDuplicate(id: string): Promise<Persona>;
+  personaDelete(id: string): Promise<void>;
+  /** Asks where to save, then writes the person's own pack. null when cancelled. */
+  personasExport(): Promise<number | null>;
+  /** Asks for a pack file, then adds its personas. null when cancelled. */
+  personasImport(): Promise<number | null>;
   historyList(): Promise<HistoryEntry[]>;
   historyGet(id: string): Promise<string | null>;
   historyDelete(id: string): Promise<void>;
@@ -238,12 +302,29 @@ export async function tauriApi(): Promise<Api> {
         research: req.research,
         contextPath: req.contextPath ?? null,
         contextText: req.contextText ?? null,
+        personas: req.personas ?? null,
       });
     },
     askStop: () => invoke("ask_stop"),
     askRetry: (head, req) =>
-      invoke("ask_retry", { run: currentRun, head, question: req.question, research: req.research, contextPath: req.contextPath ?? null }),
+      invoke("ask_retry", { run: currentRun, head, question: req.question, research: req.research, contextPath: req.contextPath ?? null, seat: req.seat ?? null, persona: req.persona ?? null }),
     headTest: (head, via) => invoke("head_test", { head, via }),
+    personasList: () => invoke("personas_list"),
+    personaSave: (persona) => invoke("persona_save", { persona }),
+    personaDuplicate: (id) => invoke("persona_duplicate", { id }),
+    personaDelete: async (id) => {
+      await invoke("persona_delete", { id });
+    },
+    async personasExport() {
+      const p = await dialog.save({ defaultPath: "my-personas.json", filters: [{ name: "Persona pack", extensions: ["json"] }] });
+      if (!p) return null;
+      return invoke<number>("personas_export", { path: p });
+    },
+    async personasImport() {
+      const p = await dialog.open({ multiple: false, directory: false, filters: [{ name: "Persona pack", extensions: ["json"] }] });
+      if (typeof p !== "string") return null;
+      return invoke<number>("personas_import", { path: p });
+    },
     historyList: () => invoke("history_list"),
     historyGet: (id) => invoke("history_get", { id }),
     historyDelete: (id) => invoke("history_delete", { id }),

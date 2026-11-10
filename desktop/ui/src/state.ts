@@ -1,6 +1,6 @@
 // Pure state for the walkthrough and the live roundtable. No DOM here, so it is easy to test.
 
-import type { ClaudeStatus, CliDetection, EngineEvent, Fix, HeadId, HeadTest, HistoryEntry, KeySaveResult, KeysStatus, Settings } from "./api";
+import type { ClaudeStatus, CliDetection, EngineEvent, Fix, HeadId, HeadTest, HistoryEntry, KeySaveResult, KeysStatus, Persona, PersonaLibrary, Preset, SeatInfo, Settings } from "./api";
 import { HEAD_ORDER, PROVIDERS } from "./providers";
 
 export const STEPS = 5;
@@ -38,6 +38,20 @@ export interface HeadCard {
   /** How it was asked: the tool's name, or "API key". */
   via?: string;
   round: number;
+  /** The seat key: the head id, or `<persona>@<head>`. */
+  seat?: string;
+  /** The persona sitting on this AI. */
+  persona?: string;
+  expertise?: string;
+  /** The lab label on a lab seat. */
+  label?: string;
+}
+
+/** One round of a run: every seat's answer in that round, and the chair's verdict. */
+export interface RoundStep {
+  round: number;
+  answers: Record<string, { status: CardStatus; text: string }>;
+  verdict?: Verdict;
 }
 
 /** A five-word test of one AI (setup screen and Settings). */
@@ -65,7 +79,10 @@ export interface RunView {
   research?: boolean;
   /** Background for a retry: a file path, or "follow-up". */
   context?: string | null;
+  /** Seat keys in table order. On a Generic table these are the head ids. */
   heads: string[];
+  seats: Record<string, SeatInfo>;
+  steps: RoundStep[];
   cards: Record<string, HeadCard>;
   verdicts: Verdict[];
   round: number;
@@ -113,7 +130,11 @@ export interface State {
   claude: ClaudeView;
   firstQuestion: string;
   run: RunView | null;
-  ask: { question: string; mode: "quick" | "talk"; research: boolean; contextPath: string | null; contextText: string | null; contextName: string | null };
+  ask: AskBox;
+  /** Persona packs from the engine. null until loaded. */
+  personas: PersonaLibrary | null;
+  /** The persona open in the Personas editor. */
+  personaEdit: Persona | null;
   history: HistoryEntry[];
   historyFilter: string;
   opened: { id: string; transcript: string } | null;
@@ -123,6 +144,27 @@ export interface State {
   update: { version: string } | null;
   toast: string | null;
   engineReady: boolean;
+}
+
+/** Who sits at the table for one question. */
+export interface SeatPick {
+  /** Persona id, or "" for a Generic seat. */
+  persona: string;
+  head: string;
+}
+
+export interface AskBox {
+  question: string;
+  /** 1 to 4. One round is independent answers; more rounds talk it through. */
+  rounds: number;
+  research: boolean;
+  contextPath: string | null;
+  contextText: string | null;
+  contextName: string | null;
+  /** "" (Generic), "preset:<id>", "pack:<id>" or "custom". */
+  seats: string;
+  /** The seats when `seats` is "custom". */
+  seatList: SeatPick[];
 }
 
 export const FIRST_QUESTION = "I have a free Saturday. Should I learn to bake bread or start a vegetable garden?";
@@ -138,6 +180,8 @@ export function defaultSettings(): Settings {
     terminal_command: false,
     cli_heads: [],
     clis_chosen: false,
+    show_lab_pack: true,
+    personas: "",
   };
 }
 
@@ -162,7 +206,9 @@ export function initialState(): State {
     claude: { loading: true },
     firstQuestion: FIRST_QUESTION,
     run: null,
-    ask: { question: "", mode: "quick", research: false, contextPath: null, contextText: null, contextName: null },
+    ask: { question: "", rounds: DEFAULT_ROUNDS, research: false, contextPath: null, contextText: null, contextName: null, seats: "", seatList: [] },
+    personas: null,
+    personaEdit: null,
     history: [],
     historyFilter: "",
     opened: null,
@@ -302,37 +348,171 @@ export function setupFailedMessage(attempts: number): string {
 
 // ---- Asking ----
 
-/** Talk it through runs up to this many rounds. */
-export const TALK_ROUNDS = 3;
+/** The Rounds control: 1 to 4, default 2. */
+export const MAX_ROUNDS = 4;
+export const DEFAULT_ROUNDS = 2;
+/** Kept for callers that still say "talk": two rounds. */
+export const TALK_ROUNDS = DEFAULT_ROUNDS;
 
-/** The most requests a run could make: one per AI per round, plus the chair each round. */
-export function requestEstimate(aiCount: number, mode: "quick" | "talk"): number {
-  if (aiCount <= 0) return 0;
-  return mode === "quick" ? aiCount : aiCount * TALK_ROUNDS + TALK_ROUNDS;
+export type Mode = "quick" | "talk";
+
+export function roundsOf(r: number | Mode): number {
+  if (r === "quick") return 1;
+  if (r === "talk") return TALK_ROUNDS;
+  return Math.min(MAX_ROUNDS, Math.max(1, Math.round(r) || 1));
 }
 
-export function estimateLine(aiCount: number, mode: "quick" | "talk"): string {
-  const n = requestEstimate(aiCount, mode);
+/** The most requests a run could make: one per seat per round, plus the chair each round after one. */
+export function requestEstimate(seatCount: number, rounds: number | Mode): number {
+  const r = roundsOf(rounds);
+  if (seatCount <= 0) return 0;
+  return r === 1 ? seatCount : seatCount * r + r;
+}
+
+/** The line under the ask box. `aiCount` AIs hold `seatCount` seats. */
+export function estimateLine(aiCount: number, rounds: number | Mode, seatCount = aiCount): string {
+  const r = roundsOf(rounds);
+  const n = requestEstimate(seatCount, r);
   const ais = aiCount === 1 ? "1 AI" : `${aiCount} AIs`;
   if (aiCount === 0) return "Connect an AI in Settings first.";
-  return mode === "quick"
-    ? `This will ask ${ais}, about ${n} request${n === 1 ? "" : "s"}.`
-    : `This will ask ${ais}, at most ${n} requests.`;
+  const seats = seatCount !== aiCount ? ` in ${seatCount} seats` : "";
+  return r === 1 ? `This will ask ${ais}${seats}, about ${n} request${n === 1 ? "" : "s"}.` : `This will ask ${ais}${seats}, ${r} rounds, at most ${n} requests.`;
 }
 
-export function newRun(question: string, heads: string[], mode: "quick" | "talk", research = false, context: string | null = null): RunView {
+/** The words under each Rounds choice. */
+export function roundsHint(r: number): string {
+  if (r === 1) return "Each seat answers once, on its own.";
+  return `They read each other and revise ${r === 2 ? "once" : `${r - 1} times`}. Claude, as chair, says where they agree.`;
+}
+
+// ---- Seats ----
+
+/** The label every lab seat carries. */
+export function labLabel(lab: string): string {
+  return `Simulated perspective drawn from public positions. Not affiliated with or endorsed by ${lab}.`;
+}
+
+export function slug(s: string): string {
+  let out = "";
+  for (const c of s.trim()) {
+    if (/[A-Za-z0-9]/.test(c)) out += c.toLowerCase();
+    else if (out && !out.endsWith("-")) out += "-";
+  }
+  return out.replace(/-+$/, "");
+}
+
+export function allPersonas(lib: PersonaLibrary | null): Persona[] {
+  return lib ? lib.packs.flatMap((p) => p.personas) : [];
+}
+
+export function allPresets(lib: PersonaLibrary | null): Preset[] {
+  return lib ? lib.packs.flatMap((p) => p.presets) : [];
+}
+
+/** Find a persona by id, then name, then slug (same order as the engines). */
+export function findPersona(lib: PersonaLibrary | null, key: string): Persona | undefined {
+  const all = allPersonas(lib);
+  const k = key.trim();
+  const ks = slug(k);
+  return all.find((x) => x.id === k) ?? all.find((x) => x.name.toLowerCase() === k.toLowerCase()) ?? all.find((x) => x.id === ks || slug(x.name) === ks);
+}
+
+/** The personas a Seats choice names, in order. A preset or pack whose seats are gone gives []. */
+export function choicePersonas(choice: string, lib: PersonaLibrary | null): (Persona | null)[] {
+  if (!choice) return [];
+  const [kind, id] = [choice.slice(0, choice.indexOf(":")), choice.slice(choice.indexOf(":") + 1)];
+  if (kind === "preset") {
+    const pr = allPresets(lib).find((p) => p.id === id);
+    return pr ? pr.seats.map((s) => findPersona(lib, s) ?? null).filter((x): x is Persona => !!x) : [];
+  }
+  if (kind === "pack") return lib?.packs.find((p) => p.id === id)?.personas ?? [];
+  return [];
+}
+
+/** Put personas on the AIs at the table: a persona sits on its preferred AI when that AI
+ * is here, every other seat on the least-used AI, in table order (same as the engines). */
+export function placeSeats(personas: (Persona | null)[], heads: string[]): SeatPick[] {
+  if (!heads.length) return [];
+  const at: (string | null)[] = personas.map((p) => (p?.ai && heads.includes(p.ai) ? p.ai : null));
+  for (let i = 0; i < at.length; i++) {
+    if (at[i]) continue;
+    let best = heads[0];
+    let bestN = Infinity;
+    for (const h of heads) {
+      const n = at.filter((x) => x === h).length;
+      if (n < bestN) {
+        best = h;
+        bestN = n;
+      }
+    }
+    at[i] = best;
+  }
+  return personas.map((p, i) => ({ persona: p?.id ?? "", head: at[i]! }));
+}
+
+/** The seats a question will use. Generic is one plain seat per AI. */
+export function planSeats(ask: Pick<AskBox, "seats" | "seatList">, heads: string[], lib: PersonaLibrary | null): SeatPick[] {
+  if (ask.seats === "custom") {
+    const ok = ask.seatList.filter((s) => heads.includes(s.head) && (!s.persona || findPersona(lib, s.persona)));
+    return ok.length ? ok : heads.map((h) => ({ persona: "", head: h }));
+  }
+  const ps = choicePersonas(ask.seats, lib);
+  return ps.length ? placeSeats(ps, heads) : heads.map((h) => ({ persona: "", head: h }));
+}
+
+/** The `--personas` value for these seats. "" when every seat is Generic, one per AI. */
+export function seatSpec(seats: SeatPick[], heads: string[]): string {
+  const generic = seats.every((s) => !s.persona) && seats.length === heads.length && seats.every((s, i) => s.head === heads[i]);
+  return generic ? "" : seats.map((s) => `${s.persona || "generic"}@${s.head}`).join(",");
+}
+
+/** Seat keys, as the engines make them: head id, or `<persona>@<head>`, `#2` on repeats. */
+export function seatKeys(seats: SeatPick[]): string[] {
+  const out: string[] = [];
+  for (const s of seats) {
+    const base = s.persona ? `${s.persona}@${s.head}` : s.head;
+    let k = base;
+    for (let n = 2; out.includes(k); n++) k = `${base}#${n}`;
+    out.push(k);
+  }
+  return out;
+}
+
+/** The SeatInfo the engine will report, worked out before the run starts. */
+export function seatInfos(seats: SeatPick[], lib: PersonaLibrary | null): SeatInfo[] {
+  const keys = seatKeys(seats);
+  return seats.map((s, i) => {
+    const p = s.persona ? findPersona(lib, s.persona) : undefined;
+    return { seat: keys[i], head: s.head, persona: p?.name, expertise: p?.expertise || undefined, label: p?.lab ? labLabel(p.lab) : undefined };
+  });
+}
+
+function cardFor(info: SeatInfo): HeadCard {
+  return { head: info.head, seat: info.seat, persona: info.persona, expertise: info.expertise, label: info.label, status: "waiting", text: "", round: 1 };
+}
+
+/** A new run. `seats` defaults to one Generic seat per head. */
+export function newRun(question: string, heads: string[], rounds: number | Mode, research = false, context: string | null = null, seats?: SeatInfo[]): RunView {
+  const infos = seats ?? heads.map((h) => ({ seat: h, head: h }));
+  const r = roundsOf(rounds);
   const cards: Record<string, HeadCard> = {};
-  for (const h of heads) cards[h] = { head: h, status: "waiting", text: "", round: 1 };
+  const byKey: Record<string, SeatInfo> = {};
+  for (const i of infos) {
+    cards[i.seat] = cardFor(i);
+    byKey[i.seat] = i;
+  }
   return {
     question,
-    mode,
+    mode: r > 1 ? "talk" : "quick",
     research,
     context,
-    heads,
+    heads: infos.map((i) => i.seat),
+    seats: byKey,
+    steps: [],
     cards,
     verdicts: [],
     round: 1,
-    rounds: mode === "quick" ? 1 : TALK_ROUNDS,
+    rounds: r,
     done: false,
     stopped: false,
     transcript: "",
@@ -347,26 +527,45 @@ const STATUS: Record<string, CardStatus> = {
   failed: "failed",
 };
 
+function stepFor(r: RunView, round: number): RoundStep {
+  let st = r.steps.find((x) => x.round === round);
+  if (!st) {
+    st = { round, answers: {} };
+    r.steps = [...r.steps, st].sort((a, b) => a.round - b.round);
+  }
+  return st;
+}
+
 /** Fold one engine event into the run. Returns a new object. */
 export function applyEvent(run: RunView, e: EngineEvent): RunView {
-  const r: RunView = { ...run, cards: { ...run.cards }, verdicts: [...run.verdicts] };
+  const r: RunView = { ...run, cards: { ...run.cards }, verdicts: [...run.verdicts], steps: run.steps.map((x) => ({ ...x, answers: { ...x.answers } })) };
   switch (e.event) {
     case "run_started":
-      r.heads = e.heads;
       r.rounds = e.rounds;
-      for (const h of e.heads) if (!r.cards[h]) r.cards[h] = { head: h, status: "waiting", text: "", round: 1 };
+      r.mode = e.rounds > 1 ? "talk" : "quick";
+      if (e.seats?.length) {
+        r.heads = e.seats.map((s) => s.seat);
+        r.seats = Object.fromEntries(e.seats.map((s) => [s.seat, s]));
+        for (const s of e.seats) r.cards[s.seat] = { ...cardFor(s), ...(r.cards[s.seat] ?? {}), persona: s.persona, expertise: s.expertise, label: s.label, head: s.head, seat: s.seat };
+      } else {
+        r.heads = e.heads;
+        for (const h of e.heads) if (!r.cards[h]) r.cards[h] = { head: h, seat: h, status: "waiting", text: "", round: 1 };
+      }
       break;
     case "head_started": {
-      const prev = r.cards[e.head];
+      const k = e.seat ?? e.head;
+      const prev = r.cards[k];
       r.round = e.round;
       // A later round keeps the last answer on screen while the AI revises it.
-      r.cards[e.head] = { head: e.head, status: "thinking", text: prev?.text ?? "", round: e.round };
+      r.cards[k] = { ...(prev ?? { head: e.head, seat: k }), head: e.head, status: "thinking", text: prev?.text ?? "", round: e.round, message: undefined, fix: undefined };
       break;
     }
     case "head_done": {
-      const prev = r.cards[e.head];
+      const k = e.seat ?? e.head;
+      const prev = r.cards[k];
       const status = STATUS[e.status] ?? "failed";
-      r.cards[e.head] = {
+      r.cards[k] = {
+        ...(prev ?? { head: e.head, seat: k }),
         head: e.head,
         status,
         text: status === "answered" ? e.text : prev?.text ?? "",
@@ -375,17 +574,21 @@ export function applyEvent(run: RunView, e: EngineEvent): RunView {
         via: e.via,
         round: e.round,
       };
+      stepFor(r, e.round).answers[k] = { status, text: status === "answered" ? e.text : "" };
       if (status === "answered" && run.done) r.answered = Object.values(r.cards).filter((c) => c.status === "answered").length;
       break;
     }
     case "retry_done": {
-      const i = r.heads.indexOf(e.head);
+      const i = r.heads.indexOf(e.seat ?? e.head);
       if (i >= 0 && r.transcript) r.transcript = replaceSection(r.transcript, i, firstSection(e.transcript));
       break;
     }
-    case "chair_verdict":
-      r.verdicts.push({ round: e.round, consensus: e.consensus, text: e.text });
+    case "chair_verdict": {
+      const v = { round: e.round, consensus: e.consensus, text: e.text };
+      r.verdicts.push(v);
+      stepFor(r, e.round).verdict = v;
       break;
+    }
     case "run_done":
       r.done = true;
       r.transcript = e.transcript;
@@ -399,6 +602,11 @@ export function applyEvent(run: RunView, e: EngineEvent): RunView {
       break;
   }
   return r;
+}
+
+/** The answer text with the engine's "POSITION:" lead removed. */
+export function cleanAnswer(t: string): string {
+  return t.replace(/^\s*\**POSITION:\**\s*/i, "");
 }
 
 /** The `## ` sections of an advisory transcript, by position: [start, end) offsets. */

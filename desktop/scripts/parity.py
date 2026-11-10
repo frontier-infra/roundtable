@@ -3,9 +3,11 @@
 
 Runs both engines offline, with the OpenAI-compatible heads pointed at a local fake
 server and a fake `codex` CLI script first on PATH (a CLI head: both engines must call
-it headless with the same flags), in advisory mode and in a 2-round deliberation (no
-chair key, so both report the chair as unavailable). Compares every head section and
-body. Exit 0 on a match.
+it headless with the same flags), in advisory mode and in 2, 3 and 4 round
+deliberations (no chair key, so both report the chair as unavailable and run every
+round). Then the same with personas: a preset, named seats pinned to an AI, and a lab
+seat, so the seat brief, the label and the lab label must match too. The fake answers
+with the seat it was told it sits in. Compares every section and body. Exit 0 on a match.
 
 Usage: python3 desktop/scripts/parity.py <path to the Rust engine binary>
 """
@@ -25,7 +27,8 @@ while [ $# -gt 1 ]; do
   flags="$flags $1"; shift
 done
 case "$1" in *"COUNCIL DELIBERATION"*) tag=revised;; *) tag=first;; esac
-printf '%s answer from codex (flags:%s)\n' "$tag" "$flags" > "$out"
+seat=$(printf '%s' "$1" | sed -n 's/^You sit at this roundtable as \(.*\)\.$/ as \1/p' | head -1)
+printf '%s answer from codex%s (flags:%s)\n' "$tag" "$seat" "$flags" > "$out"
 echo "codex progress on stderr" >&2
 """
 
@@ -35,7 +38,11 @@ class Fake(http.server.BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
         prompt = body["messages"][0]["content"]
         tag = "revised" if "COUNCIL DELIBERATION" in prompt else "first"
-        text = f"{tag} answer from {body['model']}"
+        m = re.search(r"^You sit at this roundtable as (.*)\.$", prompt, re.M)
+        seat = f" as {m.group(1)}" if m else ""
+        if "Do not claim to speak for" in prompt:
+            seat += " (lab rule)"
+        text = f"{tag} answer from {body['model']}{seat}"
         if body["model"].startswith("MiniMax"):
             text = "<think>hidden</think>" + text
         out = json.dumps({"choices": [{"message": {"content": text}}]}).encode()
@@ -100,22 +107,40 @@ def main():
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{srv.server_address[1]}/v1/chat/completions"
     ok = True
-    for rounds in ("1", "2"):
+    cases = [(r, None) for r in ("1", "2", "3", "4")]
+    cases += [("1", "pricing"), ("2", "cfo@glm,The NVIDIA view,generic@openai,Head of Sales"), ("3", "security-review")]
+    for rounds, personas in cases:
+        name = f"rounds={rounds}" + (f" personas={personas}" if personas else "")
         with tempfile.TemporaryDirectory() as home:
             env = env_for(home, url)
             args = ["--heads", HEADS, "--rounds", rounds, "-q", "Bread or garden?"]
+            if personas:
+                args += ["--personas", personas]
             a = subprocess.run(["bash", CORE, *args], env=env, capture_output=True, text=True, timeout=120).stdout
             b = subprocess.run([rust, "ask", "--no-history", *args], env=env, capture_output=True, text=True, timeout=120).stdout
         sa, sb = sections(a), sections(b)
         codex = [x for x in sa if "Codex" in x[0]]
-        if not codex or "answer from codex (flags: exec --skip-git-repo-check -s read-only -c tools.web_search=false)" not in codex[0][1]:
+        if not personas and (not codex or "answer from codex (flags: exec --skip-git-repo-check -s read-only -c tools.web_search=false)" not in codex[0][1]):
             ok = False
-            print(f"parity rounds={rounds}: FAIL, the codex CLI head did not answer through the fake CLI: {codex}")
+            print(f"parity {name}: FAIL, the codex CLI head did not answer through the fake CLI: {codex}")
+        want_rounds = int(rounds) if rounds != "1" else 0
+        got_rounds = sum(1 for h, _ in sa if h.startswith("## ") and " Round " in h)
+        if got_rounds != want_rounds:
+            ok = False
+            print(f"parity {name}: FAIL, bash ran {got_rounds} rounds, wanted {want_rounds}")
+        if personas:
+            seated = [b for h, b in sa if " as " in b]
+            if not seated:
+                ok = False
+                print(f"parity {name}: FAIL, no seat read its persona brief")
+            if "NVIDIA" in personas and not any("Not affiliated with or endorsed by NVIDIA." in b and "(lab rule)" in b for _, b in sa):
+                ok = False
+                print(f"parity {name}: FAIL, the lab seat lost its label or its rule")
         if sa == sb and sa:
-            print(f"parity rounds={rounds}: PASS ({len(sa)} sections)")
+            print(f"parity {name}: PASS ({len(sa)} sections)")
         else:
             ok = False
-            print(f"parity rounds={rounds}: FAIL")
+            print(f"parity {name}: FAIL")
             for x, y in zip(sa, sb):
                 if x != y:
                     print("  bash:", x)

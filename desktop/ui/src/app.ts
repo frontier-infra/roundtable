@@ -12,9 +12,14 @@ import {
   keysFromStatus,
   newRun,
   next,
+  planSeats,
+  roundsOf,
+  seatInfos,
+  seatSpec,
   tableHeads,
-  TALK_ROUNDS,
   TEST_TRIES,
+  type Mode,
+  type SeatPick,
   type State,
   type Step,
 } from "./state";
@@ -49,6 +54,8 @@ export class App {
     }
     try {
       this.state.settings = await this.api.settingsGet();
+      const saved = this.state.settings.personas ?? "";
+      if (saved.startsWith("preset:") || saved.startsWith("pack:")) this.state.ask = { ...this.state.ask, seats: saved };
     } catch {
       /* defaults */
     }
@@ -71,7 +78,7 @@ export class App {
     if (opts.view) this.state.view = opts.view;
     else this.state.view = this.state.settings.onboarded && this.state.engineReady ? "main" : "onboarding";
     if (opts.screen) this.state.step = Math.min(5, Math.max(1, opts.screen)) as Step;
-    if (this.state.view !== "onboarding") await this.refreshHistory();
+    if (this.state.view !== "onboarding") await Promise.all([this.refreshHistory(), this.refreshPersonas()]);
     if (this.state.step === 4) void this.refreshClaude();
     this.render();
     if (this.state.settings.auto_update) {
@@ -262,23 +269,26 @@ export class App {
     }
   }
 
-  /** Ask one failed head of a finished Quick run again, on its own. */
-  async retryHead(head: string) {
+  /** Ask one failed seat of a finished one-round run again, on its own. `seat` is the seat key. */
+  async retryHead(seat: string) {
     const run = this.state.run;
     if (!run) return;
-    this.state.run = applyEvent(run, { event: "head_started", head, round: 1 });
+    const head = run.cards[seat]?.head ?? run.seats[seat]?.head ?? seat;
+    const persona = seat.includes("@") ? seat.slice(0, seat.indexOf("@")) : undefined;
+    this.state.run = applyEvent(run, { event: "head_started", head, round: 1, seat });
     this.render();
     try {
-      await this.api.askRetry(head, { question: run.question, research: !!run.research, contextPath: run.context ?? null });
+      await this.api.askRetry(head, { question: run.question, research: !!run.research, contextPath: run.context ?? null, seat, persona });
     } catch (e) {
-      this.state.run = applyEvent(this.state.run!, { event: "head_done", head, round: 1, status: "failed", text: "", message: errorText(e), fix: "retry" });
+      this.state.run = applyEvent(this.state.run!, { event: "head_done", head, round: 1, status: "failed", text: "", message: errorText(e), fix: "retry", seat });
       this.render();
     }
   }
 
-  /** The button on a card that did not answer. */
-  async applyFix(head: string, fix: string) {
-    if (fix === "retry") return this.retryHead(head);
+  /** The button on a card that did not answer. `seat` is the seat key (the head id on a Generic seat). */
+  async applyFix(seat: string, fix: string) {
+    if (fix === "retry") return this.retryHead(seat);
+    const head = this.state.run?.cards[seat]?.head ?? seat;
     if (fix === "sign_in") {
       const d = this.state.clis.list.find((x) => x.head === head);
       if (d) return this.cliSignIn(d.id);
@@ -346,12 +356,17 @@ export class App {
 
   // ---- Asking ----
 
-  /** Start a roundtable. Used by screen 5 and the main screen. */
-  async ask(question: string, mode: "quick" | "talk", research: boolean, context?: { path?: string | null; text?: string | null }) {
+  /** Start a roundtable. Used by screen 5 and the main screen. `rounds` is 1 to 4
+   * ("quick" is 1, "talk" is 2). `seats` defaults to the ask box's Seats choice. */
+  async ask(question: string, rounds: number | Mode, research: boolean, context?: { path?: string | null; text?: string | null }, seats?: SeatPick[]) {
     const heads = tableHeads(this.state.settings, this.state.keys, this.cliHeads());
     if (!question.trim() || !heads.length) return;
     const ctx = context?.text ? "follow-up" : context?.path ?? null;
-    this.state.run = newRun(question.trim(), heads, mode, research, ctx);
+    const n = roundsOf(rounds);
+    const plan = seats ?? (this.state.view === "onboarding" ? heads.map((h) => ({ persona: "", head: h })) : planSeats(this.state.ask, heads, this.state.personas));
+    const personas = seatSpec(plan, heads);
+    const infos = personas ? seatInfos(plan, this.state.personas) : undefined;
+    this.state.run = newRun(question.trim(), heads, n, research, ctx, infos);
     this.state.opened = null;
     this.render();
     const onEvent = (e: EngineEvent) => {
@@ -367,7 +382,7 @@ export class App {
     };
     try {
       await this.api.askStart(
-        { question: question.trim(), heads, rounds: mode === "quick" ? 1 : TALK_ROUNDS, research, contextPath: context?.path ?? null, contextText: context?.text ?? null },
+        { question: question.trim(), heads, rounds: n, research, contextPath: context?.path ?? null, contextText: context?.text ?? null, personas },
         onEvent,
       );
     } catch (e) {
@@ -408,7 +423,7 @@ export class App {
     this.state.settings = settings;
     this.state.run = null;
     this.state.view = "main";
-    await this.refreshHistory();
+    await Promise.all([this.refreshHistory(), this.refreshPersonas()]);
     this.render();
   }
 
@@ -449,11 +464,82 @@ export class App {
     this.showToast("History deleted.");
   }
 
+  // ---- Personas ----
+
+  async refreshPersonas() {
+    try {
+      this.state.personas = await this.api.personasList();
+    } catch {
+      /* engine not ready: the Seats control offers Generic only */
+    }
+  }
+
+  /** Save a persona from the editor. A new one has an empty id. */
+  async savePersona(p: import("./api").Persona) {
+    try {
+      const saved = await this.api.personaSave(p);
+      this.state.personaEdit = null;
+      await this.refreshPersonas();
+      this.showToast(`Saved ${saved.name}.`);
+    } catch (e) {
+      this.showToast(errorText(e));
+    }
+  }
+
+  async duplicatePersona(id: string) {
+    try {
+      const copy = await this.api.personaDuplicate(id);
+      await this.refreshPersonas();
+      this.state.personaEdit = copy;
+      this.render();
+    } catch (e) {
+      this.showToast(errorText(e));
+    }
+  }
+
+  async deletePersona(id: string) {
+    try {
+      await this.api.personaDelete(id);
+      if (this.state.personaEdit?.id === id) this.state.personaEdit = null;
+      await this.refreshPersonas();
+      this.render();
+    } catch (e) {
+      this.showToast(errorText(e));
+    }
+  }
+
+  async exportPersonas() {
+    try {
+      const n = await this.api.personasExport();
+      if (n !== null) this.showToast(`Saved ${n} persona${n === 1 ? "" : "s"} to the file.`);
+    } catch (e) {
+      this.showToast(errorText(e));
+    }
+  }
+
+  async importPersonas() {
+    try {
+      const n = await this.api.personasImport();
+      if (n === null) return;
+      await this.refreshPersonas();
+      this.showToast(`Added ${n} persona${n === 1 ? "" : "s"}.`);
+    } catch (e) {
+      this.showToast(errorText(e));
+    }
+  }
+
+  /** The lab pack switch. Seats that named a lab seat fall back to Generic. */
+  async setLabPack(on: boolean) {
+    await this.saveSettings({ show_lab_pack: on });
+    await this.refreshPersonas();
+    this.render();
+  }
+
   // ---- Settings ----
 
   async openSettings() {
     this.set({ view: "settings" });
-    await Promise.all([this.refreshKeys(), this.refreshClaude(), this.refreshClis()]);
+    await Promise.all([this.refreshKeys(), this.refreshClaude(), this.refreshClis(), this.refreshPersonas()]);
     this.render();
   }
 
