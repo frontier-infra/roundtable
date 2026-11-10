@@ -136,7 +136,9 @@ pub struct Parts {
 fn after(line: &str, key: &str) -> Option<String> {
     let t = line.trim().replace("**", "");
     let t = t.trim().trim_start_matches(['-', '*']).trim();
-    (t.len() > key.len() && t[..key.len()].eq_ignore_ascii_case(key)).then(|| t[key.len()..].trim().to_string())
+    // get() returns None when key.len() falls inside a multi-byte character (a line such as "| 15 × $55 |").
+    let head = t.get(..key.len())?;
+    (t.len() > key.len() && head.eq_ignore_ascii_case(key)).then(|| t[key.len()..].trim().to_string())
 }
 
 /// A numbered or bulleted item: "1. x", "2) x", "- x". None for any other line.
@@ -244,6 +246,14 @@ mod tests {
         assert_eq!(choose(Some("none"), 3).unwrap(), None);
         assert_eq!(choose(Some("vote"), 1).unwrap(), Some(Shape::Vote));
         assert!(choose(Some("poll"), 2).is_err());
+    }
+
+    #[test]
+    fn parts_survive_multibyte_lines() {
+        // The build-vs-buy bench run (2026-11-10b) crashed here on a table line with a "×".
+        let p = parts("Zendesk 15× $55 per agent\nZendesk 1× é and more\nDECISION: Buy Zendesk.\nCONFIDENCE: high (80%)\nNEXT STEPS:\n1. Ask the devs.\n");
+        assert_eq!(p.decision.as_deref(), Some("Buy Zendesk."));
+        assert_eq!(p.next_steps, vec!["Ask the devs.".to_string()]);
     }
 
     #[test]
