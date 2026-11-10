@@ -47,7 +47,7 @@ function sidebar(app: App): HTMLElement {
   return h(
     "aside",
     { class: "sidebar" },
-    h("div", { class: "side-head" }, h("h2", { text: "Past roundtables" }), withGlyph(button("New", () => app.newQuestion(), "btn small"), "plus")),
+    h("div", { class: "side-head" }, h("h2", { text: "Past roundtables" }), withGlyph(button("New question", () => app.newQuestion(), "btn small"), "plus")),
     h("label", { class: "search-wrap" }, glyph("search", "glyph search-glyph"), h("input", {
       class: "search",
       type: "search",

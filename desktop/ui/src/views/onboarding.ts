@@ -218,7 +218,7 @@ export function keyCard(app: App, p: Provider, opts: { removable?: boolean } = {
           "p",
           { class: "how small muted" },
           h("a", {
-            href: "#",
+            href: p.keyPage,
             text: "Where do I get a key?",
             on: {
               click: (e) => {
@@ -399,7 +399,7 @@ export function claudeConnect(app: App, inSettings = false): HTMLElement[] {
       h(
         "div",
         { class: "notice" },
-        h("p", null, "Claude is not on this computer yet. ", h("a", { href: "#", text: "Download Claude", on: { click: (e) => { e.preventDefault(); void app.api.openUrl(CLAUDE_DOWNLOAD_URL); } } })),
+        h("p", null, "Claude is not on this computer yet. ", h("a", { href: CLAUDE_DOWNLOAD_URL, text: "Download Claude", on: { click: (e) => { e.preventDefault(); void app.api.openUrl(CLAUDE_DOWNLOAD_URL); } } })),
       ),
     );
   }

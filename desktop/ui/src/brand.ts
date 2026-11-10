@@ -61,19 +61,19 @@ function seats(c: number, r: number): [number, number, number][] {
 
 /** One seat glyph: a dot with an open arc behind it, facing the table. */
 function seatGlyph(parent: Element, x: number, y: number, a: number, cls: string) {
-  const r = 4.6;
+  const r = 5;
   const from = a - (2 * Math.PI) / 3;
   const to = a + (2 * Math.PI) / 3;
   const p = (t: number) => `${(x + r * Math.cos(t)).toFixed(2)} ${(y + r * Math.sin(t)).toFixed(2)}`;
   add(parent, "path", { d: `M ${p(from)} A ${r} ${r} 0 1 1 ${p(to)}`, class: `seat-arc ${cls}` });
-  add(parent, "circle", { cx: x.toFixed(2), cy: y.toFixed(2), r: "2.7", class: `seat-dot ${cls}` });
+  add(parent, "circle", { cx: x.toFixed(2), cy: y.toFixed(2), r: "2.4", class: `seat-dot ${cls}` });
 }
 
 /** The Roundtable mark: a round table, six seats, the chair's seat in the brand colour. */
 export function mark(cls = "logo"): HTMLElement {
   const el = svg("0 0 64 64", cls);
-  add(el, "circle", { cx: "32", cy: "32", r: "13", class: "mark-table" });
-  seats(32, 23.5).forEach(([x, y, a], i) => seatGlyph(el, x, y, a, i === 0 ? "chair" : ""));
+  add(el, "circle", { cx: "32", cy: "32", r: "12.5", class: "mark-table" });
+  seats(32, 23).forEach(([x, y, a], i) => seatGlyph(el, x, y, a, i === 0 ? "chair" : ""));
   return el as unknown as HTMLElement;
 }
 

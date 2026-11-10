@@ -26,7 +26,7 @@
   --line-strong: #3a3a3e;
   --ink: #f3f3f2;
   --muted: #a5a5aa;
-  --faint: #737378;
+  --faint: #8b8b91;
   --accent: #ff2e88;
   --accent-hover: #ff5fa2;
   --accent-ink: #0b0b0c;
@@ -56,7 +56,7 @@
     --line-strong: #cfcfca;
     --ink: #131314;
     --muted: #5d5d63;
-    --faint: #8a8a90;
+    --faint: #6e6e74;
     --accent: #c2185b;
     --accent-hover: #a5154d;
     --accent-ink: #ffffff;
@@ -81,7 +81,7 @@
   --line-strong: #cfcfca;
   --ink: #131314;
   --muted: #5d5d63;
-  --faint: #8a8a90;
+  --faint: #6e6e74;
   --accent: #c2185b;
   --accent-hover: #a5154d;
   --accent-ink: #ffffff;
@@ -357,7 +357,7 @@ p {
 .table-ring .table-top {
   fill: none;
   stroke: currentColor;
-  stroke-width: 4;
+  stroke-width: 3.4;
 }
 
 .table-ring .table-top {
@@ -368,7 +368,7 @@ p {
 .seat-arc {
   fill: none;
   stroke: currentColor;
-  stroke-width: 2.8;
+  stroke-width: 2.4;
   stroke-linecap: round;
 }
 
@@ -1178,7 +1178,6 @@ input[type="checkbox"]:not(.switch):checked {
   align-items: center;
   justify-content: space-between;
   height: 64px;
-  padding: 0 4px 0 6px;
   margin-bottom: -4px;
 }
 
@@ -1216,7 +1215,7 @@ input[type="checkbox"]:not(.switch):checked {
 
 .history {
   list-style: none;
-  margin: 0;
+  margin: 0 -10px;
   padding: 0;
   overflow-y: auto;
   display: flex;
@@ -1245,10 +1244,8 @@ input[type="checkbox"]:not(.switch):checked {
 
 .history .q {
   font-size: 13.5px;
-  line-height: 1.35;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .history .meta {
@@ -1930,4 +1927,14 @@ details.advanced {
 
 .actions + .small.muted {
   margin-top: 12px;
+}
+
+/* An odd card out takes the whole row, so no row is half empty. */
+.cards > :last-child:nth-child(odd),
+.answers > :last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+.nav-right > .btn.ghost:last-child {
+  margin-right: -14px;
 }

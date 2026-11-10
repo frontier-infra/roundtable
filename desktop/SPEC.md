@@ -35,6 +35,9 @@ What they must never see: a terminal, a file path to edit, an environment variab
 
 ## 4. First run: five screens
 
+Look and feel: `BRAND.md`. Every screen uses the Roundtable mark, colours and type from roundtable.sh.
+The first-run screens share one layout: a rail with the table, which fills with each AI as it connects, and the five steps.
+
 A progress dot row shows "Step 2 of 5". Every screen has Back. Screens 3 to 5 have "Skip for now".
 
 ### Screen 1. Welcome
@@ -236,6 +239,7 @@ Each is reversible. Each lists the options, the pick, the reason and the undo st
 ### D4. Installer format
 
 - Mac: one universal `.dmg` (Apple silicon and Intel). Drag to Applications.
+  - The disk image window is branded: the Roundtable lockup and one arrow to Applications (`core/dmg/background.png`).
   - Signed with Developer ID, notarized and stapled.
 - Windows: NSIS `.exe`, per-user install, no admin prompt.
   - It installs WebView2 if missing (Tauri's download bootstrapper). Signed with Azure Trusted Signing.
