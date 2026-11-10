@@ -5,9 +5,11 @@ import { button, h, toggle } from "../dom";
 import { CHAIR_DEFAULT_MODEL, HEAD_ORDER, HELP_URL, ISSUES_URL, PROVIDERS, providerName } from "../providers";
 import { connectedHeads, helpUrl, keychainName } from "../state";
 import { claudeConnect, cliList, keyCard } from "./onboarding";
+import { withGlyph } from "./main";
+import { lockup } from "../brand";
 
 function section(title: string, ...body: (HTMLElement | null)[]): HTMLElement {
-  return h("section", { class: "card setting" }, h("h2", { text: title }), body);
+  return h("section", { class: "setting" }, h("h2", { text: title }), h("div", { class: "setting-body" }, body));
 }
 
 export function renderSettings(app: App): HTMLElement {
@@ -59,7 +61,7 @@ export function renderSettings(app: App): HTMLElement {
   return h(
     "div",
     { class: "settings-page" },
-    h("div", { class: "topbar" }, button("← Back", () => app.set({ view: "main" }), "btn ghost"), h("h1", { text: "Settings" }), h("span")),
+    h("div", { class: "topbar" }, withGlyph(button("Back", () => app.set({ view: "main" }), "btn ghost"), "back"), h("h1", { text: "Settings" }), lockup()),
     h(
       "div",
       { class: "settings" },
@@ -92,8 +94,11 @@ export function renderSettings(app: App): HTMLElement {
       ),
       h(
         "details",
-        { class: "card setting advanced" },
+        { class: "setting advanced" },
         h("summary", null, h("h2", { text: "Advanced" })),
+        h(
+          "div",
+          { class: "setting-body" },
         h("h3", { text: "Model per AI" }),
         h("p", { class: "small muted", text: "Leave a box empty to use the default shown." }),
         models,
@@ -128,6 +133,7 @@ export function renderSettings(app: App): HTMLElement {
               }, "btn small"),
             )
           : null,
+        ),
       ),
       section(
         "Help",

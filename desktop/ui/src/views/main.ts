@@ -5,7 +5,8 @@ import { button, h, toggle } from "../dom";
 import { renderMarkdown } from "../markdown";
 import { providerName } from "../providers";
 import { allFailed, estimateLine, filterHistory, firstFailure, firstLine, shortDate, splitVerdict, statusDot, tableHeads, type RunView } from "../state";
-import { answerCard, logo } from "./onboarding";
+import { answerCard } from "./onboarding";
+import { glyph, headLogo, lockup } from "../brand";
 
 export function renderMain(app: App): HTMLElement {
   return h("div", { class: "shell" }, sidebar(app), h("main", { class: "centre" }, topbar(app), centre(app)));
@@ -17,16 +18,20 @@ function topbar(app: App): HTMLElement {
   return h(
     "div",
     { class: "topbar" },
-    h("div", { class: "brand small" }, logo(), h("span", { text: "Roundtable" })),
+    lockup(),
     h(
       "div",
       { class: "top-right" },
-      h("span", {
-        class: `status-dot ${dot}`,
-        title: dot === "ok" ? `Ready. ${n} AI${n === 1 ? "" : "s"} at the table.` : "Not ready. Open Settings.",
-        attrs: { role: "img", "aria-label": dot === "ok" ? "Ready" : "Not ready" },
-      }),
-      h("button", { class: "icon-btn", type: "button", title: "Settings", attrs: { "aria-label": "Settings" }, text: "⚙", on: { click: () => void app.openSettings() } }),
+      h(
+        "span",
+        { class: "readiness", title: dot === "ok" ? `Ready. ${n} AI${n === 1 ? "" : "s"} at the table.` : "Not ready. Open Settings." },
+        h("span", {
+          class: `status-dot ${dot}`,
+          attrs: { role: "img", "aria-label": dot === "ok" ? "Ready" : "Not ready" },
+        }),
+        h("span", { class: "readiness-text", text: dot === "ok" ? `${n} AI${n === 1 ? "" : "s"} ready` : "Not ready" }),
+      ),
+      h("button", { class: "icon-btn", type: "button", title: "Settings", attrs: { "aria-label": "Settings" }, on: { click: () => void app.openSettings() } }, glyph("settings")),
     ),
   );
 }
@@ -42,8 +47,8 @@ function sidebar(app: App): HTMLElement {
   return h(
     "aside",
     { class: "sidebar" },
-    h("div", { class: "side-head" }, h("h2", { text: "Past roundtables" }), button("New", () => app.newQuestion(), "btn small")),
-    h("input", {
+    h("div", { class: "side-head" }, h("h2", { text: "Past roundtables" }), withGlyph(button("New", () => app.newQuestion(), "btn small"), "plus")),
+    h("label", { class: "search-wrap" }, glyph("search", "glyph search-glyph"), h("input", {
       class: "search",
       type: "search",
       placeholder: "Search",
@@ -59,7 +64,7 @@ function sidebar(app: App): HTMLElement {
           if (pos !== null) el?.setSelectionRange(pos, pos);
         },
       },
-    }),
+    })),
     !s.settings.history ? h("p", { class: "small muted pad", text: "History is off. Turn it on in Settings." }) : null,
     list.length === 0 && s.settings.history ? h("p", { class: "small muted pad", text: s.history.length ? "Nothing matches." : "Your roundtables will show up here." }) : null,
     h(
@@ -122,7 +127,8 @@ function centre(app: App): HTMLElement {
 function askBox(app: App): HTMLElement {
   const s = app.state;
   const ask = s.ask;
-  const n = tableHeads(s.settings, s.keys, app.cliHeads()).length;
+  const heads = tableHeads(s.settings, s.keys, app.cliHeads());
+  const n = heads.length;
   const est = h("p", { class: "estimate small muted", text: estimateLine(n, ask.mode) });
   const go = button("Ask the table", () => void app.ask(ask.question, ask.mode, ask.research, { path: ask.contextPath, text: ask.contextText }), "btn primary large", n === 0 || !ask.question.trim());
   const choice = (mode: "quick" | "talk", title: string, sub: string) =>
@@ -140,10 +146,11 @@ function askBox(app: App): HTMLElement {
   return h(
     "div",
     { class: "pane ask" },
+    h("h1", { class: "ask-title", text: "What do you want to decide?" }),
     h("textarea", {
       class: "question big",
       rows: 4,
-      placeholder: "What do you want to decide?",
+      placeholder: "Type your question. Add as much detail as you like.",
       value: ask.question,
       attrs: { "aria-label": "Your question" },
       on: {
@@ -171,15 +178,24 @@ function askBox(app: App): HTMLElement {
         { class: "file-row" },
         ask.contextName
           ? h("span", { class: "file-chip" }, h("span", { text: `Background: ${ask.contextName}` }), h("button", { type: "button", class: "chip-x", text: "×", attrs: { "aria-label": "Remove file" }, on: { click: () => app.set({ ask: { ...ask, contextName: null, contextPath: null, contextText: null } }) } }))
-          : button("Add a file", async () => {
+          : withGlyph(button("Add a file", async () => {
               const p = await app.api.pickTextFile();
               if (p) app.set({ ask: { ...ask, contextPath: p, contextText: null, contextName: p.split(/[\\/]/).pop() ?? p } });
-            }, "btn small ghost"),
+            }, "btn small"), "file"),
         h("small", { class: "muted", text: "Optional. A text file the AIs should read first." }),
       ),
     ),
-    est,
-    h("div", { class: "actions left" }, go, n === 0 ? button("Open Settings", () => void app.openSettings(), "btn") : null),
+    h(
+      "div",
+      { class: "ask-bar" },
+      h(
+        "div",
+        { class: "seat-row", attrs: { "aria-label": n ? `At the table: ${heads.map(providerName).join(", ")}` : "No AI at the table yet" } },
+        n ? h("span", { class: "seat-logos" }, heads.map((hd) => headLogo(hd, "sm"))) : null,
+        est,
+      ),
+      h("div", { class: "actions" }, n === 0 ? button("Open Settings", () => void app.openSettings(), "btn") : null, go),
+    ),
     ask.mode === "talk" && s.keys.claude.status !== "connected"
       ? h("p", { class: "small muted", text: "Talk it through works best with Claude connected, because Claude is the chair." })
       : null,
@@ -195,6 +211,7 @@ function results(app: App, run: RunView): HTMLElement {
           return h(
             "section",
             { class: `verdict ${last.consensus ? "agree" : "disagree"}` },
+            h("p", { class: "verdict-by" }, headLogo("claude", "sm"), h("span", { text: "Claude, as chair" })),
             h("h2", { text: last.consensus ? "They agree" : run.done ? "They still disagree" : `Round ${last.round}: not yet agreed` }),
             renderMarkdown(v.body),
           );
@@ -226,4 +243,11 @@ function results(app: App, run: RunView): HTMLElement {
     h("div", { class: "answers grid" }, run.heads.map((hd) => answerCard(run.cards[hd] ?? { head: hd, status: "waiting", text: "", round: 1 }))),
     h("p", { class: "small muted", text: `At the table: ${run.heads.map(providerName).join(", ")}.` }),
   );
+}
+
+/** Puts an interface glyph before a button's words. The words stay the button's name. */
+export function withGlyph(b: HTMLButtonElement, name: string): HTMLButtonElement {
+  b.prepend(glyph(name));
+  b.classList.add("has-glyph");
+  return b;
 }

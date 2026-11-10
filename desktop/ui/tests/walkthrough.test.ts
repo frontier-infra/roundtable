@@ -86,7 +86,7 @@ describe("screen 3, connect AI accounts", () => {
     const heads = () => [...root.querySelectorAll(".ai-card")].map((c) => c.getAttribute("data-head"));
     expect(heads()).toEqual(["claude", "gemini"]);
     expect(text()).toContain("Recommended. Claude also acts as the chair.");
-    await click("▸ More AIs");
+    await click("More AIs");
     expect(heads()).toEqual(["claude", "gemini", "openai", "grok", "glm", "minimax"]);
   });
 
@@ -155,7 +155,7 @@ describe("screen 3, AI apps found on this computer", () => {
     await start({ clis: "some" }, { screen: 3 });
     expect(root.querySelector(".ai-card")).toBeNull();
     expect(text()).not.toContain("is not an API key");
-    await click("▸ Or use an API key");
+    await click("Or use an API key");
     expect(root.querySelectorAll(".ai-card").length).toBe(2);
     expect(text()).toContain("A chat plan like Claude Pro or ChatGPT Plus is not an API key. Your plan already works through the apps above.");
   });
