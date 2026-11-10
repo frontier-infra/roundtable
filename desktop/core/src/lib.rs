@@ -33,6 +33,8 @@ pub fn run() {
             commands::claude_disconnect,
             commands::ask_start,
             commands::ask_stop,
+            commands::ask_retry,
+            commands::head_test,
             commands::history_list,
             commands::history_get,
             commands::history_delete,

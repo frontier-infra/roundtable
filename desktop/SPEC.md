@@ -76,11 +76,11 @@ Roundtable finds those first. An API key is the fallback.
 |---|---|---|---|---|
 | Claude Code | claude | `claude` on PATH or the install folders | `claude auth status --json` | `claude -p --output-format text --strict-mcp-config --no-session-persistence`, question on stdin |
 | Codex | codex | `codex` | `codex login status`, else `auth.json` in `CODEX_HOME` (as `lib/config.sh`) | `codex exec --skip-git-repo-check -s read-only [-c tools.web_search=false] -o FILE "question"` (as `lib/core.sh`) |
-| Gemini CLI | gemini | `gemini` | `~/.gemini/oauth_creds.json` exists | `gemini --output-format text`, question on stdin |
-| Grok | grok | `grok` | `~/.grok/auth.json` or `~/.grok/api-key` exists | `grok -p "question" -m grok-composer-2.5-fast --max-turns 6 --disable-web-search` (as `lib/core.sh`) |
+| Gemini CLI | gemini | `gemini` | `~/.gemini/oauth_creds.json` exists | `gemini --skip-trust --output-format text`, question on stdin; `GOOGLE_GENAI_USE_GCA=true` when only the old `selectedAuthType` holds the sign-in |
+| Grok | grok | `grok` | `~/.grok/auth.json` or `~/.grok/api-key` exists | `grok -p "question" --max-turns 6 --no-subagents --disable-web-search`, the tool's own default model (`ROUNDTABLE_GROK_CLI_MODEL` pins one) |
 | Qwen Code | qwen | `qwen` | `~/.qwen/oauth_creds.json`; a key-based setup shows as unknown | `qwen --output-format text`, question on stdin |
-| Kimi | kimi | `kimi` | `~/.kimi-code/credentials` or `~/.kimi/credentials` not empty | `kimi --quiet --plan -p "question"` |
-| OpenCode | opencode | `opencode` | `opencode auth list` | `opencode run "question"` |
+| Kimi | kimi | `kimi` | `~/.kimi-code/credentials` or `~/.kimi/credentials` not empty | `kimi -p "question" --output-format text` |
+| OpenCode | opencode | `opencode` | `opencode auth list` | `opencode run "question"`; when its default model fails, once more with `-m` set to the first model of a provider `opencode auth list` shows as signed in |
 | Cursor Agent | cursor | `cursor-agent` | `cursor-agent status` | `cursor-agent -p --output-format text --trust --mode ask "question"` |
 
 - Install folders searched besides PATH: the login shell's PATH, `~/.local/bin`, `~/.claude/local`, `~/.bun/bin`, npm, Volta, nvm and fnm folders, `/opt/homebrew/bin`, `/usr/local/bin`; on Windows `%APPDATA%\npm`, WinGet links, scoop shims.
@@ -89,7 +89,12 @@ Roundtable finds those first. An API key is the fallback.
   - Signed out: "Grok is installed but not signed in. Click Sign in to open it in Terminal." A **Sign in** button opens the app's own sign-in in a Terminal window (a terminal window on Windows). Then **Check again**.
   - Unknown: "Qwen Code is installed. We could not tell if you are signed in." Not ticked.
 - Ticks are saved in settings (`cli_heads`). Default ticks follow detection until the person changes one (`clis_chosen`).
-- Heads run through the ticked apps headless: an empty folder, no terminal, a time limit, output captured.
+- Every head runs by the route that works: the signed-in app first, the API key second. Skipped only when it has neither.
+- Headless means: an empty folder, no terminal, stdin closed (or the question piped in), a time limit, output captured, the login shell's PATH.
+- A head that does not answer says why in one line, with one button: **Sign in to <app>**, **Add a key**, or **Retry**. One failed head never holds up the rest.
+- After detection, setup asks each ticked app "Answer in five words: is water wet?" (`roundtable test <ai> --via app`). One that fails twice is unticked, with the reason on its card.
+- Screen 5 lists only the heads that will answer, and names any left out.
+- Settings, AI accounts has a **Test** button per app and per saved key. It sends the same five-word question and shows the answer and the time.
 - **Look again** runs detection again. The app also looks again when its window regains focus after a sign-in.
 - Under them, collapsed: **Or use an API key**. It opens by itself when no app is found.
   Then the title is **Connect at least one AI** and the line says no app was found.

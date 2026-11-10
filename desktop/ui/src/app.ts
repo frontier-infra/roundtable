@@ -14,6 +14,7 @@ import {
   next,
   tableHeads,
   TALK_ROUNDS,
+  TEST_TRIES,
   type State,
   type Step,
 } from "./state";
@@ -112,6 +113,7 @@ export class App {
   goNext() {
     const step = next(this.state.step);
     this.set({ step });
+    if (step === 3) void this.testTickedClis();
     if (step === 4) void this.refreshClaude();
   }
 
@@ -195,6 +197,9 @@ export class App {
       if (!this.state.settings.clis_chosen) next = defaultCliHeads(list);
       else if (justSignedIn.length) next = HEAD_ORDER.filter((h) => cur.includes(h) || justSignedIn.includes(h));
       if (next.join(",") !== cur.join(",")) await this.saveSettings({ cli_heads: next });
+      // A tool that just finished signing in gets a fresh test.
+      for (const h of justSignedIn) delete this.state.tests[`app:${h}`];
+      if (this.state.view === "onboarding" && this.state.step === 3) void this.testTickedClis();
     } catch (e) {
       this.state.clis = { ...before, loaded: true, loading: false, error: errorText(e) };
     }
@@ -205,7 +210,83 @@ export class App {
     const set = new Set(this.state.settings.cli_heads ?? []);
     if (on) set.add(head);
     else set.delete(head);
+    // Ticking again clears an old failure, and setup checks it once more.
+    if (on) delete this.state.tests[`app:${head}`];
     await this.saveSettings({ cli_heads: HEAD_ORDER.filter((h) => set.has(h)), clis_chosen: true });
+    if (on && this.state.view === "onboarding") void this.testHead(head, "app", true);
+  }
+
+  // ---- Five-word tests ----
+
+  /** Setup: test every ticked, signed-in tool that has not been tested yet. */
+  async testTickedClis() {
+    if (!this.state.clis.loaded) return;
+    const ticked = (this.state.settings.cli_heads ?? []).filter((h) =>
+      this.state.clis.list.some((d) => d.head === h && d.found && d.signed_in !== false),
+    );
+    await Promise.all(ticked.filter((h) => !this.state.tests[`app:${h}`]).map((h) => this.testHead(h, "app", true)));
+  }
+
+  /** Ask one AI a five-word question. In setup (`auto`), a tool that fails twice is unticked. */
+  async testHead(head: string, via: "auto" | "app" | "key", auto = false): Promise<void> {
+    const k = `${via === "key" ? "key" : "app"}:${head}`;
+    const prev = this.state.tests[k];
+    if (prev?.status === "testing") return;
+    const failures = prev?.status === "failed" ? prev.failures : 0;
+    this.state.tests = { ...this.state.tests, [k]: { status: "testing", failures } };
+    this.render();
+    let ok = false;
+    let result;
+    try {
+      result = await this.api.headTest(head, via);
+      ok = result.ok;
+    } catch (e) {
+      result = { head, name: head, ok: false, status: "failed", via: null, first_line: null, message: errorText(e), fix: "retry" as const, secs: 0, command: null, exit: null };
+    }
+    if (ok) {
+      this.state.tests = { ...this.state.tests, [k]: { status: "ok", failures: 0, result } };
+      this.render();
+      return;
+    }
+    const n = failures + 1;
+    this.state.tests = { ...this.state.tests, [k]: { status: "failed", failures: n, result } };
+    this.render();
+    if (!auto) return;
+    // One more try first: a slow start or a busy server often passes the second time.
+    if (n < TEST_TRIES) return this.testHead(head, via, true);
+    if (via !== "key") {
+      this.state.tests = { ...this.state.tests, [k]: { status: "failed", failures: TEST_TRIES, result, unticked: true } };
+      const set = new Set(this.state.settings.cli_heads ?? []);
+      set.delete(head);
+      await this.saveSettings({ cli_heads: HEAD_ORDER.filter((h) => set.has(h)), clis_chosen: true });
+    }
+  }
+
+  /** Ask one failed head of a finished Quick run again, on its own. */
+  async retryHead(head: string) {
+    const run = this.state.run;
+    if (!run) return;
+    this.state.run = applyEvent(run, { event: "head_started", head, round: 1 });
+    this.render();
+    try {
+      await this.api.askRetry(head, { question: run.question, research: !!run.research, contextPath: run.context ?? null });
+    } catch (e) {
+      this.state.run = applyEvent(this.state.run!, { event: "head_done", head, round: 1, status: "failed", text: "", message: errorText(e), fix: "retry" });
+      this.render();
+    }
+  }
+
+  /** The button on a card that did not answer. */
+  async applyFix(head: string, fix: string) {
+    if (fix === "retry") return this.retryHead(head);
+    if (fix === "sign_in") {
+      const d = this.state.clis.list.find((x) => x.head === head);
+      if (d) return this.cliSignIn(d.id);
+    }
+    if (fix === "add_key" || fix === "sign_in") {
+      if (this.state.view === "onboarding") this.set({ step: 3, run: null, keysOpen: true });
+      else await this.openSettings();
+    }
   }
 
   async cliSignIn(id: string) {
@@ -269,13 +350,19 @@ export class App {
   async ask(question: string, mode: "quick" | "talk", research: boolean, context?: { path?: string | null; text?: string | null }) {
     const heads = tableHeads(this.state.settings, this.state.keys, this.cliHeads());
     if (!question.trim() || !heads.length) return;
-    this.state.run = newRun(question.trim(), heads, mode);
+    const ctx = context?.text ? "follow-up" : context?.path ?? null;
+    this.state.run = newRun(question.trim(), heads, mode, research, ctx);
     this.state.opened = null;
     this.render();
     const onEvent = (e: EngineEvent) => {
       if (!this.state.run || this.state.run.stopped) return;
       this.state.run = applyEvent(this.state.run, e);
       this.render();
+      // After the run, a tool that answered counts as tested.
+      if (e.event === "head_done" && e.status === "answered" && e.via && e.via !== "API key") {
+        const k = `app:${e.head}`;
+        if (this.state.tests[k]?.status === "failed") delete this.state.tests[k];
+      }
       if (e.event === "run_done") void this.refreshHistory().then(() => this.render());
     };
     try {

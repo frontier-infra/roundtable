@@ -22,6 +22,9 @@ Commands:
   detect         Find AI tools on this computer (Claude Code, Codex, Gemini CLI, ...)
                  and say if each is signed in. Sends no prompt. --json for the app.
   doctor         Show which AIs have a key (--online also checks each key)
+  test <ai>      Ask one AI a five-word question and say how it went.
+                 --via auto|app|key (default auto: its app first, then the key),
+                 --timeout S (default 90), --json for the app, --verbose adds stderr.
   mcp            serve | selftest | config
   version        Print the version
 
@@ -54,6 +57,7 @@ fn main() -> ExitCode {
         "auth" => cmd_auth(rest),
         "doctor" => cmd_doctor(rest),
         "detect" => cmd_detect(rest),
+        "test" => cmd_test(rest),
         _ => cmd_ask(&args),
     };
     ExitCode::from(code)
@@ -441,4 +445,68 @@ fn cmd_detect(args: &[String]) -> u8 {
         }
     }
     0
+}
+
+fn flag_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
+    args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)).map(String::as_str)
+}
+
+/// `roundtable test <ai>`: one five-word question through the route a real run uses.
+fn cmd_test(args: &[String]) -> u8 {
+    let json_out = has(args, "--json");
+    let Some(head) = args.first().filter(|a| !a.starts_with("--")).and_then(|a| providers::find(a)) else {
+        eprintln!("usage: roundtable test <ai> [--via auto|app|key] [--timeout S] [--json]");
+        return 2;
+    };
+    let route = match flag_value(args, "--via").unwrap_or("auto") {
+        "app" | "tool" | "cli" => council::Route::Tool,
+        "key" => council::Route::Key,
+        _ => council::Route::Auto,
+    };
+    let secs = flag_value(args, "--timeout").and_then(|v| v.parse().ok()).unwrap_or(90);
+    let settings = Settings::load();
+    let store = keys::default_store();
+    let k = Keys::load(store.as_ref());
+    let t0 = std::time::Instant::now();
+    let r = council::ask_head(head, clis::TEST_PROMPT, false, std::time::Duration::from_secs(secs), &k, &settings, route, None);
+    let elapsed = (t0.elapsed().as_secs_f64() * 10.0).round() / 10.0;
+    let text = match &r.outcome {
+        council::Outcome::Answered(t) => Some(t.clone()),
+        _ => None,
+    };
+    let first = text.as_deref().and_then(|t| t.lines().map(str::trim).find(|l| !l.is_empty())).map(str::to_string);
+    let mut v = json!({
+        "head": head.id,
+        "name": head.display,
+        "ok": text.is_some(),
+        "status": r.outcome.status(),
+        "via": r.via,
+        "first_line": first,
+        "message": r.outcome.message(),
+        "fix": r.outcome.fix(),
+        "secs": elapsed,
+        "command": r.trial.as_ref().map(|t| t.command.clone()),
+        "exit": r.trial.as_ref().and_then(|t| t.exit),
+    });
+    if has(args, "--verbose") {
+        v["text"] = json!(text);
+        v["stderr_tail"] = json!(r.trial.as_ref().map(|t| t.stderr_tail.clone()));
+    }
+    if json_out {
+        println!("{v}");
+    } else {
+        let via = r.via.as_deref().unwrap_or("nothing");
+        match &first {
+            Some(l) => println!("{}: answered in {elapsed} s via {via}: {l}", head.display),
+            None => println!("{}: {} ({via})", head.display, r.outcome.message().unwrap_or_default()),
+        }
+        if let Some(t) = &r.trial {
+            println!("  ran: {}  exit {}  {} s", t.command, t.exit.map(|c| c.to_string()).unwrap_or_else(|| "timeout".into()), t.secs);
+        }
+    }
+    if text.is_some() {
+        0
+    } else {
+        1
+    }
 }

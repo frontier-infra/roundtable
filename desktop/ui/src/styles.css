@@ -1938,3 +1938,38 @@ details.advanced {
 .nav-right > .btn.ghost:last-child {
   margin-right: -14px;
 }
+
+/* Five-word test row on tool and key cards, and reasons on answer cards. */
+.test-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.test-line {
+  flex: 1 1 200px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.test-line.ok {
+  color: var(--ok);
+}
+.test-line.bad {
+  color: var(--bad);
+}
+.answer .reason {
+  overflow-wrap: anywhere;
+}
+.answer .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.answer .via {
+  margin-top: 8px;
+}
+.seat-line p {
+  margin: 4px 0;
+}

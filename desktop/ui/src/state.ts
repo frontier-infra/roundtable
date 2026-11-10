@@ -1,6 +1,6 @@
 // Pure state for the walkthrough and the live roundtable. No DOM here, so it is easy to test.
 
-import type { ClaudeStatus, CliDetection, EngineEvent, HeadId, HistoryEntry, KeySaveResult, KeysStatus, Settings } from "./api";
+import type { ClaudeStatus, CliDetection, EngineEvent, Fix, HeadId, HeadTest, HistoryEntry, KeySaveResult, KeysStatus, Settings } from "./api";
 import { HEAD_ORDER, PROVIDERS } from "./providers";
 
 export const STEPS = 5;
@@ -31,9 +31,27 @@ export interface HeadCard {
   head: string;
   status: CardStatus;
   text: string;
+  /** Why it did not answer, in plain words. */
   message?: string;
+  /** The one thing to do about it. */
+  fix?: Fix;
+  /** How it was asked: the tool's name, or "API key". */
+  via?: string;
   round: number;
 }
+
+/** A five-word test of one AI (setup screen and Settings). */
+export interface TestView {
+  status: "testing" | "ok" | "failed";
+  /** Failed tests in a row. Setup unticks a tool after two. */
+  failures: number;
+  result?: HeadTest;
+  /** Setup unticked it after two failures. */
+  unticked?: boolean;
+}
+
+/** Setup unticks a tool after this many failed tests in a row. */
+export const TEST_TRIES = 2;
 
 export interface Verdict {
   round: number;
@@ -44,6 +62,9 @@ export interface Verdict {
 export interface RunView {
   question: string;
   mode: "quick" | "talk";
+  research?: boolean;
+  /** Background for a retry: a file path, or "follow-up". */
+  context?: string | null;
   heads: string[];
   cards: Record<string, HeadCard>;
   verdicts: Verdict[];
@@ -97,6 +118,8 @@ export interface State {
   historyFilter: string;
   opened: { id: string; transcript: string } | null;
   settings: Settings;
+  /** Five-word tests, by test key (`app:<head>` or `key:<head>`). */
+  tests: Record<string, TestView>;
   update: { version: string } | null;
   toast: string | null;
   engineReady: boolean;
@@ -144,6 +167,7 @@ export function initialState(): State {
     historyFilter: "",
     opened: null,
     settings: defaultSettings(),
+    tests: {},
     update: null,
     toast: null,
     engineReady: false,
@@ -178,13 +202,40 @@ export function defaultCliHeads(list: CliDetection[]): string[] {
   return HEAD_ORDER.filter((h) => on.has(h));
 }
 
-/** Heads running through a ticked tool that is still on this computer.
- * Before detection finishes, the saved list stands. */
-export function cliHeadsOn(s: Pick<State, "clis" | "settings">): string[] {
+/** Heads running through a ticked tool that is still on this computer, and
+ * whose last test did not fail. Before detection finishes, the saved list stands. */
+export function cliHeadsOn(s: Pick<State, "clis" | "settings"> & Partial<Pick<State, "tests">>): string[] {
   const on = s.settings.cli_heads ?? [];
-  if (!s.clis.loaded) return HEAD_ORDER.filter((h) => on.includes(h));
+  const broken = (h: string) => (s.tests?.[`app:${h}`]?.failures ?? 0) >= TEST_TRIES;
+  if (!s.clis.loaded) return HEAD_ORDER.filter((h) => on.includes(h) && !broken(h));
   const found = new Set(s.clis.list.filter((d) => d.found && d.signed_in !== false).map((d) => d.head));
-  return HEAD_ORDER.filter((h) => on.includes(h) && found.has(h));
+  return HEAD_ORDER.filter((h) => on.includes(h) && found.has(h) && !broken(h));
+}
+
+/** The test line under a tool or key card. */
+export function testLine(t: TestView | undefined): string | null {
+  if (!t) return null;
+  if (t.status === "testing") return t.failures ? "Trying once more..." : "Checking with a five-word question...";
+  const r = t.result;
+  if (t.status === "ok" && r) return `Works. Answered in ${r.secs} s${r.via ? ` through ${r.via}` : ""}: “${r.first_line ?? ""}”`;
+  const why = r?.message ?? "It did not answer.";
+  return t.unticked ? `Unticked: ${why}` : why;
+}
+
+/** The button for a fix, or null. */
+export function fixLabel(fix: Fix | undefined | null, name: string): string | null {
+  switch (fix) {
+    case "sign_in":
+      return `Sign in to ${name}`;
+    case "add_key":
+      return "Add a key";
+    case "install":
+      return null;
+    case "retry":
+      return "Retry";
+    default:
+      return null;
+  }
 }
 
 /** The line under a tool's name. Two sentences at most. */
@@ -194,10 +245,10 @@ export function cliCardText(d: CliDetection, os: string): string {
   return `${d.name} is installed. We could not tell if you are signed in.`;
 }
 
-type ContinueState = Pick<State, "step" | "setup" | "keys"> & Partial<Pick<State, "clis" | "settings">>;
+type ContinueState = Pick<State, "step" | "setup" | "keys"> & Partial<Pick<State, "clis" | "settings" | "tests">>;
 
-function cliHeadsOf(s: Partial<Pick<State, "clis" | "settings">>): string[] {
-  return s.clis && s.settings ? cliHeadsOn({ clis: s.clis, settings: s.settings }) : [];
+function cliHeadsOf(s: Partial<Pick<State, "clis" | "settings" | "tests">>): string[] {
+  return s.clis && s.settings ? cliHeadsOn({ clis: s.clis, settings: s.settings, tests: s.tests }) : [];
 }
 
 /** Continue on screen 2 needs a finished setup; on screen 3, one AI: a ticked tool or a key. */
@@ -269,12 +320,14 @@ export function estimateLine(aiCount: number, mode: "quick" | "talk"): string {
     : `This will ask ${ais}, at most ${n} requests.`;
 }
 
-export function newRun(question: string, heads: string[], mode: "quick" | "talk"): RunView {
+export function newRun(question: string, heads: string[], mode: "quick" | "talk", research = false, context: string | null = null): RunView {
   const cards: Record<string, HeadCard> = {};
   for (const h of heads) cards[h] = { head: h, status: "waiting", text: "", round: 1 };
   return {
     question,
     mode,
+    research,
+    context,
     heads,
     cards,
     verdicts: [],
@@ -317,9 +370,17 @@ export function applyEvent(run: RunView, e: EngineEvent): RunView {
         head: e.head,
         status,
         text: status === "answered" ? e.text : prev?.text ?? "",
-        message: e.message,
+        message: status === "answered" ? undefined : e.message,
+        fix: status === "answered" ? undefined : e.fix,
+        via: e.via,
         round: e.round,
       };
+      if (status === "answered" && run.done) r.answered = Object.values(r.cards).filter((c) => c.status === "answered").length;
+      break;
+    }
+    case "retry_done": {
+      const i = r.heads.indexOf(e.head);
+      if (i >= 0 && r.transcript) r.transcript = replaceSection(r.transcript, i, firstSection(e.transcript));
       break;
     }
     case "chair_verdict":
@@ -340,6 +401,40 @@ export function applyEvent(run: RunView, e: EngineEvent): RunView {
   return r;
 }
 
+/** The `## ` sections of an advisory transcript, by position: [start, end) offsets. */
+function sectionSpans(t: string): [number, number][] {
+  const spans: [number, number][] = [];
+  const re = /^## .*$/gm;
+  let m: RegExpExecArray | null;
+  const starts: number[] = [];
+  while ((m = re.exec(t))) starts.push(m.index);
+  for (let i = 0; i < starts.length; i++) {
+    const nextStart = i + 1 < starts.length ? starts[i + 1] : t.length;
+    // A section ends at the `---` line before the next heading or the footer.
+    const sep = t.lastIndexOf("\n---", nextStart);
+    spans.push([starts[i], sep > starts[i] ? sep + 1 : nextStart]);
+  }
+  return spans;
+}
+
+/** The first `## ` section of a transcript, heading and body. */
+export function firstSection(t: string): string {
+  const s = sectionSpans(t)[0];
+  return s ? t.slice(s[0], s[1]) : "";
+}
+
+/** Swap the section at `index` for `section`. Unchanged when either is missing. */
+export function replaceSection(t: string, index: number, section: string): string {
+  const s = sectionSpans(t)[index];
+  if (!s || !section) return t;
+  return t.slice(0, s[0]) + section + t.slice(s[1]);
+}
+
+/** A failed head can be asked again on its own in Quick answers, once the run is done. */
+export function canRetry(run: RunView, c: HeadCard): boolean {
+  return run.mode === "quick" && run.done && !run.stopped && (c.status === "failed" || c.status === "timed_out" || c.status === "skipped");
+}
+
 /** Every AI failed or was skipped. */
 export function allFailed(run: RunView): boolean {
   return run.done && !Object.values(run.cards).some((c) => c.status === "answered" || c.text !== "");
@@ -356,15 +451,15 @@ export function cardStatusText(c: HeadCard): string {
     case "waiting":
       return "Waiting";
     case "thinking":
-      return c.round > 1 ? `Reading the others (round ${c.round})` : "Thinking...";
+      return c.round > 1 ? `Reading the others (round ${c.round})` : "Asking...";
     case "answered":
       return c.round > 1 ? `Answered (round ${c.round})` : "Answered";
     case "skipped":
-      return "Skipped, no key";
+      return "Not set up";
     case "timed_out":
       return "Took too long";
     case "failed":
-      return "No answer";
+      return "Failed";
   }
 }
 

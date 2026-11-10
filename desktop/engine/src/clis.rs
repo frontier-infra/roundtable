@@ -82,6 +82,15 @@ pub fn for_head(head: &str) -> Option<&'static Cli> {
 /// Folders to search: PATH first, then the usual per-user and system install folders.
 /// An app started from the Dock or Start menu gets a short PATH, so the list matters.
 pub fn search_dirs() -> Vec<PathBuf> {
+    // Tests and the parity check: look on PATH only, so tools installed on the
+    // machine running the test never answer for a fake one.
+    // In-process tests: exactly these folders (empty: none).
+    if let Some(dirs) = std::env::var_os("ROUNDTABLE_TOOL_PATH") {
+        return std::env::split_paths(&dirs).filter(|d| !d.as_os_str().is_empty()).collect();
+    }
+    if std::env::var_os("ROUNDTABLE_PATH_ONLY").is_some() {
+        return std::env::var_os("PATH").map(|p| std::env::split_paths(&p).filter(|d| !d.as_os_str().is_empty()).collect()).unwrap_or_default();
+    }
     let mut path: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
     path.extend(login_shell_path().iter().cloned());
     search_dirs_for(std::env::join_paths(path).ok(), &crate::paths::home())
@@ -474,8 +483,17 @@ pub fn detect_all() -> Vec<Detection> {
 
 // ---- Running a head through a tool ----
 
+/// The short prompt the Test button and the setup check send.
+pub const TEST_PROMPT: &str = "Answer in five words: is water wet?";
+
 /// Arguments for one headless answer. `out_file` is where codex writes its last message.
+/// Every flag here was read from the tool's own `--help` (see desktop/README.md, "AI apps").
 pub fn headless_args(cli: &Cli, prompt: &str, research: bool, out_file: &Path) -> (Vec<OsString>, PromptVia) {
+    headless_args_with(cli, prompt, research, out_file, None)
+}
+
+/// Same, with a model the tool should use instead of its own default.
+pub fn headless_args_with(cli: &Cli, prompt: &str, research: bool, out_file: &Path, model: Option<&str>) -> (Vec<OsString>, PromptVia) {
     let mut a: Vec<OsString> = Vec::new();
     let mut push = |s: &str| a.push(s.into());
     let via = match cli.id {
@@ -507,9 +525,10 @@ pub fn headless_args(cli: &Cli, prompt: &str, research: bool, out_file: &Path) -
             a.push(prompt.into());
             PromptVia::Arg
         }
-        // Same flags as the grok CLI fallback in lib/core.sh.
+        // `grok -p` is its single-turn mode. The tool picks its own default model: a
+        // fixed id breaks as soon as the plan's model list changes (rc4 sent one that
+        // no longer exists). ROUNDTABLE_GROK_CLI_MODEL still pins one.
         "grok" => {
-            let model = std::env::var("ROUNDTABLE_GROK_CLI_MODEL").ok().filter(|m| !m.trim().is_empty()).unwrap_or_else(|| "grok-composer-2.5-fast".into());
             if cfg!(windows) {
                 push("--prompt-file");
                 a.push(out_file.with_extension("prompt").into_os_string());
@@ -518,30 +537,49 @@ pub fn headless_args(cli: &Cli, prompt: &str, research: bool, out_file: &Path) -
                 a.push(prompt.into());
             }
             let mut push = |s: &str| a.push(s.into());
-            push("-m");
-            push(&model);
+            let pinned = std::env::var("ROUNDTABLE_GROK_CLI_MODEL").ok().filter(|m| !m.trim().is_empty());
+            if let Some(m) = model.map(str::to_string).or(pinned) {
+                push("-m");
+                push(&m);
+            }
             push("--max-turns");
             push(if research { "8" } else { "6" });
+            // One councilor answers; no helper agents.
+            push("--no-subagents");
             if !research {
                 push("--disable-web-search");
             }
             PromptVia::Arg
         }
-        // Piped input runs these headless.
-        "gemini" | "qwen" => {
+        // Piped input runs these headless. Gemini refuses an untrusted folder
+        // without --skip-trust, and every run uses a fresh empty folder.
+        "gemini" => {
+            for s in ["--skip-trust", "--output-format", "text"] {
+                push(s);
+            }
+            PromptVia::Stdin
+        }
+        "qwen" => {
             push("--output-format");
             push("text");
             PromptVia::Stdin
         }
+        // kimi 2.5: `-p` runs one prompt and prints it. It has no --quiet, and
+        // refuses --plan together with --prompt.
         "kimi" => {
-            for s in ["--quiet", "--plan", "-p"] {
-                push(s);
-            }
+            push("-p");
             a.push(prompt.into());
+            let mut push = |s: &str| a.push(s.into());
+            push("--output-format");
+            push("text");
             PromptVia::Arg
         }
         "opencode" => {
             push("run");
+            if let Some(m) = model {
+                push("-m");
+                push(m);
+            }
             a.push(prompt.into());
             PromptVia::Arg
         }
@@ -557,19 +595,70 @@ pub fn headless_args(cli: &Cli, prompt: &str, research: bool, out_file: &Path) -
     (a, via)
 }
 
+/// Extra environment for a tool's headless run.
+///
+/// Gemini CLI: a sign-in saved by an older version keeps the choice in the old
+/// `selectedAuthType` field, which headless mode no longer reads, so it stops with
+/// "Invalid auth method selected". GOOGLE_GENAI_USE_GCA picks the Google sign-in.
+/// Only the auth type name is read from settings, never a credential.
+pub fn headless_env(cli: &Cli, home: &Path) -> Vec<(&'static str, String)> {
+    let mut env = Vec::new();
+    if cli.id == "gemini" && std::env::var_os("GEMINI_API_KEY").is_none() && std::env::var_os("GOOGLE_GENAI_USE_GCA").is_none() {
+        let v = std::fs::read_to_string(home.join(".gemini/settings.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
+        let current = v.as_ref().and_then(|v| v.pointer("/security/auth/selectedType")).and_then(|x| x.as_str()).unwrap_or("");
+        let legacy = v.as_ref().and_then(|v| v.get("selectedAuthType")).and_then(|x| x.as_str()).unwrap_or("");
+        if current.is_empty() && (legacy == "oauth-personal" || (legacy.is_empty() && path_present(&home.join(".gemini/oauth_creds.json")))) {
+            env.push(("GOOGLE_GENAI_USE_GCA", "true".to_string()));
+        }
+    }
+    env
+}
+
 /// The command line shown to people, with the question left out.
 pub fn how_line(cli: &Cli) -> String {
-    let (args, via) = headless_args(cli, "<question>", false, Path::new("<answer file>"));
+    command_line(cli, "<question>", false, None)
+}
+
+/// One printable command line. The prompt is quoted; a piped prompt shows as `< question`.
+pub fn command_line(cli: &Cli, prompt: &str, research: bool, model: Option<&str>) -> String {
+    let (args, via) = headless_args_with(cli, prompt, research, Path::new("<answer file>"), model);
     let mut s = cli.exes[0].to_string();
     for a in args {
         let a = a.to_string_lossy().into_owned();
         s.push(' ');
-        s.push_str(&a);
+        if a.contains(' ') {
+            s.push_str(&sh_quote(&a));
+        } else {
+            s.push_str(&a);
+        }
     }
     if via == PromptVia::Stdin {
         s.push_str(" < question");
     }
     s
+}
+
+/// What to do about a failed head, in one word the app turns into a button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Fix {
+    /// Sign in to the tool again.
+    SignIn,
+    /// Add an API key instead.
+    AddKey,
+    /// Install the tool.
+    Install,
+    /// Try again later.
+    Retry,
+}
+
+/// A failed headless run, in plain words.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Failure {
+    pub fix: Fix,
+    pub message: String,
 }
 
 /// What came back from one headless run.
@@ -578,7 +667,108 @@ pub enum CliResult {
     Answered(String),
     Missing,
     Timeout,
-    Empty(String),
+    Failed(Failure),
+}
+
+/// The record of one run, for the Test button and the report.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Trial {
+    pub tool: String,
+    pub command: String,
+    /// None on a time-out.
+    pub exit: Option<i32>,
+    pub secs: f64,
+    /// Last lines of what the tool printed on stderr, colour codes removed.
+    pub stderr_tail: String,
+}
+
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        if c == '\u{1b}' {
+            if it.peek() == Some(&'[') {
+                it.next();
+                for d in it.by_ref() {
+                    if d.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        out.push(c);
+    }
+    out
+}
+
+fn tail(s: &str, n: usize) -> String {
+    let t = s.trim();
+    let start = t.char_indices().rev().nth(n.saturating_sub(1)).map(|(i, _)| i).unwrap_or(0);
+    t[start..].to_string()
+}
+
+/// Turn a tool's exit code and output into one plain sentence and a fix.
+pub fn explain(cli: &Cli, code: i32, stdout: &str, stderr: &str) -> Failure {
+    let both = format!("{stdout}\n{stderr}");
+    let t = both.to_ascii_lowercase();
+    let any = |ws: &[&str]| ws.iter().any(|w| t.contains(w));
+    let name = cli.name;
+    if any(&["no longer supported for gemini code assist", "ineligibletiererror", "unsupported_client"]) {
+        return Failure { fix: Fix::AddKey, message: "Google no longer lets Gemini CLI answer on a personal Google sign-in. Add a Gemini key instead.".into() };
+    }
+    if any(&[
+        "authentication required",
+        "not logged in",
+        "not signed in",
+        "please log in",
+        "please login",
+        "login required",
+        "agent login",
+        "authorization grant is invalid",
+        "no credential configured",
+        "no credentials",
+        "credentials not found",
+        "invalid_grant",
+        "not authenticated",
+        "unauthenticated",
+        "unauthorized",
+        "incorrect api key",
+        "invalid api key",
+        "invalid auth method",
+        "api error: 401",
+        "status 401",
+        "http 401",
+        " 401 ",
+    ]) {
+        return Failure { fix: Fix::SignIn, message: format!("{name} says you are not signed in. Sign in to {name} again.") };
+    }
+    if any(&["usage limit", "rate limit", "rate-limit", "too many requests", " 429", "quota", "out of credits", "insufficient balance"]) {
+        return Failure { fix: Fix::Retry, message: format!("{name} hit its usage limit. Try again later.") };
+    }
+    if any(&["unknown model", "model not found", "invalid model", "couldn't set model"]) {
+        return Failure { fix: Fix::Retry, message: format!("{name} does not offer the model it was asked to use.") };
+    }
+    let clean = strip_ansi(stderr);
+    let lines: Vec<&str> = clean.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let noise = |l: &str| {
+        let t = l.to_ascii_lowercase();
+        l.starts_with("at ") || t.starts_with("warning") || t.starts_with("see log") || t.starts_with("for more details")
+    };
+    // An "error" line says the most; else the last line that is not noise.
+    let line = lines
+        .iter()
+        .rev()
+        .find(|l| l.to_ascii_lowercase().contains("error") && !noise(l))
+        .or_else(|| lines.iter().rev().find(|l| !noise(l)))
+        .map(|l| l.chars().take(140).collect::<String>())
+        .unwrap_or_default();
+    let message = if line.is_empty() {
+        format!("{name} stopped without an answer (exit {code}).")
+    } else {
+        format!("{name} stopped with an error: {line}")
+    };
+    Failure { fix: Fix::Retry, message }
 }
 
 /// Ask one tool one question, headless, in an empty folder, with a time limit.
@@ -588,33 +778,113 @@ pub fn ask(cli: &Cli, prompt: &str, research: bool, timeout: Duration) -> CliRes
 }
 
 pub fn ask_with(cli: &Cli, exe: &Path, prompt: &str, research: bool, timeout: Duration) -> CliResult {
+    ask_detailed(cli, exe, prompt, research, timeout).0
+}
+
+/// Ask, and also say exactly what ran. A tool that fails on its own default model
+/// (OpenCode pointed at a provider that is down, say) is asked once more with a
+/// model from an account it is signed in to.
+pub fn ask_detailed(cli: &Cli, exe: &Path, prompt: &str, research: bool, timeout: Duration) -> (CliResult, Trial) {
+    let start = Instant::now();
+    let pinned = if cli.id == "opencode" { std::env::var("ROUNDTABLE_OPENCODE_MODEL").ok().filter(|m| !m.trim().is_empty()) } else { None };
+    let (r, mut trial) = run_once(cli, exe, prompt, research, timeout, pinned.as_deref());
+    if let CliResult::Failed(_) = &r {
+        if pinned.is_none() {
+            let left = timeout.saturating_sub(start.elapsed());
+            if let Some(m) = fallback_model(cli, exe).filter(|_| left > Duration::from_secs(5)) {
+                let (r2, t2) = run_once(cli, exe, prompt, research, left, Some(&m));
+                if matches!(r2, CliResult::Answered(_)) {
+                    let mut t2 = t2;
+                    t2.secs = round1(start.elapsed().as_secs_f64());
+                    return (r2, t2);
+                }
+            }
+        }
+    }
+    trial.secs = round1(start.elapsed().as_secs_f64());
+    (r, trial)
+}
+
+fn round1(x: f64) -> f64 {
+    (x * 10.0).round() / 10.0
+}
+
+fn run_once(cli: &Cli, exe: &Path, prompt: &str, research: bool, timeout: Duration, model: Option<&str>) -> (CliResult, Trial) {
     let dir = std::env::temp_dir().join(format!("roundtable-{}-{}-{}", cli.id, std::process::id(), nanos()));
     let work = dir.join("work");
     let _ = std::fs::create_dir_all(&work);
     let last = dir.join("last.md");
-    let (args, via) = headless_args(cli, prompt, research, &last);
+    let (args, via) = headless_args_with(cli, prompt, research, &last, model);
     if cli.id == "grok" && cfg!(windows) {
         let _ = std::fs::write(last.with_extension("prompt"), prompt);
     }
     let mut c = tool_command(exe);
     c.args(&args).current_dir(&work);
+    for (k, v) in headless_env(cli, &crate::paths::home()) {
+        c.env(k, v);
+    }
+    let started = Instant::now();
     let r = run_with_timeout(c, if via == PromptVia::Stdin { Some(prompt) } else { None }, timeout);
+    let secs = round1(started.elapsed().as_secs_f64());
     let file_text = std::fs::read_to_string(&last).unwrap_or_default();
     let _ = std::fs::remove_dir_all(&dir);
-    match r {
+    let short: String = if prompt.chars().count() > 60 { "<question>".into() } else { prompt.into() };
+    let mut trial = Trial { tool: cli.name.into(), command: command_line(cli, &short, research, model), exit: None, secs, stderr_tail: String::new() };
+    let res = match r {
         Ok(None) => CliResult::Timeout,
         Ok(Some(ran)) => {
+            trial.exit = Some(ran.code);
+            trial.stderr_tail = tail(&strip_ansi(&ran.stderr), 400);
             // codex writes its final message to the -o file; the others print it.
-            let text = if cli.id == "codex" { file_text } else { ran.stdout };
-            if !text.trim().is_empty() {
+            let text = strip_ansi(if cli.id == "codex" { &file_text } else { &ran.stdout });
+            if ran.code == 0 && !text.trim().is_empty() {
                 CliResult::Answered(text.trim().to_string())
             } else {
-                let tail: String = ran.stderr.chars().rev().take(200).collect::<Vec<_>>().into_iter().rev().collect();
-                CliResult::Empty(format!("{} rc={} {}", cli.id, ran.code, tail.trim()))
+                CliResult::Failed(explain(cli, ran.code, &ran.stdout, &ran.stderr))
             }
         }
-        Err(e) => CliResult::Empty(format!("{}: {e}", cli.id)),
+        Err(e) => CliResult::Failed(Failure { fix: Fix::Retry, message: format!("{} could not start: {e}", cli.name) }),
+    };
+    (res, trial)
+}
+
+/// A model to try when the tool's default fails: OpenCode only, the first model
+/// from a provider `opencode auth list` says is signed in. Names only, never secrets.
+pub fn fallback_model(cli: &Cli, exe: &Path) -> Option<String> {
+    if cli.id != "opencode" {
+        return None;
     }
+    let run = |args: &[&str]| -> Option<String> {
+        let mut c = tool_command(exe);
+        c.args(args).current_dir(std::env::temp_dir());
+        run_with_timeout(c, None, Duration::from_secs(15)).ok().flatten().filter(|r| r.code == 0).map(|r| strip_ansi(&r.stdout))
+    };
+    pick_opencode_model(&run(&["auth", "list"])?, &run(&["models"])?)
+}
+
+fn squash(s: &str) -> String {
+    s.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_ascii_lowercase()
+}
+
+/// From `opencode auth list` and `opencode models`, the first model of a signed-in provider.
+pub fn pick_opencode_model(auth_list: &str, models: &str) -> Option<String> {
+    let signed: Vec<String> = auth_list
+        .lines()
+        .filter(|l| {
+            let t = l.to_ascii_lowercase();
+            t.contains("stored") || t.contains("oauth") || t.contains("api key")
+        })
+        .filter_map(|l| l.split("  ").map(str::trim).find(|p| !p.is_empty()).map(squash))
+        .collect();
+    models
+        .lines()
+        .map(str::trim)
+        .filter(|m| m.contains('/') && !m.contains(' '))
+        .find(|m| {
+            let provider = squash(m.split('/').next().unwrap_or(""));
+            !provider.is_empty() && signed.contains(&provider)
+        })
+        .map(str::to_string)
 }
 
 fn nanos() -> u128 {
@@ -676,12 +946,116 @@ mod tests {
             assert_eq!(via, PromptVia::Arg);
             let (g, _) = headless_args(find("grok").unwrap(), "Q", true, Path::new("/tmp/x"));
             let g: Vec<_> = g.iter().map(|s| s.to_string_lossy().into_owned()).collect();
-            assert_eq!(g, ["-p", "Q", "-m", "grok-composer-2.5-fast", "--max-turns", "8"]);
+            assert_eq!(g, ["-p", "Q", "--max-turns", "8", "--no-subagents"]);
         }
         let (c, via) = headless_args(find("claude").unwrap(), "Q", false, Path::new("/x"));
         assert_eq!(via, PromptVia::Stdin);
         assert!(c.iter().any(|s| s == "--strict-mcp-config"), "never load Roundtable into itself");
         assert_eq!(how_line(find("claude").unwrap()), "claude -p --output-format text --strict-mcp-config --no-session-persistence --disallowedTools WebSearch,WebFetch < question");
+    }
+
+    fn args_of(id: &str, research: bool, model: Option<&str>) -> (Vec<String>, PromptVia) {
+        let (a, via) = headless_args_with(find(id).unwrap(), "Q", research, Path::new("/tmp/last.md"), model);
+        (a.iter().map(|s| s.to_string_lossy().into_owned()).collect(), via)
+    }
+
+    /// Each builder, against the flags read from that tool's own --help on a Mac
+    /// (2026-11-10: claude 2.1.321, codex 0.167.0, gemini 0.67.0, grok 1.0.77,
+    /// qwen 0.27.0, kimi 2.5.2, opencode 2.1.4, cursor-agent 2026.11.05).
+    #[test]
+    fn every_head_command_builder() {
+        let (a, v) = args_of("claude", false, None);
+        assert_eq!(a, ["-p", "--output-format", "text", "--strict-mcp-config", "--no-session-persistence", "--disallowedTools", "WebSearch,WebFetch"]);
+        assert_eq!(v, PromptVia::Stdin);
+        let (a, _) = args_of("claude", true, None);
+        assert!(!a.iter().any(|x| x == "--disallowedTools"), "web search allowed in research mode");
+
+        let (a, v) = args_of("gemini", false, None);
+        assert_eq!(a, ["--skip-trust", "--output-format", "text"], "a fresh folder is untrusted; without --skip-trust gemini exits 55");
+        assert_eq!(v, PromptVia::Stdin);
+
+        let (a, v) = args_of("qwen", false, None);
+        assert_eq!(a, ["--output-format", "text"]);
+        assert_eq!(v, PromptVia::Stdin);
+
+        let (a, v) = args_of("kimi", false, None);
+        assert_eq!(a, ["-p", "Q", "--output-format", "text"]);
+        assert!(!a.iter().any(|x| x == "--quiet" || x == "--plan"), "kimi 2.5 has no --quiet and refuses --plan with -p");
+        assert_eq!(v, PromptVia::Arg);
+
+        let (a, _) = args_of("opencode", false, None);
+        assert_eq!(a, ["run", "Q"]);
+        let (a, _) = args_of("opencode", false, Some("zai-coding-plan/glm-5.3"));
+        assert_eq!(a, ["run", "-m", "zai-coding-plan/glm-5.3", "Q"]);
+
+        let (a, v) = args_of("cursor", false, None);
+        assert_eq!(a, ["-p", "--output-format", "text", "--trust", "--mode", "ask", "Q"]);
+        assert_eq!(v, PromptVia::Arg);
+
+        if !cfg!(windows) {
+            let (a, _) = args_of("grok", false, None);
+            assert_eq!(a, ["-p", "Q", "--max-turns", "6", "--no-subagents", "--disable-web-search"]);
+            assert!(!a.iter().any(|x| x == "-m"), "the tool's own default model; rc4's fixed id no longer existed");
+            let (a, _) = args_of("grok", false, Some("grok-4.7"));
+            assert_eq!(&a[2..4], ["-m", "grok-4.7"]);
+            let (a, v) = args_of("codex", true, None);
+            assert_eq!(a, ["exec", "--skip-git-repo-check", "-s", "read-only", "-o", "/tmp/last.md", "Q"]);
+            assert_eq!(v, PromptVia::Arg);
+        }
+        for c in CLIS {
+            assert!(!how_line(c).contains('\u{2014}'));
+        }
+        assert_eq!(command_line(find("kimi").unwrap(), TEST_PROMPT, false, None), "kimi -p 'Answer in five words: is water wet?' --output-format text");
+    }
+
+    /// The reasons, from what each tool printed on this Mac on 2026-11-10.
+    #[test]
+    fn plain_reasons_from_real_tool_output() {
+        let f = explain(find("cursor").unwrap(), 1, "", "Error: Authentication required. Please run 'agent login' first, or set CURSOR_API_KEY environment variable.");
+        assert_eq!(f.fix, Fix::SignIn);
+        let f = explain(find("kimi").unwrap(), 1, "", "kimi version 2.5.2\nerror: failed to run prompt: The provided authorization grant is invalid\nSee log: /x/kimi-code.log");
+        assert_eq!((f.fix, f.message.as_str()), (Fix::SignIn, "Kimi says you are not signed in. Sign in to Kimi again."));
+        let f = explain(find("kimi").unwrap(), 1, "", "error: failed to run prompt: provider managed:kimi-code has no credential configured\nSee log: /x");
+        assert_eq!(f.fix, Fix::SignIn);
+        let f = explain(find("qwen").unwrap(), 1, "", "[API Error: 401 Incorrect API key provided. For details, see: https://help.aliyun.com]");
+        assert_eq!(f.fix, Fix::SignIn);
+        let f = explain(find("gemini").unwrap(), 1, "", "Error authenticating: IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals.\n    at _doSetupUser (file:///x.js:1:1)");
+        assert_eq!(f.fix, Fix::AddKey);
+        assert!(f.message.starts_with("Google no longer lets Gemini CLI answer"));
+        let f = explain(find("gemini").unwrap(), 41, "", "Ripgrep is not available.\nInvalid auth method selected.");
+        assert_eq!(f.fix, Fix::SignIn);
+        let f = explain(find("grok").unwrap(), 1, "", "Error: Couldn't set model 'grok-composer-2.5-fast': Invalid params: \"unknown model id\".");
+        assert_eq!(f.message, "Grok does not offer the model it was asked to use.");
+        let f = explain(find("opencode").unwrap(), 1, "", "\u{1b}[0m\n> build \u{b7} default\n\u{1b}[91m\u{1b}[1mError: \u{1b}[0mProvider request failed with HTTP 405: Method Not Allowed");
+        assert_eq!((f.fix, f.message.as_str()), (Fix::Retry, "OpenCode stopped with an error: Error: Provider request failed with HTTP 405: Method Not Allowed"));
+        let f = explain(find("codex").unwrap(), 2, "", "");
+        assert_eq!(f.message, "Codex stopped without an answer (exit 2).");
+        assert!(!f.message.contains('\u{2014}'));
+    }
+
+    #[test]
+    fn opencode_falls_back_to_a_signed_in_provider() {
+        let auth = "\u{2022} Z.AI Coding Plan  Z.AI Coding Plan            stored\n";
+        let models = "hardware-box/default\nopencode/big-pickle\nzai-coding-plan/glm-5.3\nzai-coding-plan/glm-5.3-flash\n";
+        assert_eq!(pick_opencode_model(auth, models).as_deref(), Some("zai-coding-plan/glm-5.3"));
+        assert_eq!(pick_opencode_model("", models), None);
+        assert_eq!(pick_opencode_model("Anthropic  oauth\n", "anthropic/claude-x\n").as_deref(), Some("anthropic/claude-x"));
+    }
+
+    #[test]
+    fn gemini_old_sign_in_gets_the_google_auth_type() {
+        let home = tempfile::tempdir().unwrap();
+        let g = find("gemini").unwrap();
+        std::fs::create_dir_all(home.path().join(".gemini")).unwrap();
+        let set = |t: &str| std::fs::write(home.path().join(".gemini/settings.json"), t).unwrap();
+        if std::env::var_os("GEMINI_API_KEY").is_some() || std::env::var_os("GOOGLE_GENAI_USE_GCA").is_some() {
+            return;
+        }
+        set(r#"{"selectedAuthType": "oauth-personal"}"#);
+        assert_eq!(headless_env(g, home.path()), vec![("GOOGLE_GENAI_USE_GCA", "true".to_string())]);
+        set(r#"{"security": {"auth": {"selectedType": "gemini-api-key"}}}"#);
+        assert!(headless_env(g, home.path()).is_empty(), "a choice in the new place stands");
+        assert!(headless_env(find("claude").unwrap(), home.path()).is_empty());
     }
 
     #[test]
@@ -801,11 +1175,14 @@ mod tests {
         }
 
         #[test]
-        fn empty_output_reports_the_exit_code() {
+        fn a_signed_out_tool_says_sign_in() {
             let bin = tempfile::tempdir().unwrap();
             let exe = script(bin.path(), "cursor-agent", "echo 'not signed in' >&2; exit 3");
             match ask_with(find("cursor").unwrap(), &exe, "Q", false, Duration::from_secs(10)) {
-                CliResult::Empty(m) => assert!(m.contains("rc=3") && m.contains("not signed in")),
+                CliResult::Failed(f) => {
+                    assert_eq!(f.fix, Fix::SignIn);
+                    assert_eq!(f.message, "Cursor Agent says you are not signed in. Sign in to Cursor Agent again.");
+                }
                 other => panic!("{other:?}"),
             }
         }

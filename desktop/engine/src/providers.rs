@@ -223,8 +223,13 @@ pub fn uses_cli(head: &Head, settings: &Settings) -> bool {
 /// The transcript label, same text as `label_for` in `lib/core.sh`.
 /// A head the person set to run through their own tool says so.
 pub fn label(head: &Head, settings: &Settings) -> String {
+    label_via(head, settings, settings.cli_heads.iter().any(|h| h == head.id))
+}
+
+/// The label for a head that did (`tool`) or did not answer through the person's own tool.
+pub fn label_via(head: &Head, settings: &Settings, tool: bool) -> String {
     let m = model_for(head, settings);
-    if head.kind != Kind::Cli && settings.cli_heads.iter().any(|h| h == head.id) {
+    if head.kind != Kind::Cli && tool {
         if let Some(c) = crate::clis::for_head(head.id) {
             return format!("{} {} ({}, your plan)", head.emoji, head.display, c.name);
         }

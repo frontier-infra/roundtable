@@ -58,7 +58,7 @@ def env_for(home, url):
     os.chmod(codex, 0o755)
     e = {"HOME": home, "PATH": fakebin + ":/usr/bin:/bin:/usr/sbin:/sbin", "TMPDIR": tempfile.gettempdir(),
          "ROUNDTABLE_KEYSTORE": "memory", "ROUNDTABLE_DATA_DIR": os.path.join(home, "data"),
-         "ROUNDTABLE_NO_SHELL_PATH": "1"}
+         "ROUNDTABLE_NO_SHELL_PATH": "1", "ROUNDTABLE_PATH_ONLY": "1"}
     for k in ("XAI_API_KEY", "OPENAI_API_KEY", "ZAI_API_KEY", "MINIMAX_API_KEY", "GEMINI_API_KEY"):
         e[k] = "test"
     for k in ("GROK_XAI", "OPENAI", "GLM", "MINIMAX", "GEMINI"):

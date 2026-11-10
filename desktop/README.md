@@ -41,6 +41,9 @@ cd core && cargo tauri build
 Preview query options: `screen=1..5`, `view=main|settings`, `claude=none|app|code|both|plugin`, `keys=claude,gemini`, `os=windows`, `history=1`, `run=setup|quick|talk`, `clis=some|none` (AI apps found on the computer).
 
 `roundtable detect` lists the AI apps on this computer and whether each is signed in. It sends no prompt.
+`roundtable test <ai> [--via auto|app|key]` asks one AI "Answer in five words: is water wet?" and prints the command, exit code, time and answer.
+
+Release candidates share one version number, so the app re-copies its engine whenever the installed copy's bytes differ from the one inside the app (rc4 had kept running an rc1 engine with no app route).
 A debug build opens on a given screen with `ROUNDTABLE_START_SCREEN=3` (or `settings`), for screenshots.
 
 ## Releases
