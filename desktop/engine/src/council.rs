@@ -1108,7 +1108,7 @@ mod tests {
                 let v: serde_json::Value = serde_json::from_slice(&buf).unwrap_or_default();
                 let prompt = v["messages"][0]["content"].as_str().unwrap_or("").to_string();
                 let body = if path.contains("/v1/messages") {
-                    let t = if prompt.contains("check the question for missing key facts") {
+                    let t = if prompt.contains("decide whether the person must answer questions first") {
                         "Q: What is the workload?\nQ: How many users?".to_string()
                     } else if prompt.contains("Write the final verdict") {
                         let open = prompt.contains("OPEN QUESTIONS:\n- What is the workload?") && prompt.contains("QUESTIONS FIRST:");

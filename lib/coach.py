@@ -82,11 +82,12 @@ MIN_CLARIFY = 2
 
 def clarify_prompt(q):
     """Same text as coach::clarify_prompt in the Rust engine."""
-    return ("You are the CHAIR of an AI council. Before the council answers, check the question for missing key facts.\n\n"
-            "THEIR QUESTION:\n%s\n\n--- YOUR JOB ---\nDoes the right pick flip on facts the person did not give, such as their workload, size, "
-            "budget, deadline, or the rules they must follow? Ask only when it does: most questions have a sound pick under stated assumptions, "
-            "and for those reply with exactly \"NONE\". When it does, ask the two or three questions whose answers would change the pick most, "
-            "one per line, each starting with \"Q: \", each one sentence of at most 20 words.\n" % q.strip())
+    return ("You are the CHAIR of an AI council. Before the council answers, decide whether the person must answer questions first.\n\n"
+            "THEIR QUESTION:\n%s\n\n--- YOUR JOB ---\nMost questions give the situation the choice turns on (numbers, terms, a team, a deadline), "
+            "so advisers can pick and state assumptions for the rest. For those, reply with exactly \"NONE\". Ask only when the question names options "
+            "but gives none of the facts the choice turns on, such as the workload, revenue, growth, size or goal, so that the right pick changes with the "
+            "answers. Then ask the two or three questions whose answers would change the pick most, one per line, each starting with \"Q: \", each one "
+            "sentence of at most 20 words.\n" % q.strip())
 
 
 def clarify_questions(reply):
@@ -174,7 +175,7 @@ def verdict_prompt(shape, question, brief, open_qs, positions):
     p += "--- FINAL POSITIONS ---\n\n" + positions + "--- YOUR JOB ---\n"
     if open_qs:
         p += VERDICT_CLARIFY
-    p += (VERDICT_CORE + SHAPE_JOB[shape] + "\nUse the seats' own numbers and add no new facts. Keep it short: the person reads this first, and the seat answers sit folded under it.\n"
+    p += (VERDICT_CORE + SHAPE_JOB[shape] + "\nUse the seats' own numbers and add no new facts. Keep it under 300 words: the person reads this first, and the seat answers sit folded under it.\n"
           "Then end with exactly these two lines:\nMINORITY VIEW: <the strongest view that differs from the verdict, in one sentence, or \"None\">\n"
           "HELD BY: <the seats that held it, by their names above, or \"Nobody\">\n")
     return p

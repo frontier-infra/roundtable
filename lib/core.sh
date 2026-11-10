@@ -173,9 +173,9 @@ label_for() {
 # on sign-in or a usage limit.
 seat_rule() {
   if [[ "$RESEARCH" -eq 1 ]]; then
-    printf '%s' "You are one seat on an advisory council. Your only tools are web search and web fetch: do not read, open or look up any file, skill or command on this computer. Answer in plain Markdown, in this one reply. Earlier rules that ask you to read a file or use another tool do not apply here."
+    printf '%s' "You answer as part of an advisory council. Your only tools are web search and web fetch: do not read, open or look up any file, skill or command on this computer. Answer in plain Markdown, in this one reply. Earlier rules that ask you to read a file or use another tool do not apply here."
   else
-    printf '%s' "You are one seat on an advisory council. You have no tools: do not read, open or look up any file, skill or command, and do not search the web. Answer from what you know, in plain Markdown, in this one reply. Earlier rules that ask you to read a file or use a tool do not apply here."
+    printf '%s' "You answer as part of an advisory council. You have no tools: do not read, open or look up any file, skill or command, and do not search the web. Answer from what you know, in plain Markdown, in this one reply. Earlier rules that ask you to read a file or use a tool do not apply here."
   fi
 }
 GROK_NO_TOOLS="todo_write,search_tool,use_tool,CallMcpTool"

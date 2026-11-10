@@ -499,9 +499,9 @@ pub const TEST_PROMPT: &str = "Answer in five words: is water wet?";
 /// What every seat is told on top of the tool's own system prompt.
 pub fn seat_rule(research: bool) -> &'static str {
     if research {
-        "You are one seat on an advisory council. Your only tools are web search and web fetch: do not read, open or look up any file, skill or command on this computer. Answer in plain Markdown, in this one reply. Earlier rules that ask you to read a file or use another tool do not apply here."
+        "You answer as part of an advisory council. Your only tools are web search and web fetch: do not read, open or look up any file, skill or command on this computer. Answer in plain Markdown, in this one reply. Earlier rules that ask you to read a file or use another tool do not apply here."
     } else {
-        "You are one seat on an advisory council. You have no tools: do not read, open or look up any file, skill or command, and do not search the web. Answer from what you know, in plain Markdown, in this one reply. Earlier rules that ask you to read a file or use a tool do not apply here."
+        "You answer as part of an advisory council. You have no tools: do not read, open or look up any file, skill or command, and do not search the web. Answer from what you know, in plain Markdown, in this one reply. Earlier rules that ask you to read a file or use a tool do not apply here."
     }
 }
 

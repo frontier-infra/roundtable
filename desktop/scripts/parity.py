@@ -59,7 +59,7 @@ def chair_reply(prompt):
     if "Every councilor will read your summary" in prompt:
         src = re.search(r"^SOURCE: (.*)$", prompt, re.M).group(1)
         return f"- the gist of {src} p:{sha8(prompt)}"
-    if "check the question for missing key facts" in prompt:
+    if "decide whether the person must answer questions first" in prompt:
         return "Q: What is the workload?\nQ: How many users?" if "database" in prompt else "NONE"
     if "Write the final verdict" in prompt:
         return f"DECISION: Start the garden.\nCONFIDENCE: High (80%)\n**WHY**\n- p:{sha8(prompt)}\nMINORITY VIEW: Bake bread first.\nHELD BY: GLM"

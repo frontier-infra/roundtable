@@ -87,7 +87,7 @@ pub fn prompt(shape: Shape, question: &str, brief: Option<&str>, open: &[String]
         p.push_str(CLARIFY);
     }
     p.push_str(&format!(
-        "{CORE}{}\nUse the seats' own numbers and add no new facts. Keep it short: the person reads this first, and the seat answers sit folded under it.\nThen end with exactly these two lines:\nMINORITY VIEW: <the strongest view that differs from the verdict, in one sentence, or \"None\">\nHELD BY: <the seats that held it, by their names above, or \"Nobody\">\n",
+        "{CORE}{}\nUse the seats' own numbers and add no new facts. Keep it under 300 words: the person reads this first, and the seat answers sit folded under it.\nThen end with exactly these two lines:\nMINORITY VIEW: <the strongest view that differs from the verdict, in one sentence, or \"None\">\nHELD BY: <the seats that held it, by their names above, or \"Nobody\">\n",
         shape.job()
     ));
     p
@@ -154,8 +154,18 @@ pub fn parts(text: &str) -> Parts {
     let mut list = 0;
     for line in text.lines() {
         if list > 0 {
+            let v = if list == 1 { &mut p.next_steps } else { &mut p.questions };
             if let Some(x) = item(line) {
-                if list == 1 { p.next_steps.push(x) } else { p.questions.push(x) }
+                // A numbered line starts an item; an indented line or a bullet under one adds to it.
+                let numbered = line.trim().replace("**", "").trim().starts_with(|c: char| c.is_ascii_digit());
+                let indented = line.starts_with(' ') || line.starts_with('\t');
+                match v.last_mut() {
+                    Some(last) if indented || !numbered => {
+                        last.push_str("; ");
+                        last.push_str(&x);
+                    }
+                    _ => v.push(x),
+                }
                 continue;
             }
             if line.trim().is_empty() {
@@ -233,10 +243,12 @@ mod tests {
     fn parts_read_back() {
         let t = "DECISION: Start the garden.\nCONFIDENCE: Medium (65%)\n**WHY**\n- x\nMINORITY VIEW: Bake bread first.\nHELD BY: Gemini";
         assert_eq!(parts(t), Parts { minority: Some("Bake bread first.".into()), held_by: Some("Gemini".into()), confidence: Some("medium".into()), decision: Some("Start the garden.".into()), ..Default::default() });
+        let nested = parts("NEXT STEPS:\n1. Today:\n   - Write one line.\n   - List entities.\n2. Map workflows.\n3. Apply the test.\n**WHY**\n- x");
+        assert_eq!(nested.next_steps, ["Today:; Write one line.; List entities.", "Map workflows.", "Apply the test."]);
         let t = "QUESTIONS FIRST:\n1. What is the workload?\n2) How many users?\n\nDECISION: If reads dominate, Postgres.\nCONFIDENCE: low (40%)\nWOULD CHANGE IT: Heavy writes.\n**NEXT STEPS:**\n1. Count the queries.\n2. Price both.\n- Pick one.\n**WHY**\n- x\nMINORITY VIEW: None\nHELD BY: Nobody";
         let p = parts(t);
         assert_eq!(p.questions, ["What is the workload?", "How many users?"]);
-        assert_eq!(p.next_steps, ["Count the queries.", "Price both.", "Pick one."]);
+        assert_eq!(p.next_steps, ["Count the queries.", "Price both.; Pick one."]);
         assert_eq!(p.would_change.as_deref(), Some("Heavy writes."));
         assert_eq!(p.decision.as_deref(), Some("If reads dominate, Postgres."));
         assert_eq!(p.confidence.as_deref(), Some("low"));

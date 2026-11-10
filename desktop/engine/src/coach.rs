@@ -110,7 +110,7 @@ pub fn parse_questions(reply: &str) -> Vec<String> {
 /// Same text as `clarify_prompt` in `lib/coach.py`.
 pub fn clarify_prompt(question: &str) -> String {
     format!(
-        "You are the CHAIR of an AI council. Before the council answers, check the question for missing key facts.\n\nTHEIR QUESTION:\n{}\n\n--- YOUR JOB ---\nDoes the right pick flip on facts the person did not give, such as their workload, size, budget, deadline, or the rules they must follow? Ask only when it does: most questions have a sound pick under stated assumptions, and for those reply with exactly \"NONE\". When it does, ask the two or three questions whose answers would change the pick most, one per line, each starting with \"Q: \", each one sentence of at most 20 words.\n",
+        "You are the CHAIR of an AI council. Before the council answers, decide whether the person must answer questions first.\n\nTHEIR QUESTION:\n{}\n\n--- YOUR JOB ---\nMost questions give the situation the choice turns on (numbers, terms, a team, a deadline), so advisers can pick and state assumptions for the rest. For those, reply with exactly \"NONE\". Ask only when the question names options but gives none of the facts the choice turns on, such as the workload, revenue, growth, size or goal, so that the right pick changes with the answers. Then ask the two or three questions whose answers would change the pick most, one per line, each starting with \"Q: \", each one sentence of at most 20 words.\n",
         question.trim()
     )
 }
