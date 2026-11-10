@@ -8,6 +8,7 @@ import { mockApi, type MockOptions } from "../src/mock";
 import { applyEvent, newRun, type RunView } from "../src/state";
 import {
   attachmentsBlock,
+  coachText,
   formatVerdictBody,
   briefMarkdown,
   mdFileName,
@@ -315,6 +316,18 @@ describe("follow-ups and material", () => {
     expect(att).toContain("### plan.pdf (summary)");
     expect(att).toContain("### https://example.com/brief");
     expect(text()).toContain("Every seat read: plan.pdf, example.com/brief.");
+  });
+
+  it("lets the coach read attached material, so it does not ask for it", async () => {
+    const { app, api } = await start({ clis: "none" });
+    await click("Add a file");
+    await type("textarea.question", "Use the plan?");
+    await click("Sharpen and ask");
+    const q = api.calls.find((c) => c.startsWith("coachQuestions:"))!;
+    expect(q).toContain("Use the plan?\n\nATTACHED MATERIAL (every seat already reads this; do not ask for it):\nEvery seat reads the same material.");
+    expect(q).toContain("### plan.pdf (summary)");
+    expect(app.state.coach?.question).toBe("Use the plan?");
+    expect(coachText("Use the plan?", [])).toBe("Use the plan?");
   });
 
   it("says plainly when a file cannot be read", async () => {
