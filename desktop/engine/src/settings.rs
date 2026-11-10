@@ -15,7 +15,12 @@ pub struct Settings {
     pub timeout_secs: Option<u64>,
     /// Keep past roundtables on this computer.
     pub history: bool,
+    /// Download updates in the background and install them on the next quit.
     pub auto_update: bool,
+    /// Which updates the app looks for: "stable" (everyone) or "test" (test builds too).
+    pub update_channel: String,
+    /// The version that last showed What's new. After an update the app shows what changed since.
+    pub last_seen_version: String,
     /// The person finished the five setup screens.
     pub onboarded: bool,
     /// "Use Roundtable in Terminal too".
@@ -50,6 +55,8 @@ impl Default for Settings {
             timeout_secs: None,
             history: true,
             auto_update: true,
+            update_channel: "stable".into(),
+            last_seen_version: String::new(),
             onboarded: false,
             terminal_command: false,
             cli_heads: Vec::new(),
