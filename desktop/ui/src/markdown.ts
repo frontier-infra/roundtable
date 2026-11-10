@@ -3,15 +3,28 @@
 
 import { h } from "./dom";
 
-function inline(text: string): Node[] {
+/** Help pages only: links and pictures. AI answers never get them (no links, no remote images). */
+export interface MarkdownOptions {
+  /** Builds a link. Without it, `[text](href)` stays plain text. */
+  link?: (href: string, text: string) => Node;
+  /** A picture on a line of its own: `![alt](src)`. Return null to drop it. */
+  image?: (src: string, alt: string) => HTMLElement | null;
+  /** How far headings move down: `#` becomes h(1 + shift). Default 2 (answers sit under the page's own headings). */
+  headingShift?: number;
+}
+
+function inline(text: string, opts: MarkdownOptions = {}): Node[] {
   const out: Node[] = [];
-  const re = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*|_[^_\s][^_]*_)/g;
+  const link = opts.link ? "\\[[^\\]]+\\]\\([^)\\s]+\\)|" : "";
+  const re = new RegExp(`(${link}\\*\\*[^*]+\\*\\*|\`[^\`]+\`|\\*[^*\\s][^*]*\\*|_[^_\\s][^_]*_)`, "g");
   let last = 0;
   for (const m of text.matchAll(re)) {
     const i = m.index ?? 0;
     if (i > last) out.push(document.createTextNode(text.slice(last, i)));
     const t = m[0];
-    if (t.startsWith("**")) out.push(h("strong", { text: t.slice(2, -2) }));
+    const lm = opts.link && t.startsWith("[") ? /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(t) : null;
+    if (lm) out.push(opts.link!(lm[2], lm[1]));
+    else if (t.startsWith("**")) out.push(h("strong", { text: t.slice(2, -2) }));
     else if (t.startsWith("`")) out.push(h("code", { text: t.slice(1, -1) }));
     else out.push(h("em", { text: t.slice(1, -1) }));
     last = i + t.length;
@@ -20,14 +33,15 @@ function inline(text: string): Node[] {
   return out;
 }
 
-export function renderMarkdown(src: string): HTMLElement {
+export function renderMarkdown(src: string, opts: MarkdownOptions = {}): HTMLElement {
+  const shift = opts.headingShift ?? 2;
   const root = h("div", { class: "md" });
   const lines = src.replace(/\r\n/g, "\n").split("\n");
   let i = 0;
   let para: string[] = [];
   const flush = () => {
     if (para.length) {
-      root.appendChild(h("p", null, inline(para.join(" "))));
+      root.appendChild(h("p", null, inline(para.join(" "), opts)));
       para = [];
     }
   };
@@ -46,8 +60,16 @@ export function renderMarkdown(src: string): HTMLElement {
     const hm = /^(#{1,6})\s+(.*)$/.exec(t);
     if (hm) {
       flush();
-      const level = Math.min(6, hm[1].length + 2);
-      root.appendChild(h(`h${level}` as "h3", null, inline(hm[2])));
+      const level = Math.min(6, hm[1].length + shift);
+      root.appendChild(h(`h${level}` as "h3", null, inline(hm[2], opts)));
+      i++;
+      continue;
+    }
+    const im = opts.image ? /^!\[([^\]]*)\]\(([^)\s]+)\)$/.exec(t) : null;
+    if (im) {
+      flush();
+      const pic = opts.image!(im[2], im[1]);
+      if (pic) root.appendChild(pic);
       i++;
       continue;
     }
@@ -62,7 +84,7 @@ export function renderMarkdown(src: string): HTMLElement {
       const ordered = /^\d/.test(t);
       const list = h(ordered ? "ol" : "ul");
       while (i < lines.length && /^\s*([-*+]|\d+[.)])\s+/.test(lines[i])) {
-        list.appendChild(h("li", null, inline(lines[i].trim().replace(/^([-*+]|\d+[.)])\s+/, ""))));
+        list.appendChild(h("li", null, inline(lines[i].trim().replace(/^([-*+]|\d+[.)])\s+/, ""), opts)));
         i++;
       }
       root.appendChild(list);

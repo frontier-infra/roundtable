@@ -3265,6 +3265,161 @@ details.pack summary {
   display: none;
 }
 
+/* ---- Help: the built-in pages (docs/app), from the Help menu ---- */
+
+.help-body {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 40px;
+  padding-top: 28px;
+  padding-bottom: 56px;
+  align-items: start;
+}
+
+.help-nav {
+  position: sticky;
+  top: 92px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.help-list {
+  list-style: none;
+  margin: 0 -10px;
+  padding: 0;
+}
+
+.help-list button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.help-list button:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.help-list button.active {
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--accent);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+}
+
+.help-list.results button {
+  padding: 8px 10px;
+}
+
+.help-item-title {
+  display: block;
+  color: var(--ink);
+  font-weight: 560;
+}
+
+.help-list.results small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--faint);
+}
+
+.help-more {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.help-more .btn {
+  padding-left: 0;
+}
+
+.help-page {
+  max-width: 68ch;
+  min-width: 0;
+}
+
+.help-page > h1 {
+  margin-bottom: 8px;
+}
+
+.help-page > .lead {
+  margin-bottom: 20px;
+}
+
+.help-page .md h2 {
+  font-size: 18px;
+  margin: 32px 0 10px;
+}
+
+.help-page .md p,
+.help-page .md li {
+  font-size: 14.5px;
+  line-height: 1.65;
+}
+
+.help-page .md li + li {
+  margin-top: 4px;
+}
+
+.help-page .md ul,
+.help-page .md ol {
+  margin-bottom: 14px;
+}
+
+.help-shot {
+  margin: 18px 0 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.help-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.help-online {
+  margin-top: 36px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.sheet.about .sheet-head .lockup {
+  display: inline-flex;
+}
+
+@media (max-width: 860px) {
+  .help-body {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .help-nav {
+    position: static;
+  }
+}
+
+.sheet.about .sheet-body {
+  padding-top: 18px;
+}
+
 /* ---- Quick and Deep Think ---- */
 
 .state.depth-tag.deep {

@@ -10,6 +10,7 @@ The design is in [SPEC.md](SPEC.md).
 | `engine/` | The `roundtable` engine in Rust: the council, the chair, the MCP server for Claude, keys and history. Ships inside the app as one binary. |
 | `core/` | The Tauri app: engine setup, Claude connection, commands for the UI, the updater. |
 | `ui/` | The TypeScript UI. No framework. `src/mock.ts` is a fake backend for tests and the browser preview. |
+| `../docs/app/` | The Help pages, one Markdown file each. The app bundles them; roundtable.sh can import them (see that folder's README). The menu bar is `core/src/menu.rs`. |
 | `scripts/` | Sidecar build, bash parity test, link check, updater manifest. |
 
 ## Why a Rust engine instead of a Python venv
@@ -38,7 +39,7 @@ cd core && cargo tauri build
 ```
 
 `cargo tauri dev` runs the app against the Vite dev server. Opening `http://localhost:5173/` in a plain browser shows the UI on the fake backend.
-Preview query options: `screen=1..5`, `view=main|settings`, `claude=none|app|code|both|plugin`, `keys=claude,gemini`, `os=windows`, `history=1`, `run=setup|quick|talk`, `clis=some|none` (AI apps found on the computer), `providers=1` (Ollama found here, OpenRouter added).
+Preview query options: `screen=1..5`, `view=main|settings|help` (`page=<id>`, `q=<search>`), `about=1`, `claude=none|app|code|both|plugin`, `keys=claude,gemini`, `os=windows`, `history=1`, `run=setup|quick|talk`, `clis=some|none` (AI apps found on the computer), `providers=1` (Ollama found here, OpenRouter added).
 
 ### Other providers
 

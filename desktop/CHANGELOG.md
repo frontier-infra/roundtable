@@ -21,6 +21,8 @@ Each release adds a section here. The app, the GitHub release and roundtable.sh/
 - Other providers. Add OpenRouter, Ollama, LM Studio, Groq, Together or any compatible service. Each model you tick gets its own seat.
 - Updates. Roundtable checks for a new version when it opens and every 6 hours, and shows what changed. Settings, Updates has the switches.
 - What's new. This list, in the app after an update and from Settings.
+- A Help menu on Mac and Windows. Roundtable Help opens built-in pages that work offline: getting started, connecting your AIs, personas and rounds, Deep Think and Quick, the decision model, using Roundtable from Claude, and keyboard shortcuts. Each page has a search box and a link to the same page online. Help also has What's new, Online docs, Report a problem and About.
+- A full menu bar on a Mac (About, Check for updates, Settings, Edit, View, Window and Help), and File, View and Help on Windows.
 
 ### Improved
 

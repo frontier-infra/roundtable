@@ -36,5 +36,7 @@ default = ["lab-pack"]
 lab-pack = ["roundtable-engine/lab-pack"]
 
 [dev-dependencies]
+# Parses menu shortcuts in a test, exactly as the menu does (the version Tauri uses).
+muda = { version = "0.20", default-features = false }
 tempfile = "3"
 semver = "1"

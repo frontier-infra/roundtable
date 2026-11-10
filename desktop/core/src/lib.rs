@@ -4,6 +4,7 @@ pub mod claude;
 pub mod commands;
 pub mod engine_install;
 pub mod jebadiah;
+pub mod menu;
 pub mod update;
 
 use tauri::Manager;
@@ -13,6 +14,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .menu(menu::build)
+        .on_menu_event(|app, event| menu::handle(app, event.id().as_ref()))
         .manage(commands::AppState::default())
         .manage(update::Updates::default())
         .setup(|_app| {
