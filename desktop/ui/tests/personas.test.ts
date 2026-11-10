@@ -22,6 +22,8 @@ async function start(opts: MockOptions = {}, view: "main" | "settings" = "main")
   const api = mockApi({ delay: 0, keys: ["claude", "gemini"], onboarded: true, ...opts });
   const app = new App(api, root);
   await app.start({ view });
+  app.state.ask = { ...app.state.ask, coach: false };
+  app.render();
   if (view === "settings") await app.openSettings();
   await tick();
   return { app, api };
@@ -122,7 +124,7 @@ describe("the ask box", () => {
     expect(steps[3].querySelector(".state")?.textContent).toBe("Agreed");
     expect(steps[1].querySelector(".state")?.textContent).toBe("Still differ");
     expect(steps[2].textContent).toContain("(round 3)");
-    expect(root.querySelector(".verdict-by")?.textContent).toBe("Claude, as chair, after round 4");
+    expect(root.querySelector(".verdict .verdict-by")?.textContent).toBe("Claude, as chair, after round 4");
   });
 
   it("sets each seat by hand", async () => {

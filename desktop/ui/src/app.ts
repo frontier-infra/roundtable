@@ -1,6 +1,7 @@
 // The controller: holds state, runs actions against the backend, re-renders.
 
-import { errorText, type Api, type EngineEvent, type HeadId } from "./api";
+import { errorText, type Api, type EngineEvent, type HeadId, type VerdictShape } from "./api";
+import { attachmentLabel, attachmentsBlock, briefMarkdown, emptyBrief, looksLikeLink, mdFileName, priorText, runMarkdown, runSeats, sessionMarkdown } from "./session";
 import {
   applyEvent,
   back,
@@ -31,6 +32,19 @@ import { HEAD_ORDER } from "./providers";
 
 const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
 
+/** What a run reads besides the question. */
+export interface AskExtra {
+  brief?: string | null;
+  verdict?: VerdictShape | null;
+  openFirstRound?: boolean;
+  prior?: string | null;
+  attached?: string | null;
+  attachments?: string[];
+  target?: string;
+  /** Ask only these AIs (a follow-up to one seat). */
+  onlyHeads?: string[];
+}
+
 export class App {
   state: State = initialState();
   private updateInstall: (() => Promise<void>) | null = null;
@@ -56,6 +70,7 @@ export class App {
       this.state.settings = await this.api.settingsGet();
       const saved = this.state.settings.personas ?? "";
       if (saved.startsWith("preset:") || saved.startsWith("pack:")) this.state.ask = { ...this.state.ask, seats: saved };
+      this.state.ask = { ...this.state.ask, coach: this.state.settings.coach !== false, verdict: this.state.settings.verdict_shape || "decision" };
     } catch {
       /* defaults */
     }
@@ -278,7 +293,7 @@ export class App {
     this.state.run = applyEvent(run, { event: "head_started", head, round: 1, seat });
     this.render();
     try {
-      await this.api.askRetry(head, { question: run.question, research: !!run.research, contextPath: run.context ?? null, seat, persona });
+      await this.api.askRetry(head, { question: run.question, research: !!run.research, contextPath: run.context ?? null, seat, persona, brief: run.brief ?? null, prior: run.prior ?? null, attached: run.attached ?? null });
     } catch (e) {
       this.state.run = applyEvent(this.state.run!, { event: "head_done", head, round: 1, status: "failed", text: "", message: errorText(e), fix: "retry", seat });
       this.render();
@@ -358,16 +373,29 @@ export class App {
 
   /** Start a roundtable. Used by screen 5 and the main screen. `rounds` is 1 to 4
    * ("quick" is 1, "talk" is 2). `seats` defaults to the ask box's Seats choice. */
-  async ask(question: string, rounds: number | Mode, research: boolean, context?: { path?: string | null; text?: string | null }, seats?: SeatPick[]) {
-    const heads = tableHeads(this.state.settings, this.state.keys, this.cliHeads());
+  async ask(question: string, rounds: number | Mode, research: boolean, context?: { path?: string | null; text?: string | null }, seats?: SeatPick[], extra: AskExtra = {}) {
+    const all = tableHeads(this.state.settings, this.state.keys, this.cliHeads());
+    // A follow-up to one seat asks only that seat's AI.
+    const heads = extra.onlyHeads?.length ? all.filter((h) => extra.onlyHeads!.includes(h)) : all;
     if (!question.trim() || !heads.length) return;
     const ctx = context?.text ? "follow-up" : context?.path ?? null;
     const n = roundsOf(rounds);
     const plan = seats ?? (this.state.view === "onboarding" ? heads.map((h) => ({ persona: "", head: h })) : planSeats(this.state.ask, heads, this.state.personas));
     const personas = seatSpec(plan, heads);
     const infos = personas ? seatInfos(plan, this.state.personas) : undefined;
-    this.state.run = newRun(question.trim(), heads, n, research, ctx, infos);
+    const verdict = extra.verdict === undefined ? null : extra.verdict;
+    this.state.run = {
+      ...newRun(question.trim(), heads, n, research, ctx, infos),
+      brief: extra.brief ?? null,
+      verdictShape: verdict,
+      openFirstRound: !!extra.openFirstRound,
+      attachments: extra.attachments ?? [],
+      target: extra.target ?? "table",
+      prior: extra.prior ?? null,
+      attached: extra.attached ?? null,
+    };
     this.state.opened = null;
+    this.state.coach = null;
     this.render();
     const onEvent = (e: EngineEvent) => {
       if (!this.state.run || this.state.run.stopped) return;
@@ -382,7 +410,20 @@ export class App {
     };
     try {
       await this.api.askStart(
-        { question: question.trim(), heads, rounds: n, research, contextPath: context?.path ?? null, contextText: context?.text ?? null, personas },
+        {
+          question: question.trim(),
+          heads,
+          rounds: n,
+          research,
+          contextPath: context?.path ?? null,
+          contextText: context?.text ?? null,
+          personas,
+          brief: extra.brief ?? null,
+          verdict,
+          openFirstRound: !!extra.openFirstRound,
+          prior: extra.prior ?? null,
+          attached: extra.attached ?? null,
+        },
         onEvent,
       );
     } catch (e) {
@@ -400,17 +441,223 @@ export class App {
   newQuestion() {
     this.state.run = null;
     this.state.opened = null;
-    this.state.ask = { ...this.state.ask, question: "", contextPath: null, contextText: null, contextName: null };
+    this.state.coach = null;
+    this.state.session = [];
+    this.state.followUpText = "";
+    this.state.ask = { ...this.state.ask, question: "", contextPath: null, contextText: null, contextName: null, attachments: [], link: "" };
     this.render();
   }
 
+  /** The ask box's main button: the coach first when it is on, else straight to the table. */
+  async startAsk() {
+    const a = this.state.ask;
+    if (!a.question.trim()) return;
+    if (a.coach) return this.openCoach(a.question.trim());
+    return this.askTable(a.question.trim(), null);
+  }
+
+  /** Send the ask box's question to the table, with a brief from the coach or none. */
+  async askTable(question: string, brief: string | null, seats?: SeatPick[]) {
+    const a = this.state.ask;
+    const heads = tableHeads(this.state.settings, this.state.keys, this.cliHeads());
+    await this.ask(question, a.rounds, a.research, { path: a.contextPath, text: a.contextText }, seats ?? planSeats(a, heads, this.state.personas), {
+      brief,
+      verdict: a.verdict,
+      openFirstRound: this.state.settings.blind_first_round === false,
+      attached: attachmentsBlock(a.attachments) || null,
+      attachments: a.attachments.map(attachmentLabel),
+      prior: a.contextText ? null : this.state.priorFromHistory,
+    });
+    this.state.priorFromHistory = null;
+  }
+
+  // ---- The question coach ----
+
+  async openCoach(question: string) {
+    this.state.coach = { stage: "questions", loading: true, question, questions: [], answers: [], brief: emptyBrief(question), seats: null, suggesting: false, useSuggested: false };
+    this.render();
+    try {
+      const r = await this.api.coachQuestions(question);
+      const c = this.state.coach;
+      if (!c || c.question !== question) return;
+      if (!r.ok) {
+        this.state.coach = { ...c, loading: false, error: r.message ?? "The coach did not answer. Connect Claude, or skip the coach." };
+      } else if (!r.questions.length) {
+        // Already clear: straight to the brief.
+        this.state.coach = { ...c, loading: false };
+        return this.writeBrief();
+      } else {
+        this.state.coach = { ...c, loading: false, questions: r.questions.slice(0, 3), answers: r.questions.slice(0, 3).map(() => "") };
+      }
+    } catch (e) {
+      if (this.state.coach) this.state.coach = { ...this.state.coach, loading: false, error: errorText(e) };
+    }
+    this.render();
+  }
+
+  async writeBrief() {
+    const c = this.state.coach;
+    if (!c) return;
+    this.state.coach = { ...c, loading: true, error: undefined };
+    this.render();
+    try {
+      const r = await this.api.coachBrief(c.question, c.questions.map((q, i) => ({ q, a: c.answers[i] ?? "" })));
+      if (!this.state.coach) return;
+      this.state.coach = { ...this.state.coach, stage: "brief", loading: false, brief: r.brief, error: r.ok ? undefined : r.message };
+    } catch (e) {
+      if (this.state.coach) this.state.coach = { ...this.state.coach, stage: "brief", loading: false, error: errorText(e) };
+    }
+    this.render();
+    void this.suggestSeats();
+  }
+
+  /** Propose seats from the brief. The person accepts or changes them. */
+  async suggestSeats() {
+    const c = this.state.coach;
+    if (!c) return;
+    const heads = tableHeads(this.state.settings, this.state.keys, this.cliHeads());
+    this.state.coach = { ...c, suggesting: true };
+    this.render();
+    try {
+      const r = await this.api.suggestPanel(c.question, briefMarkdown(c.brief), heads);
+      if (!this.state.coach) return;
+      const seats = r.seats.filter((x) => x.persona).map((x) => ({ persona: x.persona ?? "", head: x.head }));
+      // Suggested seats start chosen unless the person already picked seats in the ask box.
+      this.state.coach = { ...this.state.coach, suggesting: false, suggestion: r, seats, useSuggested: seats.length > 0 && !this.state.ask.seats };
+    } catch {
+      if (this.state.coach) this.state.coach = { ...this.state.coach, suggesting: false, seats: [] };
+    }
+    this.render();
+  }
+
+  /** The coach's last button: the brief (as edited) and the chosen seats go to the table. */
+  async acceptBrief() {
+    const c = this.state.coach;
+    if (!c) return;
+    const md = briefMarkdown(c.brief);
+    const seats = c.useSuggested && c.seats?.length ? c.seats : undefined;
+    await this.askTable(c.question, md || null, seats);
+  }
+
+  skipCoach() {
+    const c = this.state.coach;
+    if (!c) return;
+    void this.askTable(c.question, null);
+  }
+
+  closeCoach() {
+    this.set({ coach: null });
+  }
+
+  // ---- Files and links every seat reads ----
+
+  async addAttachment(source: string) {
+    const src = source.trim();
+    if (!src) return;
+    if (this.state.ask.attachments.some((a) => a.name === src || src.endsWith(`/${a.name}`) || src.endsWith(`\\${a.name}`))) {
+      this.showToast("That one is already attached.");
+      return;
+    }
+    this.state.ask = { ...this.state.ask, attaching: true };
+    this.render();
+    try {
+      const r = await this.api.attachPrepare(src);
+      if (!r.ok || !r.attachments?.length) throw r.message ?? "Could not read that.";
+      this.state.ask = { ...this.state.ask, attaching: false, link: looksLikeLink(src) ? "" : this.state.ask.link, attachments: [...this.state.ask.attachments, ...r.attachments] };
+    } catch (e) {
+      this.state.ask = { ...this.state.ask, attaching: false };
+      this.showToast(errorText(e));
+    }
+    this.render();
+  }
+
+  async pickAttachment() {
+    const p = await this.api.pickAttachment();
+    if (p) await this.addAttachment(p);
+  }
+
+  async addLink() {
+    const l = this.state.ask.link.trim();
+    if (!looksLikeLink(l)) {
+      this.showToast("Paste a full link that starts with https://");
+      return;
+    }
+    await this.addAttachment(l);
+  }
+
+  removeAttachment(i: number) {
+    this.set({ ask: { ...this.state.ask, attachments: this.state.ask.attachments.filter((_, j) => j !== i) } });
+  }
+
+  // ---- Follow-ups ----
+
+  /** Ask a follow-up of the whole table or of one seat, keeping the session's history. */
+  async askFollowUp(question: string, target: string) {
+    const run = this.state.run;
+    if (!run || !run.done || !question.trim()) return;
+    const turns = [...this.state.session, run];
+    this.state.session = turns;
+    this.state.followUpText = "";
+    const prior = priorText(turns);
+    const a = this.state.ask;
+    const shared = { attached: attachmentsBlock(a.attachments) || null, attachments: a.attachments.map(attachmentLabel), prior };
+    if (target !== "table") {
+      const seat = runSeats(run).find((_, i) => run.heads[i] === target);
+      if (!seat) return;
+      await this.ask(question, 1, !!run.research, undefined, [seat], { ...shared, verdict: null, target, onlyHeads: [seat.head] });
+      return;
+    }
+    // The whole table: the seats, rounds and verdict of the last turn that asked the whole table.
+    const table = [...turns].reverse().find((t) => (t.target ?? "table") === "table") ?? run;
+    await this.ask(question, table.rounds, !!table.research, undefined, runSeats(table), {
+      ...shared,
+      brief: null,
+      verdict: table.verdictShape ?? a.verdict,
+      openFirstRound: this.state.settings.blind_first_round === false,
+      target: "table",
+    });
+  }
+
+  /** "Ask a follow-up" on a past roundtable: its transcript is the history. */
   followUp() {
-    const r = this.state.run;
-    const transcript = r?.transcript || this.state.opened?.transcript || "";
+    const transcript = this.state.run?.transcript || this.state.opened?.transcript || "";
     this.state.run = null;
     this.state.opened = null;
-    this.state.ask = { ...this.state.ask, question: "", contextPath: null, contextText: transcript, contextName: "The last roundtable" };
+    this.state.priorFromHistory = transcript || null;
+    this.state.ask = { ...this.state.ask, question: "", contextPath: null, contextText: null, contextName: transcript ? "The last roundtable" : null };
     this.render();
+  }
+
+  // ---- Markdown ----
+
+  async copyMarkdown(run = this.state.run) {
+    if (!run) return;
+    try {
+      await this.api.copyText(runMarkdown(run));
+      this.showToast("Copied as Markdown.");
+    } catch (e) {
+      this.showToast(errorText(e));
+    }
+  }
+
+  async downloadMarkdown(run = this.state.run) {
+    if (!run) return;
+    try {
+      if (await this.api.saveTextFile(mdFileName(run.question), runMarkdown(run))) this.showToast("Saved.");
+    } catch (e) {
+      this.showToast(errorText(e));
+    }
+  }
+
+  /** Every turn of this session, as one Markdown file. */
+  async exportSession() {
+    const turns = [...this.state.session, ...(this.state.run ? [this.state.run] : [])];
+    if (!turns.length) return;
+    try {
+      if (await this.api.saveTextFile(mdFileName(turns[0].question, true), sessionMarkdown(turns))) this.showToast("Session saved.");
+    } catch (e) {
+      this.showToast(errorText(e));
+    }
   }
 
   async finishOnboarding() {

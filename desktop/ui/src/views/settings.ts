@@ -5,7 +5,8 @@ import { button, h, toggle } from "../dom";
 import { CHAIR_DEFAULT_MODEL, HEAD_ORDER, HELP_URL, ISSUES_URL, PROVIDERS, providerName } from "../providers";
 import { connectedHeads, helpUrl, keychainName } from "../state";
 import { claudeConnect, cliList, keyCard } from "./onboarding";
-import { withGlyph } from "./main";
+import { select, withGlyph } from "./main";
+import { VERDICT_SHAPES } from "../session";
 import { lockup } from "../brand";
 import { personasSection } from "./personas";
 
@@ -78,6 +79,23 @@ export function renderSettings(app: App): HTMLElement {
       section(
         "Who sits at the table",
         seats.length ? h("div", { class: "stack" }, seats) : h("p", { class: "muted", text: "Connect an AI above first." }),
+      ),
+      section(
+        "How the table works",
+        toggle("Start with the question coach", s.settings.coach !== false, (v) => {
+          app.state.ask = { ...app.state.ask, coach: v };
+          void app.saveSettings({ coach: v });
+        }, "One AI asks up to three questions and writes a brief. You can edit or skip it."),
+        toggle("Blind first round", s.settings.blind_first_round !== false, (v) => void app.saveSettings({ blind_first_round: v }), "In round 1 each seat answers without seeing the others. Off: each seat reads the seats before it."),
+        h(
+          "label",
+          { class: "field inline" },
+          h("span", { text: "Verdict to start with" }),
+          select("Verdict to start with", s.settings.verdict_shape || "decision", VERDICT_SHAPES.map((v) => ({ value: v.id, label: v.label })), (v) => {
+            app.state.ask = { ...app.state.ask, verdict: v as typeof s.settings.verdict_shape };
+            void app.saveSettings({ verdict_shape: v as typeof s.settings.verdict_shape });
+          }),
+        ),
       ),
       section("Personas", ...personasSection(app)),
       section("Claude connection", h("div", { class: "stack" }, claudeConnect(app, true))),

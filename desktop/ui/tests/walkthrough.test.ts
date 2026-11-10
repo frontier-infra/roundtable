@@ -20,6 +20,8 @@ async function start(opts: MockOptions = {}, at?: { screen?: number; view?: "mai
   const api = mockApi({ delay: 0, ...opts });
   const app = new App(api, root);
   await app.start(at ?? {});
+  app.state.ask = { ...app.state.ask, coach: false };
+  app.render();
   await tick();
   return { app, api };
 }
@@ -318,8 +320,9 @@ describe("main screen", () => {
     expect([...root.querySelectorAll(".step")].map((d) => d.getAttribute("data-round"))).toEqual(["1", "2", "3"]);
     // The engine asks for "POSITION:" in later rounds; people do not need to see it.
     expect(root.querySelector(".answer .md")?.textContent).not.toMatch(/^POSITION:/);
-    expect(buttonNamed("Copy all")).toBeDefined();
-    expect(buttonNamed("Ask a follow-up")).toBeDefined();
+    expect(buttonNamed("Copy as Markdown")).toBeDefined();
+    expect(buttonNamed("Download .md")).toBeDefined();
+    expect(root.querySelector(".follow-up textarea")).not.toBeNull();
   });
 
   it("lists past roundtables with a Claude badge", async () => {

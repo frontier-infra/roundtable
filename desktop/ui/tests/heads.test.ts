@@ -28,6 +28,8 @@ async function start(opts: MockOptions = {}, at?: { screen?: number; view?: "mai
   const api = mockApi({ delay: 0, ...opts });
   const app = new App(api, root);
   await app.start(at ?? {});
+  app.state.ask = { ...app.state.ask, coach: false };
+  app.render();
   await tick();
   return { app, api };
 }

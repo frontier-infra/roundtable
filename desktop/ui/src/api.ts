@@ -100,6 +100,65 @@ export interface Settings {
   show_lab_pack: boolean;
   /** The ask box's last Seats choice: "", "preset:<id>" or "pack:<id>". */
   personas: string;
+  /** The question coach opens before a question goes to the table. */
+  coach: boolean;
+  /** Round 1 is blind: seats answer without seeing each other. */
+  blind_first_round: boolean;
+  /** The verdict shape the ask box starts with. */
+  verdict_shape: VerdictShape;
+}
+
+/** The chair's final verdict: a decision with confidence, pros and cons, an action plan, or a vote. */
+export type VerdictShape = "decision" | "pros-cons" | "plan" | "vote";
+
+/** The coach's brief. The table reads it in front of the question. */
+export interface Brief {
+  goal: string;
+  context: string;
+  constraints: string;
+  /** What a good answer looks like. */
+  good_answer: string;
+}
+
+export interface CoachQuestions {
+  ok: boolean;
+  questions: string[];
+  message?: string;
+}
+
+export interface CoachBrief {
+  ok: boolean;
+  brief: Brief;
+  markdown: string;
+  message?: string;
+}
+
+/** Seats the app suggests for a question or brief. */
+export interface PanelSuggestion {
+  /** "chair", "words" or "none". */
+  source: string;
+  personas: string[];
+  why: string;
+  seats: { seat: string; head: string; persona: string | null; name: string | null }[];
+  spec: string;
+}
+
+/** A file or link, read once. Every seat reads `text`. */
+export interface Attachment {
+  name: string;
+  /** "text", "pdf" or "link". */
+  kind: string;
+  chars: number;
+  /** "full", "summary" or "start". */
+  shared: string;
+  text: string;
+}
+
+export interface AttachResult {
+  ok: boolean;
+  attachments?: Attachment[];
+  block?: string;
+  message?: string;
 }
 
 /** A seat role: it sits on an AI seat and shapes how that seat reasons. */
@@ -157,6 +216,15 @@ export interface AskRequest {
   contextText?: string | null;
   /** Seat spec for `--personas`, e.g. "cfo@claude,ceo@gemini". Empty is Generic. */
   personas?: string;
+  /** The coach's brief, as Markdown. */
+  brief?: string | null;
+  verdict?: VerdictShape | null;
+  /** Round 1 open: each seat reads the seats before it. */
+  openFirstRound?: boolean;
+  /** Earlier turns of this session, for a follow-up. */
+  prior?: string | null;
+  /** Files and links, already read once (`attachPrepare`). */
+  attached?: string | null;
 }
 
 /** One line from `roundtable ask --events`, plus `process_exit` from the app. */
@@ -166,6 +234,7 @@ export type EngineEvent =
   | { event: "head_done"; head: string; round: number; status: string; text: string; reason?: string; message?: string; fix?: Fix; via?: string; seat?: string }
   | { event: "round_done"; round: number }
   | { event: "chair_verdict"; round: number; consensus: boolean; text: string }
+  | { event: "verdict"; shape: VerdictShape; text: string; minority?: string; held_by?: string; confidence?: string }
   | { event: "run_done"; transcript: string; answered: number; consensus?: boolean; history_id?: string }
   | { event: "process_exit" }
   /** A one-head retry finished. Its transcript holds just that head. */
@@ -198,6 +267,9 @@ export interface RetryRequest {
   /** The seat key, and its persona id on a persona seat. */
   seat?: string;
   persona?: string;
+  brief?: string | null;
+  prior?: string | null;
+  attached?: string | null;
 }
 
 export interface UpdateInfo {
@@ -226,6 +298,14 @@ export interface Api {
   askRetry(head: string, req: RetryRequest): Promise<void>;
   /** Ask one AI a five-word question. `via`: "auto", "app" or "key". */
   headTest(head: string, via: "auto" | "app" | "key"): Promise<HeadTest>;
+  /** The coach's questions (at most three). */
+  coachQuestions(question: string): Promise<CoachQuestions>;
+  coachBrief(question: string, qa: { q: string; a: string }[]): Promise<CoachBrief>;
+  suggestPanel(question: string, brief: string | null, heads: string[]): Promise<PanelSuggestion>;
+  /** Read a file or link once, as every seat will read it. */
+  attachPrepare(source: string): Promise<AttachResult>;
+  /** Pick a text file or PDF. */
+  pickAttachment(): Promise<string | null>;
   personasList(): Promise<PersonaLibrary>;
   /** Create (empty id) or update one of the person's own personas. */
   personaSave(p: Persona): Promise<Persona>;
@@ -303,12 +383,29 @@ export async function tauriApi(): Promise<Api> {
         contextPath: req.contextPath ?? null,
         contextText: req.contextText ?? null,
         personas: req.personas ?? null,
+        brief: req.brief ?? null,
+        verdict: req.verdict ?? null,
+        openFirstRound: req.openFirstRound ?? null,
+        prior: req.prior ?? null,
+        attached: req.attached ?? null,
       });
     },
     askStop: () => invoke("ask_stop"),
     askRetry: (head, req) =>
-      invoke("ask_retry", { run: currentRun, head, question: req.question, research: req.research, contextPath: req.contextPath ?? null, seat: req.seat ?? null, persona: req.persona ?? null }),
+      invoke("ask_retry", { run: currentRun, head, question: req.question, research: req.research, contextPath: req.contextPath ?? null, seat: req.seat ?? null, persona: req.persona ?? null, brief: req.brief ?? null, prior: req.prior ?? null, attached: req.attached ?? null }),
     headTest: (head, via) => invoke("head_test", { head, via }),
+    coachQuestions: (question) => invoke("coach_questions", { question }),
+    coachBrief: (question, qa) => invoke("coach_brief", { question, qa }),
+    suggestPanel: (question, brief, heads) => invoke("suggest_panel", { question, brief, heads }),
+    attachPrepare: (source) => invoke("attach_prepare", { source }),
+    async pickAttachment() {
+      const p = await dialog.open({
+        multiple: false,
+        directory: false,
+        filters: [{ name: "Text or PDF", extensions: ["txt", "md", "markdown", "csv", "json", "pdf", "html", "htm"] }],
+      });
+      return typeof p === "string" ? p : null;
+    },
     personasList: () => invoke("personas_list"),
     personaSave: (persona) => invoke("persona_save", { persona }),
     personaDuplicate: (id) => invoke("persona_duplicate", { id }),

@@ -42,7 +42,28 @@ async function boot() {
     if (q.get("rounds")) app.set({ ask: { ...app.state.ask, rounds: Number(q.get("rounds")) } });
     if (q.get("persona") === "new") app.set({ personaEdit: { id: "", name: "Head of Support", expertise: "Customers after they buy", brief: "Reason from the support queue. Weigh time to first answer and repeat contacts. Be skeptical of features nobody asked for.", ai: "gemini" } });
     if (run === "talk") void app.ask("Should we move the product launch to March or keep February?", Number(q.get("rounds") ?? 2), true);
-    if (run === "ask") void app.ask("Should we raise prices 20% for new customers?", app.state.ask.rounds, false);
+    if (run === "ask") void app.askTable("Should we raise prices 20% for new customers?", null);
+    // rc7 preview: ?verdict=decision|pros-cons|plan|vote, ?coach=1|brief, ?attach=1, ?follow=1, ?blind=0
+    const verdict = q.get("verdict");
+    if (verdict) app.set({ ask: { ...app.state.ask, verdict: verdict as typeof app.state.ask.verdict } });
+    if (q.get("blind") === "0") void app.saveSettings({ blind_first_round: false });
+    if (q.get("attach") === "1") {
+      void app.addAttachment("/Users/someone/plan.pdf").then(() => app.addAttachment("https://example.com/pricing-notes"));
+    }
+    const coach = q.get("coach");
+    if (coach) {
+      app.set({ ask: { ...app.state.ask, question: "Should we raise prices 20% for new customers?" } });
+      void app.openCoach("Should we raise prices 20% for new customers?").then(async () => {
+        if (coach !== "brief") return;
+        app.state.coach!.answers = ["Grow revenue without losing small teams.", "Under 3% churn."];
+        await app.writeBrief();
+      });
+    }
+    if (q.get("follow") === "1") {
+      void app.askTable("Should we raise prices 20% for new customers?", null).then(() =>
+        setTimeout(() => void app.askFollowUp("What if a competitor cuts prices next month?", app.state.run!.heads[1] ?? "table"), 4000),
+      );
+    }
     if (q.get("open") === "1") setInterval(() => document.querySelectorAll("details.step").forEach((d) => d.setAttribute("open", "")), 200);
   }
 }

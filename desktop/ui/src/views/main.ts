@@ -27,6 +27,8 @@ import {
 } from "../state";
 import type { PersonaLibrary } from "../api";
 import { answerCard } from "./onboarding";
+import { renderCoach } from "./coach";
+import { attachmentLabel, attachmentNote, confidenceOf, formatVerdictBody, seatName, splitFinalVerdict, VERDICT_SHAPES, verdictHint, verdictTitle } from "../session";
 import { glyph, headLogo, lockup } from "../brand";
 
 export function renderMain(app: App): HTMLElement {
@@ -133,12 +135,13 @@ function sidebar(app: App): HTMLElement {
 
 function centre(app: App): HTMLElement {
   const s = app.state;
+  if (s.coach) return renderCoach(app, s.coach);
   if (s.run) return results(app, s.run);
   if (s.opened) {
     return h(
       "div",
       { class: "pane" },
-      h("div", { class: "actions left" }, button("New question", () => app.newQuestion(), "btn"), button("Ask a follow-up", () => app.followUp(), "btn"), button("Copy all", () => void app.api.copyText(s.opened!.transcript).then(() => app.showToast("Copied.")), "btn ghost"), button("Save as file", () => void app.api.saveTextFile("roundtable.md", s.opened!.transcript), "btn ghost")),
+      h("div", { class: "actions left" }, button("New question", () => app.newQuestion(), "btn"), button("Ask a follow-up", () => app.followUp(), "btn"), button("Copy as Markdown", () => void app.api.copyText(s.opened!.transcript).then(() => app.showToast("Copied as Markdown.")), "btn ghost"), button("Download .md", () => void app.api.saveTextFile("roundtable.md", s.opened!.transcript), "btn ghost")),
       h("div", { class: "transcript card" }, renderMarkdown(s.opened.transcript)),
     );
   }
@@ -152,7 +155,7 @@ function askBox(app: App): HTMLElement {
   const n = heads.length;
   const plan = planSeats(ask, heads, s.personas);
   const est = h("p", { class: "estimate small muted", text: estimateLine(n, ask.rounds, plan.length) });
-  const go = button("Ask the table", () => void app.ask(ask.question, ask.rounds, ask.research, { path: ask.contextPath, text: ask.contextText }, plan), "btn primary large", n === 0 || !ask.question.trim());
+  const go = button(ask.coach ? "Sharpen and ask" : "Ask the table", () => void app.startAsk(), "btn primary large", n === 0 || !ask.question.trim());
   const chairMissing = s.keys.claude.status !== "connected" && !app.cliHeads().includes("claude");
   return h(
     "div",
@@ -174,23 +177,14 @@ function askBox(app: App): HTMLElement {
         },
       },
     }),
-    h("div", { class: "ask-grid" }, roundsControl(app), seatsControl(app, heads, plan)),
+    h("div", { class: "ask-grid" }, h("div", { class: "ask-col" }, roundsControl(app), verdictControl(app)), seatsControl(app, heads, plan)),
     h(
       "div",
       { class: "options" },
+      toggle("Sharpen my question first", ask.coach, (v) => app.set({ ask: { ...ask, coach: v } }), "One AI asks up to three questions and writes a brief."),
       toggle("Let them search the web", ask.research, (v) => app.set({ ask: { ...ask, research: v } })),
-      h(
-        "div",
-        { class: "file-row" },
-        ask.contextName
-          ? h("span", { class: "file-chip" }, h("span", { text: `Background: ${ask.contextName}` }), h("button", { type: "button", class: "chip-x", text: "×", attrs: { "aria-label": "Remove file" }, on: { click: () => app.set({ ask: { ...ask, contextName: null, contextPath: null, contextText: null } }) } }))
-          : withGlyph(button("Add a file", async () => {
-              const p = await app.api.pickTextFile();
-              if (p) app.set({ ask: { ...ask, contextPath: p, contextText: null, contextName: p.split(/[\\/]/).pop() ?? p } });
-            }, "btn small"), "file"),
-        h("small", { class: "muted", text: "Optional. A text file the AIs should read first." }),
-      ),
     ),
+    materialRow(app),
     h(
       "div",
       { class: "ask-bar" },
@@ -227,6 +221,77 @@ function roundsControl(app: App): HTMLElement {
       ),
     ),
     h("small", { class: "muted field-hint", text: roundsHint(ask.rounds) }),
+  );
+}
+
+/** The verdict shape: decision, pros and cons, action plan, or vote. */
+function verdictControl(app: App): HTMLElement {
+  const ask = app.state.ask;
+  return h(
+    "div",
+    { class: "ask-field" },
+    h("span", { class: "field-label", attrs: { id: "verdict-label" }, text: "Verdict" }),
+    select("Verdict", ask.verdict, VERDICT_SHAPES.map((v) => ({ value: v.id, label: v.label })), (v) => {
+      app.set({ ask: { ...ask, verdict: v as typeof ask.verdict } });
+      void app.saveSettings({ verdict_shape: v as typeof ask.verdict });
+    }, "verdict-select"),
+    h("small", { class: "muted field-hint", text: `${verdictHint(ask.verdict)} It names the minority view too.` }),
+  );
+}
+
+/** Files and links every seat reads: read once, long ones summarized once. */
+function materialRow(app: App): HTMLElement {
+  const ask = app.state.ask;
+  const linkInput = h("input", {
+    type: "text",
+    class: "link-input",
+    placeholder: "Paste a link",
+    value: ask.link,
+    attrs: { "aria-label": "A link every seat reads", spellcheck: "false" },
+    on: {
+      input: (e) => {
+        ask.link = (e.target as HTMLInputElement).value;
+      },
+      keydown: (e) => {
+        if (e.key === "Enter") void app.addLink();
+      },
+    },
+  });
+  return h(
+    "section",
+    { class: "material", attrs: { "aria-label": "Files and links" } },
+    h("div", { class: "material-head" }, h("span", { class: "field-label", text: "Files and links" }), h("small", { class: "muted", text: "Optional. Text, PDF or a web page. Every seat reads the same copy." })),
+    ask.contextName
+      ? h(
+          "div",
+          { class: "attachment" },
+          glyph("file"),
+          h("span", { class: "att-text" }, h("span", { class: "att-name", text: `Following up on: ${ask.contextName}` }), h("small", { class: "muted", text: "Every seat reads the earlier roundtable first." })),
+          h("button", { type: "button", class: "chip-x", text: "×", attrs: { "aria-label": "Stop following up" }, on: { click: () => { app.state.priorFromHistory = null; app.set({ ask: { ...ask, contextName: null, contextPath: null, contextText: null } }); } } }),
+        )
+      : null,
+    ask.attachments.length
+      ? h(
+          "ul",
+          { class: "attachments" },
+          ask.attachments.map((a, i) =>
+            h(
+              "li",
+              { class: "attachment", attrs: { "data-kind": a.kind } },
+              glyph(a.kind === "link" ? "link" : "file"),
+              h("span", { class: "att-text" }, h("span", { class: "att-name", text: attachmentLabel(a), title: a.name }), h("small", { class: "muted", text: attachmentNote(a) })),
+              h("button", { type: "button", class: "chip-x", text: "×", attrs: { "aria-label": `Remove ${attachmentLabel(a)}` }, on: { click: () => app.removeAttachment(i) } }),
+            ),
+          ),
+        )
+      : null,
+    h(
+      "div",
+      { class: "material-add" },
+      withGlyph(button("Add a file", () => void app.pickAttachment(), "btn small", ask.attaching), "file"),
+      h("div", { class: "link-row" }, linkInput, button("Add link", () => void app.addLink(), "btn small", ask.attaching)),
+      ask.attaching ? h("span", { class: "small muted working", role: "status", text: "Reading..." }) : null,
+    ),
   );
 }
 
@@ -338,7 +403,7 @@ function seatsControl(app: App, heads: string[], plan: SeatPick[]): HTMLElement 
 
 function results(app: App, run: RunView): HTMLElement {
   const last = run.verdicts[run.verdicts.length - 1];
-  const verdict =
+  const chairCard =
     run.rounds > 1 && last
       ? (() => {
           const v = splitVerdict(last.text);
@@ -351,41 +416,144 @@ function results(app: App, run: RunView): HTMLElement {
           );
         })()
       : null;
+  const waitingVerdict = run.verdictShape && !run.verdict && !run.done && Object.values(run.cards).every((c) => c.status !== "thinking" && c.status !== "waiting") && run.round >= 1;
   const progress = !run.done
-    ? h("p", { class: "muted", role: "status", text: run.rounds > 1 ? `Round ${run.round} of up to ${run.rounds}...` : "Asking the table..." })
+    ? h("p", { class: "muted", role: "status", text: waitingVerdict ? `The chair is writing the verdict (${verdictTitle(run.verdictShape!).toLowerCase()})...` : run.rounds > 1 ? `Round ${run.round} of up to ${run.rounds}...` : "Asking the table..." })
     : null;
+  const turns = app.state.session;
   return h(
     "div",
     { class: "pane results" },
+    turns.length ? pastTurns(turns) : null,
+    run.target && run.target !== "table" ? h("p", { class: "turn-tag small muted", text: `Follow-up to ${seatName(run, run.target)}` }) : turns.length ? h("p", { class: "turn-tag small muted", text: "Follow-up to the whole table" }) : null,
     h("h2", { class: "q-title", text: run.question }),
     h(
       "div",
       { class: "actions left" },
       run.done
         ? [
-            button("Copy all", () => void app.api.copyText(run.transcript).then(() => app.showToast("Copied.")), "btn"),
-            button("Save as file", () => void app.api.saveTextFile("roundtable.md", run.transcript), "btn"),
-            button("Ask a follow-up", () => app.followUp(), "btn"),
+            // With a verdict, these sit on the verdict card.
+            run.verdict ? null : button("Copy as Markdown", () => void app.copyMarkdown(run), "btn"),
+            run.verdict ? null : button("Download .md", () => void app.downloadMarkdown(run), "btn"),
+            turns.length ? button("Export session", () => void app.exportSession(), "btn") : null,
             button("New question", () => app.newQuestion(), "btn ghost"),
           ]
         : button("Stop", () => void app.stop(), "btn danger"),
     ),
+    run.brief ? briefCard(run.brief) : null,
+    run.attachments?.length ? h("p", { class: "small muted", text: `Every seat read: ${run.attachments.join(", ")}.` }) : null,
     progress,
     run.stopped ? h("p", { class: "status bad", text: "Stopped." }) : null,
     run.done && !run.stopped && allFailed(run) ? h("p", { class: "status bad", role: "alert", text: firstFailure(run) }) : null,
-    verdict,
+    run.verdict ? finalVerdict(app, run) : null,
+    chairCard,
     h("div", { class: "answers grid" }, run.heads.map((k) => answerCard(run.cards[k] ?? { head: k, seat: k, status: "waiting", text: "", round: 1 }, app, run))),
     run.rounds > 1 && run.steps.length ? roundSteps(run) : null,
-    h("p", { class: "small muted", text: `At the table: ${run.heads.map((k) => seatName(run, k)).join(", ")}.` }),
+    h("p", { class: "small muted", text: `At the table: ${run.heads.map((k) => seatName(run, k)).join(", ")}.${run.openFirstRound ? " Round 1 was open: each seat read the seats before it." : ""}` }),
+    run.done && !run.stopped && !allFailed(run) ? followUpBox(app, run) : null,
   );
 }
 
-/** "CFO on Claude", or "Claude" on a Generic seat. */
-function seatName(run: RunView, key: string): string {
-  const c = run.cards[key];
-  const head = c?.head ?? run.seats[key]?.head ?? key;
-  const p = c?.persona ?? run.seats[key]?.persona;
-  return p ? `${p} on ${providerName(head)}` : providerName(head);
+function briefCard(md: string): HTMLElement {
+  return h("details", { class: "brief-card" }, h("summary", null, h("span", { class: "field-label", text: "The brief" }), h("span", { class: "small muted", text: "What every seat read before your question" })), renderMarkdown(md));
+}
+
+/** The chair's final verdict, in its shape, with the minority view and who held it. */
+function finalVerdict(app: App, run: RunView): HTMLElement {
+  const v = run.verdict!;
+  const parts = splitFinalVerdict(v.text);
+  const minority = v.minority ?? parts.minority;
+  const heldBy = v.held_by ?? parts.heldBy;
+  const conf = v.shape === "decision" ? confidenceOf(v) : undefined;
+  const unavailable = /verdict unavailable/i.test(v.text);
+  return h(
+    "section",
+    { class: `final-verdict${unavailable ? " unavailable" : ""}`, attrs: { "data-shape": v.shape, "aria-label": "Verdict" } },
+    h(
+      "div",
+      { class: "fv-head" },
+      h("p", { class: "verdict-by fv-by" }, headLogo("claude", "sm"), h("span", { text: "Claude, as chair, final verdict" })),
+      conf ? h("span", { class: `state conf-${conf}`, text: `${conf[0].toUpperCase()}${conf.slice(1)} confidence` }) : null,
+    ),
+    h("h2", { text: verdictTitle(v.shape) }),
+    unavailable ? h("p", { class: "muted", text: "The chair did not answer, so there is no verdict. Connect Claude to get one." }) : renderMarkdown(formatVerdictBody(parts.body)),
+    unavailable
+      ? null
+      : h(
+          "div",
+          { class: "minority" },
+          h("span", { class: "field-label", text: "Minority view" }),
+          minority
+            ? h("p", null, h("span", { text: minority }), h("span", { class: "held-by", text: ` Held by ${heldBy ?? "a seat the chair did not name"}.` }))
+            : h("p", { class: "muted", text: "None. Every seat backed the verdict." }),
+        ),
+    h(
+      "div",
+      { class: "actions left fv-actions" },
+      withGlyph(button("Copy as Markdown", () => void app.copyMarkdown(run), "btn small"), "copy"),
+      withGlyph(button("Download .md", () => void app.downloadMarkdown(run), "btn small"), "download"),
+    ),
+  );
+}
+
+/** Earlier turns of this session, folded. */
+function pastTurns(turns: RunView[]): HTMLElement {
+  return h(
+    "section",
+    { class: "turns", attrs: { "aria-label": "Earlier in this session" } },
+    turns.map((t, i) =>
+      h(
+        "details",
+        { class: "turn" },
+        h(
+          "summary",
+          null,
+          h("span", { class: "step-n", text: String(i + 1) }),
+          h("span", { class: "turn-q", text: t.question }),
+          h("span", { class: "small muted", text: t.target && t.target !== "table" ? seatName(t, t.target) : t.verdict ? verdictTitle(t.verdict.shape) : `${t.heads.length} seats` }),
+        ),
+        h(
+          "div",
+          { class: "step-body" },
+          t.verdict ? renderMarkdown(splitFinalVerdict(t.verdict.text).body) : null,
+          t.heads
+            .filter((k) => t.cards[k]?.text)
+            .map((k) => h("div", { class: "step-answer" }, h("p", { class: "step-who" }, headLogo(t.cards[k].head, "sm"), h("strong", { text: seatName(t, k) })), renderMarkdown(cleanAnswer(t.cards[k].text)))),
+        ),
+      ),
+    ),
+  );
+}
+
+/** Ask the whole table a follow-up, or one seat. The session's history goes with it. */
+function followUpBox(app: App, run: RunView): HTMLElement {
+  const s = app.state;
+  let target = "table";
+  const input = h("textarea", {
+    class: "question",
+    rows: 2,
+    placeholder: "Ask a follow-up",
+    value: s.followUpText,
+    attrs: { "aria-label": "Your follow-up" },
+    on: {
+      input: (e) => {
+        s.followUpText = (e.target as HTMLTextAreaElement).value;
+        go.disabled = !s.followUpText.trim();
+      },
+      keydown: (e) => {
+        if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && s.followUpText.trim()) void app.askFollowUp(s.followUpText, target);
+      },
+    },
+  });
+  const go = button("Ask", () => void app.askFollowUp(s.followUpText, target), "btn primary", !s.followUpText.trim());
+  const options = [{ value: "table", label: "The whole table" }, ...run.heads.map((k) => ({ value: k, label: `Only ${seatName(run, k)}` }))];
+  return h(
+    "section",
+    { class: "follow-up", attrs: { "aria-label": "Follow-up" } },
+    h("div", { class: "follow-head" }, h("h3", { text: "Follow up" }), h("small", { class: "muted", text: "They read everything said so far." })),
+    input,
+    h("div", { class: "follow-bar" }, select("Who answers", target, options, (v) => (target = v), "follow-target"), go),
+  );
 }
 
 /** Every round as a step the person can open: the answers in it, then the chair's verdict. */
