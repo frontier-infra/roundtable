@@ -147,7 +147,7 @@ export interface CliView {
   signingIn: string[];
 }
 
-export type View = "onboarding" | "main" | "settings";
+export type View = "onboarding" | "main" | "settings" | "help";
 
 /** The question coach, between the ask box and the table. */
 export interface CoachView {
@@ -211,6 +211,10 @@ export interface State {
   updateStatus: UpdateStatus;
   /** The What's new sheet, when open. */
   whatsNew: WhatsNew | null;
+  /** The help screen: the page shown, the search box, and the screen Back returns to. */
+  help: { page: string; query: string; back: View };
+  /** The About sheet, from the menu. */
+  about: boolean;
   toast: string | null;
   engineReady: boolean;
   /** Providers the person added, and the local ones found running. */
@@ -342,6 +346,8 @@ export function initialState(): State {
     update: null,
     updateStatus: { checking: false, checkedAt: null, error: null },
     whatsNew: null,
+    help: { page: "overview", query: "", back: "main" },
+    about: false,
     toast: null,
     engineReady: false,
     providers: { loaded: false, loading: false, list: [], presets: [], found: [], models: {}, search: {}, form: null, busy: null },

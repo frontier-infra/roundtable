@@ -38,6 +38,7 @@ import { renderSettings } from "./views/settings";
 import { h } from "./dom";
 import { HEAD_ORDER, setProviderNames } from "./providers";
 import { CHANGELOG, parseChangelog, renderUpdateBanner, renderWhatsNew, whatsNewAfterUpdate } from "./updates";
+import { HELP_HOME, helpPage, onMenu, renderAbout, renderHelp } from "./help";
 
 const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
 
@@ -119,6 +120,8 @@ export class App {
       // Closing the window ends the Undo window. The core finishes any delete left on the next start.
       window.addEventListener("pagehide", () => this.purgePending());
     }
+    // The native menu bar (Help, Settings, About...).
+    void this.api.onMenu((id) => void onMenu(this, id)).catch(() => {});
     if (opts.view) this.state.view = opts.view;
     else this.state.view = this.state.settings.onboarded && this.state.engineReady ? "main" : "onboarding";
     if (opts.screen) this.state.step = Math.min(5, Math.max(1, opts.screen)) as Step;
@@ -148,9 +151,10 @@ export class App {
 
   render() {
     const s = this.state;
-    const view = s.view === "onboarding" ? renderOnboarding(this) : s.view === "settings" ? renderSettings(this) : renderMain(this);
+    const view =
+      s.view === "onboarding" ? renderOnboarding(this) : s.view === "settings" ? renderSettings(this) : s.view === "help" ? renderHelp(this) : renderMain(this);
     const banner = renderUpdateBanner(this);
-    const sheet = s.whatsNew ? renderWhatsNew(this, s.whatsNew) : null;
+    const sheet = s.whatsNew ? renderWhatsNew(this, s.whatsNew) : s.about ? renderAbout(this) : null;
     const toast = s.toast
       ? h(
           "div",
@@ -167,6 +171,20 @@ export class App {
       [...this.root.querySelectorAll<HTMLElement>(".history li")].find((li) => li.dataset.id === id)?.focus();
       this.focusRow = null;
     }
+  }
+
+  /** Open the built-in help on a page. Back returns to the screen it was opened from. */
+  openHelp(page = HELP_HOME) {
+    const s = this.state;
+    const back = s.view === "help" ? s.help.back : s.view;
+    const id = helpPage(page) ? page : HELP_HOME;
+    const same = s.view === "help" && s.help.page === id;
+    this.set({ view: "help", help: { page: id, query: same ? s.help.query : "", back }, about: false, whatsNew: null });
+    if (!same) this.root.querySelector(".help-view")?.scrollTo?.({ top: 0 });
+  }
+
+  closeHelp() {
+    this.set({ view: this.state.help.back, help: { ...this.state.help, query: "" } });
   }
 
   showToast(msg: string, ms = 3000, undo: State["undo"] = null) {

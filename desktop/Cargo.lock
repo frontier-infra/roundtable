@@ -3229,6 +3229,7 @@ name = "roundtable-desktop"
 version = "0.1.2"
 dependencies = [
  "dirs 5.0.1",
+ "muda",
  "roundtable-engine",
  "semver",
  "serde",

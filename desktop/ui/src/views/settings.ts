@@ -2,7 +2,7 @@
 
 import type { App } from "../app";
 import { button, h, toggle } from "../dom";
-import { CHAIR_DEFAULT_MODEL, HELP_URL, ISSUES_URL, PROVIDERS, providerName } from "../providers";
+import { CHAIR_DEFAULT_MODEL, ISSUES_URL, PROVIDERS, providerName } from "../providers";
 import { connectedHeads, helpUrl, keychainName, roundtables } from "../state";
 import { claudeConnect, cliList, keyCard } from "./onboarding";
 import { select, withGlyph } from "./main";
@@ -13,6 +13,7 @@ import { providersSection } from "./providers";
 import { decisionSection } from "../decision";
 import { aboutSection } from "../credits";
 import { updatesSection } from "../updates";
+import { DOCS_URL } from "../help";
 
 function section(title: string, ...body: (HTMLElement | null)[]): HTMLElement {
   return h("section", { class: "setting" }, h("h2", { text: title }), h("div", { class: "setting-body" }, body));
@@ -161,7 +162,8 @@ export function renderSettings(app: App): HTMLElement {
         h(
           "div",
           { class: "actions left" },
-          button("Help pages", () => void app.api.openUrl(HELP_URL), "btn"),
+          button("Help pages", () => app.openHelp(), "btn"),
+          button("Online docs", () => void app.api.openUrl(DOCS_URL), "btn ghost"),
           button("Report a problem", () => void app.api.openUrl(helpUrl(ISSUES_URL, undefined, s.os, s.version)), "btn"),
           button("Copy diagnostics", () => void app.copyDiagnostics(), "btn ghost"),
         ),

@@ -17,7 +17,7 @@ async function boot() {
       os: q.get("os") ?? "macos",
       claude: q.get("claude") ?? "both",
       keys: (q.get("keys") ?? "").split(",").filter(Boolean),
-      onboarded: q.get("view") === "main" || q.get("view") === "settings",
+      onboarded: ["main", "settings", "help"].includes(q.get("view") ?? ""),
       setupFails: q.get("fail") === "1",
       delay: Number(q.get("delay") ?? 400),
       history: q.get("history") === "1" ? sampleHistory() : q.get("history") === "many" ? manyHistory() : [],
@@ -39,8 +39,14 @@ async function boot() {
   }
   const app = new App(api, root);
   const screen = !inTauri && q.get("screen") ? Number(q.get("screen")) : undefined;
-  const view = !inTauri ? (q.get("view") as "main" | "settings" | null) ?? undefined : undefined;
-  await app.start({ screen, view });
+  const view = !inTauri ? (q.get("view") as "main" | "settings" | "help" | null) ?? undefined : undefined;
+  await app.start({ screen, view: view === "help" ? "main" : view });
+  // ?view=help&page=connect-your-ais&q=keys (the help screen), ?about=1 (the About sheet)
+  if (!inTauri && view === "help") {
+    app.openHelp(q.get("page") ?? undefined);
+    if (q.get("q")) app.set({ help: { ...app.state.help, query: q.get("q")! } });
+  }
+  if (!inTauri && q.get("about") === "1") app.set({ about: true });
   if (!inTauri) {
     (window as unknown as { rt: App }).rt = app;
     // Preview only: ?run=setup|quick|talk plays that flow on the mock backend.

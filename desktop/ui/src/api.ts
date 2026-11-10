@@ -492,6 +492,8 @@ export interface Api {
   terminalCommand(on: boolean): Promise<string>;
   diagnostics(): Promise<string>;
   openUrl(url: string): Promise<void>;
+  /** A click in the native menu bar: the item's id (core/src/menu.rs). */
+  onMenu(handler: (id: string) => void): Promise<void>;
   /** Memory, chip, and whether our decision model is already in Ollama or LM Studio. */
   jebadiahLocal(): Promise<JebadiahLocal>;
   pickTextFile(): Promise<string | null>;
@@ -615,6 +617,9 @@ export async function tauriApi(): Promise<Api> {
     terminalCommand: (on) => invoke("terminal_command", { on }),
     diagnostics: () => invoke("diagnostics"),
     openUrl: (url) => opener.openUrl(url),
+    async onMenu(handler) {
+      await listen<string>("menu", (e) => handler(e.payload));
+    },
     jebadiahLocal: () => invoke("jebadiah_local"),
     async pickTextFile() {
       const p = await dialog.open({

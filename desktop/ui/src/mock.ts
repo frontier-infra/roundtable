@@ -117,8 +117,9 @@ const SAMPLE: Record<string, string> = {
   minimax: "A small herb garden, then bread with the herbs.",
 };
 
-export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
+export function mockApi(o: MockOptions = {}): Api & { calls: string[]; menu(id: string): void } {
   const calls: string[] = [];
+  let menuHandler: ((id: string) => void) | null = null;
   let downloaded: string | null = null;
   const delay = o.delay ?? 0;
   const keys = new Set(o.keys ?? []);
@@ -552,6 +553,13 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
     diagnostics: async () => "Roundtable 0.1.1\nOS: macos aarch64\n",
     async openUrl(url) {
       calls.push(`open:${url}`);
+    },
+    async onMenu(handler) {
+      menuHandler = handler;
+    },
+    menu(id: string) {
+      calls.push(`menu:${id}`);
+      menuHandler?.(id);
     },
     async jebadiahLocal() {
       calls.push("jebadiahLocal");
