@@ -1,0 +1,68 @@
+[
+ {
+  "id": "build-vs-buy",
+  "topic": "Build versus buy",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 4.0,
+   "tradeoffs": 5.0,
+   "recommendation": 5.0,
+   "unknowns": 5.0,
+   "hidden_facts": 5.0,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 34.0,
+   "facts": 5.0
+  },
+  "single": {
+   "risks": 5.0,
+   "tradeoffs": 4.5,
+   "recommendation": 4.0,
+   "unknowns": 3.0,
+   "hidden_facts": 5.0,
+   "next_steps": 4.0,
+   "minority_view": 4.0,
+   "total": 29.5,
+   "facts": 5.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "A makes the pivotal unknown (employee queue vs customer email) the first question, quantifies two-year costs for every path, and gives a labeled decision with confidence, would-change conditions, and kill rules, while B is clear and has the best long-tail risk list but assumes the customer-support reading and is less actionable.",
+   "Both do the math and name the alternatives and long tail, but B pairs an explicit confidence-and-change-condition verdict with the right gating unknowns (who files the tickets, which tier), ordered steps with kill rules, and a genuine dissent, while A never resolves whether this is customer support or an employee queue and its next steps are thinner."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 291.8,
+   "single": 19.9
+  },
+  "words": {
+   "table": 2605,
+   "single": 465
+  }
+ }
+]
