@@ -172,9 +172,44 @@ Three areas. The window opens at 1100 by 720 and works down to 800 by 600.
   - With Talk it through, the chair's verdict sits on top: "They agree" or "They still disagree".
   - Under the verdict: the agreed points and the open points.
   - Below, one card per AI: its name, its answer, and a status (answered, skipped, timed out).
-  - Buttons: **Copy all**, **Save as file**, **Ask a follow-up** (a new roundtable with this one as background).
+  - Every verdict has **Copy as Markdown** and **Download .md** (section 5.1). **Export session** saves every turn.
+  - Under the answers: a follow-up box. It asks the whole table or one seat, and keeps the history.
 - **Top right:** a gear for Settings.
   - Next to it, a dot. Green means the engine runs and at least one AI is ready.
+
+### 5.1 Coach, panel, blind round, verdicts, follow-ups (rc7)
+
+Jason approved all five on 2026-11-10.
+
+1. **Question coach.** On by default ("Sharpen my question first"; Settings, How the table works).
+   - One AI, the chair's seat, asks at most three short clarifying questions.
+   - The person answers, or leaves any empty. Already clear: it goes straight to the brief.
+   - The brief has four fields: goal, context, constraints, what a good answer looks like. The person edits it.
+   - **Skip the coach** works at every step. If the coach cannot answer, **Ask the table as typed**.
+   - The table reads the brief in front of the question (`## BRIEF`). The transcript shows it under `## Brief`.
+   - Engine: `ask --coach`, `--coach-answer A` (repeat), `--coach-questions`, `--brief FILE`; `coach questions|brief --json` for the app.
+   - MCP: `coach` and `coach_answers`. With no answers, the tool returns the questions to ask.
+2. **Suggested panel.** From the brief, the app proposes seats from the persona packs.
+   - The chair picks 2 to 4 persona ids; with no chair, a word match on name, expertise and brief picks.
+   - The person keeps them, edits each seat (persona and AI), adds or removes one, or keeps **My seats**.
+   - Engine: `suggest --json`, and `ask --personas auto` in both engines.
+3. **Blind first round.** Round 1 is blind: seats answer without seeing each other.
+   - Settings, **Blind first round** off: round 1 runs seat by seat, each reading the answers before it.
+   - Later rounds share every answer and revise toward consensus, as before. Engine: `--no-blind`.
+4. **Verdict shapes.** The ask box's **Verdict**: Decision (with confidence), Pros and cons, Action plan, or Vote.
+   - The chair writes it after the last round. It always ends with `MINORITY VIEW:` and `HELD BY:`.
+   - The card shows the minority view and who held it, and **Copy as Markdown** and **Download .md**.
+   - The Markdown holds the brief, the seats (persona and AI), every round, the chair's notes and the verdict.
+   - Engine: `--verdict SHAPE`, a `verdict` event, and a `## 🪑 Verdict (...)` transcript section.
+5. **Follow-ups and context.**
+   - Ask the whole table (same seats, rounds and verdict) or one seat (one round). Each reads the session so far.
+   - **Files and links**: text, PDF or a web page, 20 MB at most. Each is read once.
+   - Longer than 12,000 characters: the chair summarizes it once and every seat reads the summary.
+   - **Export session** saves every turn as one Markdown file.
+   - Engine: `attach --json`, `ask --attach SRC`, `--attached FILE`, `--follow-up FILE|history id`.
+
+The parity test runs both engines with a fake chair and compares every section, with prompt hashes for
+the brief, the attachments, the follow-up, the open round, the verdict and the suggested seats.
 
 ### Settings
 
@@ -378,7 +413,7 @@ The Rust engine keeps them, but the app hides them.
 - The `codex` head and the Grok CLI and Hermes fallbacks in the UI.
 - Any change to the bash engine, `pyproject.toml`, `README.md`, `AGENTS.md`, `.claude-plugin/` or the roundtable.sh site. Another workflow owns those.
 - Translations. English only.
-- PDFs and images as background files.
+- Images as background files. (PDFs came in with rc7.)
 
 ## 12. Open questions for Jason
 

@@ -112,6 +112,10 @@ roundtable "Postgres or SQLite for a single-tenant internal tool?"
 # 3. Deliberate to consensus on a high-stakes call
 roundtable ask -q "Should we rewrite the billing service in Go?" --rounds 3
 roundtable ask -q "Should we raise prices 20%?" --personas pricing    # seat roles (personas/)
+
+# 4. Sharpen the question, get a verdict you can paste, read a file first
+roundtable ask -q "Should we raise prices 20%?" --coach --verdict decision --attach ./pricing.pdf
+roundtable ask -q "And if a competitor cuts prices?" --follow-up /tmp/rt.md --personas auto
 ```
 
 `roundtable doctor` shows which heads are configured and pings each for reachability.
@@ -120,7 +124,11 @@ roundtable ask -q "Should we raise prices 20%?" --personas pricing    # seat rol
 
 `-q/--question` · `-c/--context <file>` (shared background for every head) ·
 `--heads grok,codex,openai,glm,minimax,claude,gemini` · `--rounds N` (1 to 4, deliberation) · `--personas SPEC` (seat roles, see `personas/README.md`) ·
-`--research` (web on, multi-step) · `--timeout <secs>` · `--out <file>`.
+`--research` (web on, multi-step) · `--timeout <secs>` · `--out <file>` ·
+`--coach` (up to three clarifying questions, then a brief; `--coach-answer A` answers in order, `--brief FILE` brings your own) ·
+`--verdict decision|pros-cons|plan|vote` (the chair's final verdict, always naming the minority view and who held it) ·
+`--no-blind` (round 1 open; blind is the default) · `--attach <file, PDF or link>` (read once; long ones summarized once and shared) ·
+`--follow-up <transcript>` · `--personas auto` (suggested seats).
 
 Exit 0 if at least one head answered.
 
@@ -144,7 +152,7 @@ configured, so **API keys alone are enough** (no local CLIs required).
 Roundtable ships an MCP server as a subcommand of the one binary:
 
 ```bash
-roundtable mcp serve     # stdio JSON-RPC; one tool: roundtable(question, heads?, rounds?, personas?, research?)
+roundtable mcp serve     # stdio JSON-RPC; one tool: roundtable(question, heads?, rounds?, personas?, research?, coach?, coach_answers?, verdict?, blind?, attach?)
 roundtable mcp config    # prints the server JSON block to paste manually
 ```
 
