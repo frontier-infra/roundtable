@@ -1,0 +1,794 @@
+[
+ {
+  "id": "pricing-msp",
+  "topic": "Pricing a service",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 6,
+  "rt": {
+   "risks": 4.0,
+   "tradeoffs": 4.0,
+   "recommendation": 5.0,
+   "unknowns": 4.0,
+   "hidden_facts": 4.5,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 31.5,
+   "facts": 6.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 3.5,
+   "recommendation": 3.5,
+   "unknowns": 3.5,
+   "hidden_facts": 5.0,
+   "next_steps": 5.0,
+   "minority_view": 2.0,
+   "total": 26.5,
+   "facts": 6.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "A lands one concrete, cost-validated call ($165/user, 55% margin check, pilot, ramp rule for big-jump clients) with stated confidence, explicit change conditions and honest dissent, while B is a solid framework that hedges the price into ranges and never argues against itself.",
+   "Both surface nearly all the hidden facts with concrete pricing and rollout detail, but B lands one reconciled call with stated confidence, explicit change-conditions, and a genuine minority view, while A buries its recommendation in ranges and never argues the case against itself."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 387.4,
+   "single": 49.6
+  },
+  "words": {
+   "table": 3397,
+   "single": 1272
+  }
+ },
+ {
+  "id": "hire-vs-contract",
+  "topic": "Hiring versus contracting",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 5.0,
+   "tradeoffs": 5.0,
+   "recommendation": 5.0,
+   "unknowns": 5.0,
+   "hidden_facts": 5.0,
+   "next_steps": 4.5,
+   "minority_view": 5.0,
+   "total": 34.5,
+   "facts": 5.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 4.0,
+   "recommendation": 4.0,
+   "unknowns": 3.5,
+   "hidden_facts": 4.5,
+   "next_steps": 4.0,
+   "minority_view": 3.0,
+   "total": 27.0,
+   "facts": 5.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "B catches all five hidden facts with sounder cost math (48- vs 52-week basis, per-hour wash, $170k-as-raise), explicitly flags which figures are unestablished unknowns, and issues one reconciled decision up front with stated confidence, change-conditions, and same-week actions, while A covers most of the same ground but slants the cost comparison (contractor $40-60k cheaper rather than a wash) and handles unknowns and the opposing case more weakly.",
+   "Both surface all five hidden facts, but A additionally states the consequences that would actually hurt (back taxes and penalties, key-person lock-in with concrete account/key fixes), gives one reconciled call up front with an explicit confidence level and what would change it, and tests every option fairly, whereas B is clear and cheap but waves off the outside-hire option it was asked about ('mostly buys you a label') and never says how sure it is; A's only real cost is length, which the rubric says not to reward but B's brevity does not offset what it leaves out."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 248.4,
+   "single": 20.5
+  },
+  "words": {
+   "table": 2522,
+   "single": 404
+  }
+ },
+ {
+  "id": "database-pick",
+  "topic": "Picking a database",
+  "shape": "depends",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 5.0,
+   "tradeoffs": 4.0,
+   "recommendation": 5.0,
+   "unknowns": 5.0,
+   "hidden_facts": 5.0,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 34.0,
+   "facts": 5.0
+  },
+  "single": {
+   "risks": 3.5,
+   "tradeoffs": 4.0,
+   "recommendation": 4.0,
+   "unknowns": 3.0,
+   "hidden_facts": 3.5,
+   "next_steps": 4.0,
+   "minority_view": 4.0,
+   "total": 26.0,
+   "facts": 4.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "B asks the deciding workload questions up front, gives one findable call with explicit confidence and flip conditions, quantifies the person-specific risks (hot rows, write ceiling, idle cost), keeps queries behind an app layer, and names a labeled minority view, while A soundly defaults to Postgres but assumes rather than asks and never addresses lowering migration regret.",
+   "A asks the workload and cloud questions before deciding, states a confidence level and the exact conditions that flip the call, and covers all five decisive facts (including the migration-cost/access-layer point B omits), while B gives a solid one-size recommendation that never asks first and waits until the last line to request the facts that should drive the choice."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 3,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 211.4,
+   "single": 18.3
+  },
+  "words": {
+   "table": 2469,
+   "single": 541
+  }
+ },
+ {
+  "id": "security-incident",
+  "topic": "Security incident response",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 6,
+  "rt": {
+   "risks": 5.0,
+   "tradeoffs": 4.5,
+   "recommendation": 5.0,
+   "unknowns": 4.5,
+   "hidden_facts": 5.0,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 34.0,
+   "facts": 6.0
+  },
+  "single": {
+   "risks": 4.5,
+   "tradeoffs": 2.5,
+   "recommendation": 3.5,
+   "unknowns": 3.0,
+   "hidden_facts": 4.5,
+   "next_steps": 5.0,
+   "minority_view": 1.5,
+   "total": 24.5,
+   "facts": 6.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "Both catch nearly all the hidden facts (A fully, including the audit log and evidence-preservation risk; B partially on log depth), but A adds explicit tradeoffs, a confident reconciled call with stated would-change conditions, named unknowns, and genuine dissent, while B is a good checklist with no tradeoffs, no confidence statement, and no minority view.",
+   "Both surface all six hidden facts with equally concrete containment steps, but B adds what A omits entirely \u2014 explicit cost/benefit trade-offs, a single confidence-stated decision with would-change-it conditions, flagged unknowns (who the admin is, whether an MFA prompt was approved), and an honest minority view \u2014 so the reader is better equipped to act and adapt, not just follow a checklist."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 362.5,
+   "single": 23.2
+  },
+  "words": {
+   "table": 3284,
+   "single": 727
+  }
+ },
+ {
+  "id": "vendor-contract",
+  "topic": "A vendor contract",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 6,
+  "rt": {
+   "risks": 5.0,
+   "tradeoffs": 5.0,
+   "recommendation": 5.0,
+   "unknowns": 4.0,
+   "hidden_facts": 5.0,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 34.0,
+   "facts": 6.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 4.0,
+   "recommendation": 4.0,
+   "unknowns": 4.0,
+   "hidden_facts": 5.0,
+   "next_steps": 4.5,
+   "minority_view": 4.0,
+   "total": 29.5,
+   "facts": 6.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "Both raise all six hidden facts and give a clear 'don't sign as written' call, but B's reconciled verdict adds the one risk that could actually hurt \u2014 checking the existing contract's opt-out deadline before anything else \u2014 plus explicit confidence, would-change conditions, and a concrete sign-rule, its only real defect being dollar figures assumed rather than flagged as unknown.",
+   "Both catch all six hidden facts, but A adds the decision-critical details B assumes away: explicit confidence with would-change conditions, the current contract's opt-out deadline as the real clock, quantified stakes, a sign-off checklist, and a labeled minority view, while B assumes the Friday deadline will move without a contingency if it won't."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 308.2,
+   "single": 17.9
+  },
+  "words": {
+   "table": 2893,
+   "single": 492
+  }
+ },
+ {
+  "id": "gtm-new-product",
+  "topic": "Go-to-market for a new product",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 5.0,
+   "tradeoffs": 5.0,
+   "recommendation": 5.0,
+   "unknowns": 5.0,
+   "hidden_facts": 4.5,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 34.5,
+   "facts": 5.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 4.0,
+   "recommendation": 4.0,
+   "unknowns": 4.0,
+   "hidden_facts": 5.0,
+   "next_steps": 4.5,
+   "minority_view": 1.5,
+   "total": 27.0,
+   "facts": 5.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "Both surface all five hidden facts, but A adds what B lacks for acting safely \u2014 an explicit confidence level, stated invalidation triggers, kill/diagnosis rules by failure mode, and an honest labeled minority view \u2014 so the owner can tell not just what to do but when to stop.",
+   "B lands one reconciled call with stated confidence, explicit would-change-it conditions, kill rules, and a genuine minority view, and it surfaces sharper situational risks (firms may lack recordings or bill for minutes, platform incumbents), while A covers the hidden facts slightly more cleanly (explicitly endorsing per-association monthly pricing) but presents no dissent and no confidence or change-of-mind conditions."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 416.5,
+   "single": 32.0
+  },
+  "words": {
+   "table": 3654,
+   "single": 811
+  }
+ },
+ {
+  "id": "build-vs-buy",
+  "topic": "Build versus buy",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 4.5,
+   "tradeoffs": 4.5,
+   "recommendation": 4.0,
+   "unknowns": 5.0,
+   "hidden_facts": 4.5,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 32.5,
+   "facts": 5.0
+  },
+  "single": {
+   "risks": 5.0,
+   "tradeoffs": 5.0,
+   "recommendation": 5.0,
+   "unknowns": 3.5,
+   "hidden_facts": 5.0,
+   "next_steps": 4.0,
+   "minority_view": 4.0,
+   "total": 31.5,
+   "facts": 5.0
+  },
+  "votes": [
+   "single",
+   "single"
+  ],
+  "pref": "single",
+  "why": [
+   "B catches all five hidden facts \u2014 including asking what is actually driving the request, which A never asks \u2014 and makes one confident call the reader finds in the first line and can act on today, while A's extra enumerated unknowns come bundled with unreconciled conflicting figures and a recommendation buried in a deliberation transcript the owner would have to distill before acting.",
+   "Both surface all five hidden facts, but A delivers one clear, quickly findable call with settled figures and a decisive next exercise, while B buries equivalent coverage in a multi-voice transcript whose headline numbers (build cost, upkeep, timeline) are explicitly left unreconciled by its own chair."
+  ],
+  "rounds_used": 2,
+  "consensus": null,
+  "clarify": 0,
+  "verdict": false,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 273.6,
+   "single": 22.8
+  },
+  "words": {
+   "table": 2719,
+   "single": 513
+  }
+ },
+ {
+  "id": "restructure",
+  "topic": "A layoff or restructure",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 6,
+  "rt": {
+   "risks": 4.0,
+   "tradeoffs": 4.5,
+   "recommendation": 5.0,
+   "unknowns": 5.0,
+   "hidden_facts": 4.0,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 32.5,
+   "facts": 6.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 4.0,
+   "recommendation": 4.0,
+   "unknowns": 3.0,
+   "hidden_facts": 5.0,
+   "next_steps": 5.0,
+   "minority_view": 2.0,
+   "total": 27.0,
+   "facts": 6.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "B leads with one reconciled call plus stated confidence and what would change it, catches the pivotal unknowns A assumes (what \"20%\" even means, why revenue fell 30%, whether a bridge or sale is in play), and carries an honest labeled dissent, which outweighs A's edge in legal and execution-day detail; A's complete playbook is undermined by never questioning its own assumptions or presenting any counter-case.",
+   "A lands a reconciled, confidence-stated call with the right unknowns (what '20%' means, what drove the drop), a sizing formula against a downside case, and honest dissent, while B's fuller legal and execution-day detail (WARN thresholds, OWBPA mechanics, access removal) cannot offset its absent minority view, weaker unknown-flagging, and less decision-grade sizing method."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 657.0,
+   "single": 36.6
+  },
+  "words": {
+   "table": 3800,
+   "single": 980
+  }
+ },
+ {
+  "id": "funding-choice",
+  "topic": "A funding round choice",
+  "shape": "depends",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 5.0,
+   "tradeoffs": 5.0,
+   "recommendation": 5.0,
+   "unknowns": 5.0,
+   "hidden_facts": 4.0,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 34.0,
+   "facts": 4.0
+  },
+  "single": {
+   "risks": 4.5,
+   "tradeoffs": 5.0,
+   "recommendation": 4.0,
+   "unknowns": 4.5,
+   "hidden_facts": 5.0,
+   "next_steps": 3.0,
+   "minority_view": 2.5,
+   "total": 28.5,
+   "facts": 5.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "Both nail the risks, tradeoffs and unknowns, but B goes further on the lines that make advice actionable \u2014 one reconciled call with stated confidence and explicit flip conditions, arithmetic next steps runnable today, and an honest minority view \u2014 while A leaves checklists but no commitment, no dissent, and softer steps (A did catch the SAFE-stacking point B missed, hence its higher hidden_facts).",
+   "A reconciles its seats into one findable call with stated confidence, explicit change conditions, a same-day affordability test, and a real dissent, while B offers solid rules and the only mention of SAFE stacking but sends the reader off with no lean, no confidence, and no ordered steps."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 3,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 445.7,
+   "single": 23.8
+  },
+  "words": {
+   "table": 3753,
+   "single": 562
+  }
+ },
+ {
+  "id": "churn",
+  "topic": "A customer churn problem",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 6,
+  "rt": {
+   "risks": 5.0,
+   "tradeoffs": 4.5,
+   "recommendation": 5.0,
+   "unknowns": 4.5,
+   "hidden_facts": 5.0,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 34.0,
+   "facts": 6.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 3.0,
+   "recommendation": 4.0,
+   "unknowns": 3.5,
+   "hidden_facts": 5.0,
+   "next_steps": 4.5,
+   "minority_view": 3.0,
+   "total": 27.0,
+   "facts": 5.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "A catches all six hidden facts (including the annualized-loss urgency and closure churn B's quantification misses), leads with one clear call plus confidence and a would-change condition, and pairs day-by-day next steps with a real minority view, while B is solid but lighter on tradeoffs, unknowns, and any case for building.",
+   "Both correctly say diagnose before building, but B adds the quantified urgency (58% annual loss), the small-sample/noise caution, explicit decision rules with a confidence level and a would-change-it trigger, quantified cost-of-delay tradeoffs, and a genuine minority view \u2014 all as one reconciled call \u2014 while A is lighter on tradeoffs, confidence, and dissent."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 222.9,
+   "single": 20.2
+  },
+  "words": {
+   "table": 2619,
+   "single": 636
+  }
+ },
+ {
+  "id": "data-privacy",
+  "topic": "A data-privacy question",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 6,
+  "rt": {
+   "risks": 5.0,
+   "tradeoffs": 4.0,
+   "recommendation": 5.0,
+   "unknowns": 5.0,
+   "hidden_facts": 5.0,
+   "next_steps": 4.5,
+   "minority_view": 5.0,
+   "total": 33.5,
+   "facts": 6.0
+  },
+  "single": {
+   "risks": 4.5,
+   "tradeoffs": 3.5,
+   "recommendation": 4.0,
+   "unknowns": 3.0,
+   "hidden_facts": 5.0,
+   "next_steps": 4.0,
+   "minority_view": 1.5,
+   "total": 25.5,
+   "facts": 6.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "Both catch all six hidden facts and give the same clear verdict, but B adds stated confidence, what would change the call, a genuine minority view, and time-boxed day-1/day-2 steps, while A offers no dissent and only lightly flags its unknowns.",
+   "Both catch all six hidden facts, but A adds an explicit confidence level with what-would-change-it, day-graded next steps, systematic unknowns, and a genuine minority view, while B offers no counterargument to its own call and thinner unknowns despite being far more readable."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 367.3,
+   "single": 32.9
+  },
+  "words": {
+   "table": 3513,
+   "single": 823
+  }
+ },
+ {
+  "id": "ai-tooling",
+  "topic": "An AI tooling choice",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 4.5,
+   "tradeoffs": 4.5,
+   "recommendation": 5.0,
+   "unknowns": 4.5,
+   "hidden_facts": 5.0,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 33.5,
+   "facts": 5.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 4.0,
+   "recommendation": 3.0,
+   "unknowns": 4.0,
+   "hidden_facts": 4.0,
+   "next_steps": 4.0,
+   "minority_view": 3.0,
+   "total": 26.0,
+   "facts": 5.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "B delivers a findable, thresholded decision rule with stated confidence and change-conditions plus explicit spend caps, contract-length limits, and a genuine minority view, while A offers only conditional leanings and a process without one clear call.",
+   "A makes one findable call (default Copilot with an explicit flip rule, stated confidence and exception policy) backed by spend caps, contract limits and a metrics-based pilot, while B, despite cleaner prose and a fuller compliance checklist, never commits to a recommendation and omits caps and short-contract discipline."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 398.7,
+   "single": 28.4
+  },
+  "words": {
+   "table": 2850,
+   "single": 646
+  }
+ }
+]
