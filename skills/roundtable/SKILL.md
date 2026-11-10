@@ -1,6 +1,6 @@
 ---
 name: roundtable
-description: Convene a "round table" of multiple frontier AI models — Grok, Codex/OpenAI, GLM, MiniMax, Claude, and Gemini — to get independent perspectives on a question, optionally deliberating across rounds until a Claude chair declares consensus, then synthesize a single recommendation. Use when the user says "round table", "roundtable", "council", "put your heads together", "ask grok", "ask codex", "get a second opinion", "what do the other models think", "consult the council", "deliberate", or wants cross-model consensus before a decision. Runs via the globally-installed `roundtable` CLI (heads use API keys; Grok/Codex can also use their local CLIs). Can run a chaired deliberation-to-consensus.
+description: Convene a "round table" of multiple frontier AI models — Grok, Codex/OpenAI, GLM, MiniMax, Claude, and Gemini — to get independent perspectives on a question, optionally deliberating across rounds until a Claude chair declares consensus, then synthesize a single recommendation. Use when the user says "round table", "roundtable", "council", "put your heads together", "ask grok", "ask codex", "get a second opinion", "what do the other models think", "consult the council", "deliberate", or wants cross-model consensus before a decision. Runs via the `roundtable` MCP tool or the `roundtable` CLI (heads use API keys; Grok/Codex can also use their local CLIs). Can run a chaired deliberation-to-consensus.
 ---
 
 # 🪑 Round Table
@@ -11,8 +11,15 @@ sees the others and revises until a Claude **chair** declares consensus. You (th
 session) are the moderator: you curate the question, decide what context each head gets,
 and synthesize one decided answer.
 
-This skill drives the globally-installed **`roundtable`** CLI. If it isn't installed:
-`curl -fsSL https://roundtable.sh/install.sh | bash`, then `roundtable auth`.
+Two ways to run it:
+
+- **The `roundtable` MCP tool.** The Claude Code plugin starts it for you. It uses the API
+  keys the user entered in the plugin settings (`/plugin`, then Roundtable, then Configure).
+  Prefer it when it is available.
+- **The `roundtable` command** in the Bash tool. The plugin puts it on the PATH. Outside the
+  plugin, install it with `uv tool install roundtable-sh`. It reads keys from
+  `~/.config/roundtable/config.env`, which `roundtable auth` writes. The user runs
+  `roundtable auth` in their own terminal, because it prompts for keys.
 
 The heads:
 

@@ -1,6 +1,6 @@
 """Thin console-script launcher for Roundtable.
 
-`pip install .` / `uv tool install .` expose a `roundtable` command that simply
+`uv tool install roundtable-sh` / `pipx install roundtable-sh` expose a `roundtable` command that simply
 execs the bundled bash engine (bin/roundtable), which sources lib/*. The engine
 and its libs are bundled as package data under roundtable_cli/_engine/ (see
 pyproject.toml [tool.hatch.build.targets.wheel.force-include]); the bin/ and
@@ -14,7 +14,7 @@ import shutil
 import sys
 from pathlib import Path
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 _ENGINE = Path(__file__).resolve().parent / "_engine" / "bin" / "roundtable"
 
@@ -29,8 +29,8 @@ def main() -> "int":
     if not engine.exists():
         sys.stderr.write(
             "roundtable: bundled engine not found at %s\n"
-            "The pip package may be built incorrectly — reinstall, or use the\n"
-            "curl installer:  curl -fsSL https://roundtable.sh/install.sh | bash\n"
+            "The package may be damaged. Reinstall it:\n"
+            "  uv tool install --reinstall roundtable-sh\n"
             % engine
         )
         return 1

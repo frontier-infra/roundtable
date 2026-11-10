@@ -121,7 +121,7 @@ install_engine() {
   # Ship the Claude Code skill next to the engine so `roundtable install` can drop
   # it even when the install dir isn't a full repo checkout. lib/install.sh looks
   # for it at <engine>/skill/SKILL.md (REPO_ROOT being the parent of lib/).
-  SKILL_IN_SRC="$SRC/plugins/roundtable/skills/roundtable/SKILL.md"
+  SKILL_IN_SRC="$SRC/skills/roundtable/SKILL.md"
   if [ -f "$SKILL_IN_SRC" ]; then
     mkdir -p "$SHARE_DIR/skill"
     cp "$SKILL_IN_SRC" "$SHARE_DIR/skill/SKILL.md"

@@ -438,13 +438,28 @@ rt_cmd_config() {
 #  version / update
 # ════════════════════════════════════════════════════════════════════════════
 rt_cmd_version() {
-  local v="0.1.0"
+  local v="0.1.1"
   [ -f "$RT_REPODIR/VERSION" ] && v="$(head -n1 "$RT_REPODIR/VERSION" 2>/dev/null | tr -d '[:space:]')"
-  [ -z "$v" ] && v="0.1.0"
+  [ -z "$v" ] && v="0.1.1"
   echo "roundtable $v"
 }
 
 rt_cmd_update() {
+  # Point each install method at its own upgrade path.
+  case "$RT_REPODIR" in
+    */.claude/plugins/*|*/.claude-*/plugins/*)
+      echo "Roundtable came from the Claude Code plugin. Update it inside Claude Code:"
+      echo
+      echo "    /plugin marketplace update frontier-infra"
+      return 0 ;;
+    */site-packages/*)
+      echo "Roundtable came from a Python package. Update it with the tool you used:"
+      echo
+      echo "    uv tool upgrade roundtable-sh"
+      echo "    pipx upgrade roundtable-sh"
+      echo "    pip install -U roundtable-sh"
+      return 0 ;;
+  esac
   local cmd="curl -fsSL $RT_INSTALL_URL | bash"
   echo "Update Roundtable by re-running the installer:"
   echo
