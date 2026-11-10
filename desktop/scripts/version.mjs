@@ -24,23 +24,25 @@ const RELEASE = /^(\d+)\.(\d+)\.(\d+)$/;
 const TEST = /^(\d+)\.(\d+)\.(\d+)-rc\.([1-9]\d*)$/;
 
 export function readVersion(toml) {
-  const block = toml.split(/^\[workspace\.package\]\s*$/m)[1];
-  const m = block && block.match(/^version\s*=\s*"([^"]+)"/m);
+  const i = toml.indexOf("[workspace.package]");
+  const m = i >= 0 && toml.slice(i).match(/^version\s*=\s*"([^"]+)"/m);
   if (!m) throw new Error("no version in desktop/Cargo.toml [workspace.package]");
   return m[1];
 }
 
+/** Changes only the version line of [workspace.package]. Keeps CRLF line ends (a Windows checkout). */
 export function writeVersion(toml, version) {
-  const [head, rest] = toml.split(/(?<=^\[workspace\.package\]\s*$)/m);
-  if (rest === undefined) throw new Error("no [workspace.package] in desktop/Cargo.toml");
-  return head + rest.replace(/^version\s*=\s*"[^"]+"/m, `version = "${version}"`);
+  const i = toml.indexOf("[workspace.package]");
+  if (i < 0) throw new Error("no [workspace.package] in desktop/Cargo.toml");
+  const rest = toml.slice(i).replace(/^version([ \t]*=[ \t]*)"[^"\r\n]+"/m, `version$1"${version}"`);
+  return toml.slice(0, i) + rest;
 }
 
 /** The workspace crates' entries in Cargo.lock carry the version too. */
 export function writeLockVersion(lock, version) {
   let out = lock;
   for (const name of CRATES) {
-    out = out.replace(new RegExp(`(name = "${name}"\\nversion = ")[^"]+(")`), `$1${version}$2`);
+    out = out.replace(new RegExp(`(name = "${name}"\\r?\\nversion = ")[^"]+(")`), `$1${version}$2`);
   }
   return out;
 }
