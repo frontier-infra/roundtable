@@ -111,11 +111,39 @@ export interface AskRequest {
 export type EngineEvent =
   | { event: "run_started"; heads: string[]; rounds: number; mode: string }
   | { event: "head_started"; head: string; round: number }
-  | { event: "head_done"; head: string; round: number; status: string; text: string; reason?: string; message?: string }
+  | { event: "head_done"; head: string; round: number; status: string; text: string; reason?: string; message?: string; fix?: Fix; via?: string }
   | { event: "round_done"; round: number }
   | { event: "chair_verdict"; round: number; consensus: boolean; text: string }
   | { event: "run_done"; transcript: string; answered: number; consensus?: boolean; history_id?: string }
-  | { event: "process_exit" };
+  | { event: "process_exit" }
+  /** A one-head retry finished. Its transcript holds just that head. */
+  | { event: "retry_done"; head: string; transcript: string };
+
+/** What to do about a head that did not answer. */
+export type Fix = "sign_in" | "add_key" | "install" | "retry";
+
+/** `roundtable test <ai> --json`: one five-word question, and how it went. */
+export interface HeadTest {
+  head: string;
+  name: string;
+  ok: boolean;
+  status: string;
+  /** The tool's name, or "API key". */
+  via: string | null;
+  first_line: string | null;
+  message: string | null;
+  fix: Fix | null;
+  secs: number;
+  command: string | null;
+  exit: number | null;
+}
+
+export interface RetryRequest {
+  question: string;
+  research: boolean;
+  /** A file path, or "follow-up" for the last roundtable's transcript. */
+  contextPath?: string | null;
+}
 
 export interface UpdateInfo {
   version: string;
@@ -139,6 +167,10 @@ export interface Api {
   claudeDisconnect(): Promise<ActionResult>;
   askStart(req: AskRequest, onEvent: (e: EngineEvent) => void): Promise<void>;
   askStop(): Promise<void>;
+  /** Ask one head of the current run again. Its events arrive through the run's listener. */
+  askRetry(head: string, req: RetryRequest): Promise<void>;
+  /** Ask one AI a five-word question. `via`: "auto", "app" or "key". */
+  headTest(head: string, via: "auto" | "app" | "key"): Promise<HeadTest>;
   historyList(): Promise<HistoryEntry[]>;
   historyGet(id: string): Promise<string | null>;
   historyDelete(id: string): Promise<void>;
@@ -209,6 +241,9 @@ export async function tauriApi(): Promise<Api> {
       });
     },
     askStop: () => invoke("ask_stop"),
+    askRetry: (head, req) =>
+      invoke("ask_retry", { run: currentRun, head, question: req.question, research: req.research, contextPath: req.contextPath ?? null }),
+    headTest: (head, via) => invoke("head_test", { head, via }),
     historyList: () => invoke("history_list"),
     historyGet: (id) => invoke("history_get", { id }),
     historyDelete: (id) => invoke("history_delete", { id }),

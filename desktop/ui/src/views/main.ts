@@ -196,7 +196,7 @@ function askBox(app: App): HTMLElement {
       ),
       h("div", { class: "actions" }, n === 0 ? button("Open Settings", () => void app.openSettings(), "btn") : null, go),
     ),
-    ask.mode === "talk" && s.keys.claude.status !== "connected"
+    ask.mode === "talk" && s.keys.claude.status !== "connected" && !app.cliHeads().includes("claude")
       ? h("p", { class: "small muted", text: "Talk it through works best with Claude connected, because Claude is the chair." })
       : null,
   );
@@ -240,7 +240,7 @@ function results(app: App, run: RunView): HTMLElement {
     run.stopped ? h("p", { class: "status bad", text: "Stopped." }) : null,
     run.done && !run.stopped && allFailed(run) ? h("p", { class: "status bad", role: "alert", text: firstFailure(run) }) : null,
     verdict,
-    h("div", { class: "answers grid" }, run.heads.map((hd) => answerCard(run.cards[hd] ?? { head: hd, status: "waiting", text: "", round: 1 }))),
+    h("div", { class: "answers grid" }, run.heads.map((hd) => answerCard(run.cards[hd] ?? { head: hd, status: "waiting", text: "", round: 1 }, app, run))),
     h("p", { class: "small muted", text: `At the table: ${run.heads.map(providerName).join(", ")}.` }),
   );
 }

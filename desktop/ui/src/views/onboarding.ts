@@ -7,6 +7,11 @@ import { PROVIDERS, CLAUDE_DOWNLOAD_URL, ISSUES_URL, type Provider } from "../pr
 import {
   allFailed,
   canContinue,
+  canRetry,
+  fixLabel,
+  tableHeads,
+  testLine,
+  type RunView,
   connectedHeads,
   cliCardText,
   canSkip,
@@ -212,6 +217,7 @@ export function keyCard(app: App, p: Provider, opts: { removable?: boolean } = {
         )
       : h("div", { class: "row" }, input, save),
     status,
+    connected && opts.removable ? testRow(app, p.id, "key", p.name) : null,
     connected
       ? null
       : h(
@@ -232,8 +238,29 @@ export function keyCard(app: App, p: Provider, opts: { removable?: boolean } = {
   );
 }
 
+/** The Test button and its result line (Settings), or just the line (setup). */
+function testRow(app: App, head: string, via: "app" | "key", name: string, showButton = true): HTMLElement | null {
+  const t = app.state.tests[`${via}:${head}`];
+  const line = testLine(t);
+  if (!line && !showButton) return null;
+  const fix = t?.status === "failed" ? t.result?.fix : undefined;
+  const fixBtn =
+    fix === "sign_in" && via === "app"
+      ? button(fixLabel(fix, name)!, () => void app.applyFix(head, "sign_in"), "btn small primary")
+      : fix === "add_key"
+        ? button("Add a key", () => void app.applyFix(head, "add_key"), "btn small")
+        : null;
+  return h(
+    "div",
+    { class: "test-row", attrs: { "data-test": `${via}:${head}` } },
+    showButton ? button(t?.status === "testing" ? "Testing..." : "Test", () => void app.testHead(head, via), "btn small ghost", t?.status === "testing") : null,
+    line ? h("span", { class: `test-line small ${t?.status === "ok" ? "ok" : t?.status === "failed" ? "bad" : "muted"}`, role: "status", text: line }) : null,
+    fixBtn,
+  );
+}
+
 /** One card per AI tool found on this computer. */
-export function cliCard(app: App, d: CliDetection): HTMLElement {
+export function cliCard(app: App, d: CliDetection, inSettings = false): HTMLElement {
   const s = app.state;
   const on = app.cliHeads().includes(d.head);
   const canTick = d.signed_in !== false;
@@ -272,6 +299,7 @@ export function cliCard(app: App, d: CliDetection): HTMLElement {
             : button("Sign in", () => void app.cliSignIn(d.id), "btn small primary"),
         )
       : null,
+    d.signed_in === false ? null : testRow(app, d.head, "app", d.name, inSettings),
   );
 }
 
@@ -284,7 +312,7 @@ export function cliList(app: App, inSettings = false): HTMLElement[] {
     out.push(h("p", { class: "muted", role: "status", text: "Looking for AI apps on this computer..." }));
     return out;
   }
-  if (found.length) out.push(h("div", { class: "cards" }, found.map((d) => cliCard(app, d))));
+  if (found.length) out.push(h("div", { class: "cards" }, found.map((d) => cliCard(app, d, inSettings))));
   else if (inSettings) out.push(h("p", { class: "muted", text: "No AI apps found on this computer." }));
   if (c.error) out.push(h("p", { class: "status bad", role: "alert", text: c.error }));
   out.push(h("div", { class: "actions left" }, button(c.loading ? "Looking..." : "Look again", () => void app.refreshClis(), "btn small ghost", c.loading)));
@@ -432,12 +460,53 @@ function claude(app: App): HTMLElement[] {
 
 // ---- Screen 5 ----
 
-export function answerCard(c: HeadCard): HTMLElement {
+/** Who will answer: only heads that will actually run. Tools still being checked say so. */
+function seatLine(app: App): HTMLElement {
+  const s = app.state;
+  const heads = tableHeads(s.settings, s.keys, app.cliHeads());
+  const checking = heads.filter((hd) => s.tests[`app:${hd}`]?.status === "testing").map(providerName);
+  const dropped = Object.entries(s.tests)
+    .filter(([k, t]) => k.startsWith("app:") && t.unticked)
+    .map(([k]) => providerName(k.slice(4)));
+  return h(
+    "div",
+    { class: "seat-line small" },
+    h("p", { text: `These will answer: ${heads.map(providerName).join(", ")}.` }),
+    checking.length ? h("p", { class: "muted", text: `Still checking ${checking.join(", ")}.` }) : null,
+    dropped.length ? h("p", { class: "muted", text: `Left out because they did not answer the check: ${dropped.join(", ")}. Fix them on the Your AIs screen.` }) : null,
+  );
+}
+
+export function answerCard(c: HeadCard, app?: App, run?: RunView): HTMLElement {
+  const failed = c.status === "failed" || c.status === "timed_out" || c.status === "skipped";
+  const name = app?.state.clis.list.find((d) => d.head === c.head)?.name ?? providerName(c.head);
+  // One button: the fix the engine named, else Retry when the run allows it.
+  const fix = c.fix === "sign_in" || c.fix === "add_key" ? c.fix : run && canRetry(run, c) ? "retry" : undefined;
+  const label = fixLabel(fix, name);
   return h(
     "article",
     { class: `answer ${c.status}`, attrs: { "data-head": c.head } },
-    h("header", null, headLogo(c.head, "sm"), h("strong", { text: providerName(c.head) }), h("span", { class: `state ${c.status}`, text: cardStatusText(c) })),
-    c.text ? renderMarkdown(c.text.replace(/^\s*\**POSITION:\**\s*/i, "")) : c.status === "thinking" || c.status === "waiting" ? h("div", { class: "shimmer", attrs: { "aria-hidden": "true" } }) : h("p", { class: "muted", text: c.message ?? "" }),
+    h(
+      "header",
+      null,
+      headLogo(c.head, "sm"),
+      h("strong", { text: providerName(c.head) }),
+      h("span", { class: `state ${c.status}`, text: cardStatusText(c) }),
+    ),
+    c.text
+      ? renderMarkdown(c.text.replace(/^\s*\**POSITION:\**\s*/i, ""))
+      : c.status === "thinking" || c.status === "waiting"
+        ? h("div", { class: "shimmer", attrs: { "aria-hidden": "true" } })
+        : h("p", { class: "muted reason", text: c.message ?? "" }),
+    failed && app && fix && label
+      ? h(
+          "div",
+          { class: "row" },
+          button(label, () => void app.applyFix(c.head, fix), fix === "retry" ? "btn small" : "btn small primary"),
+          fix !== "retry" && run && canRetry(run, c) ? button("Retry", () => void app.retryHead(c.head), "btn small ghost") : null,
+        )
+      : null,
+    c.status === "answered" && c.via ? h("p", { class: "via small muted", text: c.via === "API key" ? "Answered with your API key." : `Answered through ${c.via}.` }) : null,
   );
 }
 
@@ -457,12 +526,12 @@ function firstRun(app: App): HTMLElement[] {
         on: { input: (e) => (q = s.firstQuestion = (e.target as HTMLTextAreaElement).value) },
       }),
       h("div", { class: "actions" }, button("Ask the table", () => void app.ask(q, "quick", false), "btn primary large", app.connectedCount() === 0)),
-      app.connectedCount() === 0 ? h("p", { class: "status bad", text: "Connect an AI first. Click Back." }) : null,
+      app.connectedCount() === 0 ? h("p", { class: "status bad", text: "Connect an AI first. Click Back." }) : seatLine(app),
     );
     return out.filter((x): x is HTMLElement => !!x);
   }
   out.push(h("p", { class: "lead", text: run.question }));
-  out.push(h("div", { class: "answers" }, run.heads.map((hd) => answerCard(run.cards[hd]))));
+  out.push(h("div", { class: "answers" }, run.heads.map((hd) => answerCard(run.cards[hd], app, run))));
   if (run.done && allFailed(run)) {
     out.push(
       h("p", { class: "status bad", role: "alert", text: firstFailure(run) }),

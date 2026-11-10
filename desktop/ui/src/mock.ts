@@ -1,7 +1,7 @@
 // A fake backend with the same shape as the Rust core. Used by the UI tests and by the
 // browser preview (`?mock=1`), so every screen can be seen without keys or network.
 
-import type { Api, ClaudeStatus, CliDetection, EngineEvent, HistoryEntry, KeysStatus, Settings } from "./api";
+import type { Api, ClaudeStatus, CliDetection, EngineEvent, Fix, HeadTest, HistoryEntry, KeysStatus, Settings } from "./api";
 import { defaultSettings } from "./state";
 import { PROVIDERS } from "./providers";
 
@@ -18,6 +18,10 @@ export interface MockOptions {
   delay?: number;
   /** AI tools on the computer: "none" (default), "some", or a list. */
   clis?: "none" | "some" | CliDetection[];
+  /** Heads whose five-word test fails, with the engine's reason. */
+  testFails?: Record<string, { message: string; fix: Fix }>;
+  /** Heads that fail in a run with this reason (instead of the default bad key). */
+  runFails?: Record<string, { message: string; fix: Fix }>;
 }
 
 function tool(id: string, head: string, name: string, version: string | null, signed_in: boolean | null, note: string, login: string): CliDetection {
@@ -67,6 +71,8 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
   const tools: CliDetection[] = o.clis === "some" ? sampleClis() : Array.isArray(o.clis) ? o.clis.map((d) => ({ ...d })) : [];
   const wait = (ms = delay) => new Promise<void>((r) => setTimeout(r, ms));
   let stopped = false;
+  let lastEmit: ((e: EngineEvent) => void) | null = null;
+  const toolName = (h: string) => tools.find((t) => t.head === h)?.name;
 
   return {
     calls,
@@ -139,6 +145,7 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
       const emit = (e: EngineEvent) => {
         if (!stopped) onEvent(e);
       };
+      lastEmit = emit;
       const run = async () => {
         emit({ event: "run_started", heads: req.heads, rounds: req.rounds, mode: req.rounds > 1 ? "deliberation" : "advisory" });
         let answered = 0;
@@ -147,7 +154,9 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
           for (const h of req.heads) emit({ event: "head_started", head: h, round: r });
           for (const h of req.heads) {
             await wait();
-            const ok = keys.has(h) || (settings.cli_heads.includes(h) && tools.some((t) => t.head === h && t.signed_in));
+            const viaTool = settings.cli_heads.includes(h) && tools.some((t) => t.head === h && t.signed_in);
+            const fail = o.runFails?.[h];
+            const ok = !fail && (keys.has(h) || viaTool);
             if (ok) answered++;
             emit({
               event: "head_done",
@@ -155,8 +164,10 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
               round: r,
               status: ok ? "answered" : "failed",
               text: ok ? (r > 1 ? `POSITION: ${SAMPLE[h]}` : SAMPLE[h] ?? "OK") : "",
-              reason: ok ? undefined : "bad_key",
-              message: ok ? undefined : "That key did not work. Check you copied all of it.",
+              reason: ok || fail ? undefined : "bad_key",
+              message: ok ? undefined : fail?.message ?? "That key did not work. Check you copied all of it.",
+              fix: ok ? undefined : fail?.fix ?? "add_key",
+              via: viaTool ? toolName(h) : keys.has(h) ? "API key" : undefined,
             });
           }
           emit({ event: "round_done", round: r });
@@ -187,6 +198,26 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
     },
     async askStop() {
       stopped = true;
+    },
+    async askRetry(head) {
+      calls.push(`askRetry:${head}`);
+      const emit = lastEmit;
+      if (!emit) return;
+      void (async () => {
+        await wait();
+        emit({ event: "head_started", head, round: 1 });
+        await wait();
+        emit({ event: "head_done", head, round: 1, status: "answered", text: SAMPLE[head] ?? "OK", via: toolName(head) ?? "API key" });
+        emit({ event: "retry_done", head, transcript: `# Round Table\n\n---\n## ${head}\n\n${SAMPLE[head] ?? "OK"}\n\n---\n_footer_\n` });
+      })();
+    },
+    async headTest(head, via): Promise<HeadTest> {
+      calls.push(`headTest:${head}:${via}`);
+      await wait();
+      const fail = o.testFails?.[head];
+      const name = toolName(head) ?? head;
+      if (fail) return { head, name, ok: false, status: "failed", via: via === "key" ? "API key" : name, first_line: null, message: fail.message, fix: fail.fix, secs: 0.4, command: `${head} -p`, exit: 1 };
+      return { head, name, ok: true, status: "answered", via: via === "key" ? "API key" : name, first_line: "Yes, water is wet.", message: null, fix: null, secs: 1.2, command: `${head} -p`, exit: 0 };
     },
     historyList: async () => [...history],
     historyGet: async (id) => transcripts.get(id) ?? null,
