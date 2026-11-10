@@ -354,6 +354,8 @@ export interface AskRequest {
   prior?: string | null;
   /** Files and links, already read once (`attachPrepare`). */
   attached?: string | null;
+  /** "setup": the first-run sample, kept out of history. */
+  source?: "setup" | null;
 }
 
 /** One line from `roundtable ask --events`, plus `process_exit` from the app. */
@@ -467,7 +469,12 @@ export interface Api {
   personasImport(): Promise<number | null>;
   historyList(): Promise<HistoryEntry[]>;
   historyGet(id: string): Promise<string | null>;
-  historyDelete(id: string): Promise<void>;
+  /** Take roundtables out of history. Returns a token for Undo (historyRestore) or historyPurge. */
+  historyDelete(ids: string[]): Promise<string>;
+  /** Undo a delete. Returns how many came back. */
+  historyRestore(token: string): Promise<number>;
+  /** The Undo window closed: delete the files for good. */
+  historyPurge(token: string): Promise<void>;
   historyClear(): Promise<void>;
   settingsGet(): Promise<Settings>;
   settingsSet(s: Settings): Promise<void>;
@@ -546,6 +553,7 @@ export async function tauriApi(): Promise<Api> {
         openFirstRound: req.openFirstRound ?? null,
         prior: req.prior ?? null,
         attached: req.attached ?? null,
+        source: req.source ?? null,
       });
     },
     askStop: () => invoke("ask_stop"),
@@ -582,7 +590,9 @@ export async function tauriApi(): Promise<Api> {
     },
     historyList: () => invoke("history_list"),
     historyGet: (id) => invoke("history_get", { id }),
-    historyDelete: (id) => invoke("history_delete", { id }),
+    historyDelete: (ids) => invoke("history_delete", { ids }),
+    historyRestore: (token) => invoke("history_restore", { token }),
+    historyPurge: (token) => invoke("history_purge", { token }),
     historyClear: () => invoke("history_clear"),
     settingsGet: () => invoke("settings_get"),
     settingsSet: (settings) => invoke("settings_set", { settings }),

@@ -14,6 +14,7 @@ pub fn run() {
         .manage(commands::AppState::default())
         .setup(|_app| {
             commands::refresh_engine_on_launch();
+            commands::purge_history_trash();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -48,6 +49,8 @@ pub fn run() {
             commands::history_list,
             commands::history_get,
             commands::history_delete,
+            commands::history_restore,
+            commands::history_purge,
             commands::history_clear,
             commands::personas_list,
             commands::persona_save,

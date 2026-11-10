@@ -20,7 +20,7 @@ async function boot() {
       onboarded: q.get("view") === "main" || q.get("view") === "settings",
       setupFails: q.get("fail") === "1",
       delay: Number(q.get("delay") ?? 400),
-      history: q.get("history") === "1" ? sampleHistory() : [],
+      history: q.get("history") === "1" ? sampleHistory() : q.get("history") === "many" ? manyHistory() : [],
       clis: q.get("clis") === "none" ? "none" : "some",
       noLabPack: q.get("labpack") === "0",
       memoryGb: q.get("mem") ? Number(q.get("mem")) : undefined,
@@ -83,6 +83,31 @@ function sampleHistory() {
     { id: `${now - 90000}-c3d4`, ts: now - 90000, question: "Which laptop is better for a student: MacBook Air or ThinkPad X1?", source: "app", mode: "advisory", heads: ["claude", "gemini"] },
     { id: `${now - 400000}-e5f6`, ts: now - 400000, question: "Rewrite my cover letter opening so it sounds less stiff", source: "app", mode: "advisory", heads: ["claude", "openai"] },
   ];
+}
+
+/** ?history=many: a longer list, for the delete and select screens. */
+function manyHistory() {
+  const now = Math.floor(Date.now() / 1000);
+  const qs = [
+    "Should our 3-person IT shop hire a fourth person or buy a managed tool?",
+    "What is the single biggest risk of Tauri for this team?",
+    "Should our IT team build internal desktop tools with Tauri or Electron?",
+    "Do we renew the Datto contract or move backups to Rosa?",
+    "Which laptop is better for a student: MacBook Air or ThinkPad X1?",
+    "Should we move the launch to March or keep February?",
+    "Rewrite my cover letter opening so it sounds less stiff",
+    "Is a 20% price rise for new customers safe this quarter?",
+    "Which CRM should a five-person agency start with?",
+    "Should we sign the two-year office lease or go month to month?",
+    "What should the first onboarding email say?",
+    "Can one Mac Studio replace the two render boxes?",
+    "Should we offer a free tier or a 14-day trial?",
+    "Where should the team offsite be this spring?",
+  ];
+  return qs.map((question, i) => {
+    const ts = now - 600 - i * (i < 4 ? 1500 : 70000);
+    return { id: `${ts}-${(0xa000 + i).toString(16)}`, ts, question, source: i === 5 ? "claude" : "app", mode: "advisory", heads: ["claude", "gemini"] };
+  });
 }
 
 void boot();

@@ -194,6 +194,14 @@ export interface State {
   personaEdit: Persona | null;
   history: HistoryEntry[];
   historyFilter: string;
+  /** Rows picked for a delete together (Select, or shift and command click). */
+  historySel: string[];
+  /** Select mode: a click picks a row instead of opening it. */
+  selecting: boolean;
+  /** Where a shift click range starts. */
+  historyAnchor: string | null;
+  /** The last delete, while Undo is offered. */
+  undo: { token: string; count: number } | null;
   opened: { id: string; transcript: string } | null;
   settings: Settings;
   /** Five-word tests, by test key (`app:<head>` or `key:<head>`). */
@@ -318,6 +326,10 @@ export function initialState(): State {
     personaEdit: null,
     history: [],
     historyFilter: "",
+    historySel: [],
+    selecting: false,
+    historyAnchor: null,
+    undo: null,
     opened: null,
     settings: defaultSettings(),
     tests: {},
@@ -869,6 +881,43 @@ export function splitVerdict(text: string): { agree: boolean; body: string } {
 }
 
 // ---- History ----
+
+/** How long Undo is offered after a delete. */
+export const UNDO_MS = 8000;
+
+/** Only flags (--help, -h, --version) or nothing: not a question, never a roundtable. */
+export function flagOnly(q: string): boolean {
+  return q.split(/\s+/).filter(Boolean).every((w) => w.startsWith("-"));
+}
+
+/** The first-run sample is the setup check: it stays out of history. A question the
+ * person typed in its place is theirs, and is kept. */
+export function runSource(view: State["view"], question: string): "setup" | null {
+  return view === "onboarding" && question.trim() === FIRST_QUESTION ? "setup" : null;
+}
+
+/** A click on a history row: plain opens, command or control toggles, shift picks a range. */
+export function pickRows(list: HistoryEntry[], sel: string[], anchor: string | null, id: string, how: "toggle" | "range"): string[] {
+  if (how === "range" && anchor) {
+    const ids = list.map((e) => e.id);
+    const a = ids.indexOf(anchor);
+    const b = ids.indexOf(id);
+    if (a >= 0 && b >= 0) {
+      const range = ids.slice(Math.min(a, b), Math.max(a, b) + 1);
+      return [...sel.filter((x) => !range.includes(x)), ...range];
+    }
+  }
+  return sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id];
+}
+
+/** What a delete on this row takes: the whole selection when the row is in it. */
+export function deleteTargets(sel: string[], id: string): string[] {
+  return sel.length > 1 && sel.includes(id) ? [...sel] : [id];
+}
+
+export function roundtables(n: number): string {
+  return `${n} roundtable${n === 1 ? "" : "s"}`;
+}
 
 export function filterHistory(list: HistoryEntry[], q: string): HistoryEntry[] {
   const t = q.trim().toLowerCase();

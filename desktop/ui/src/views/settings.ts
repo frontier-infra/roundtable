@@ -3,7 +3,7 @@
 import type { App } from "../app";
 import { button, h, toggle } from "../dom";
 import { CHAIR_DEFAULT_MODEL, HELP_URL, ISSUES_URL, PROVIDERS, providerName } from "../providers";
-import { connectedHeads, helpUrl, keychainName } from "../state";
+import { connectedHeads, helpUrl, keychainName, roundtables } from "../state";
 import { claudeConnect, cliList, keyCard } from "./onboarding";
 import { select, withGlyph } from "./main";
 import { VERDICT_SHAPES } from "../session";
@@ -108,9 +108,7 @@ export function renderSettings(app: App): HTMLElement {
         "History",
         toggle("Keep past roundtables on this computer", s.settings.history, (v) => void app.saveSettings({ history: v }), "Nothing leaves this computer."),
         toggle("Add a Roundtable credit line to exports", s.settings.export_credit !== false, (v) => void app.saveSettings({ export_credit: v }), "One line at the end of a saved or copied Markdown file."),
-        h("div", { class: "actions left" }, button("Delete all history", () => {
-          if (confirm("Delete every past roundtable on this computer? This cannot be undone.")) void app.clearHistory();
-        }, "btn ghost danger")),
+        clearAllRow(app),
       ),
       section(
         "Updates",
@@ -175,4 +173,18 @@ export function renderSettings(app: App): HTMLElement {
       ),
     ),
   );
+}
+
+/** Settings, History: delete every roundtable, after one plain confirm. No Undo. */
+function clearAllRow(app: App): HTMLElement {
+  const n = app.state.history.length;
+  const b = button("Clear all history", () => {
+    if (confirm(clearAllQuestion(n))) void app.clearHistory();
+  }, "btn ghost danger", n === 0);
+  b.setAttribute("aria-label", n ? `Clear all history: delete ${roundtables(n)}` : "Clear all history (nothing to delete)");
+  return h("div", { class: "actions left" }, b, h("span", { class: "small muted", text: n ? `${roundtables(n)} on this computer.` : "No roundtables on this computer." }));
+}
+
+export function clearAllQuestion(n: number): string {
+  return `Delete all ${roundtables(n)}? This cannot be undone.`;
 }

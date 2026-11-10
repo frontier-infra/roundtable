@@ -11,13 +11,16 @@ import {
   cleanAnswer,
   costLine,
   estimateLine,
+  deleteTargets,
   filterHistory,
   findPersona,
   firstFailure,
+  flagOnly,
   firstLine,
   MAX_ROUNDS,
   planSeats,
   roundsHint,
+  roundtables,
   seatInfos,
   shortDate,
   splitVerdict,
@@ -27,7 +30,7 @@ import {
   type RunView,
   type SeatPick,
 } from "../state";
-import type { PersonaLibrary } from "../api";
+import type { HistoryEntry, PersonaLibrary } from "../api";
 import { answerCard } from "./onboarding";
 import { renderCoach } from "./coach";
 import { attachmentLabel, attachmentNote, confidenceOf, formatVerdictBody, seatName, splitFinalVerdict, VERDICT_SHAPES, verdictHint, verdictTitle } from "../session";
@@ -65,11 +68,7 @@ function topbar(app: App): HTMLElement {
 function sidebar(app: App): HTMLElement {
   const s = app.state;
   const list = filterHistory(s.history, s.historyFilter);
-  let menu: HTMLElement | null = null;
-  const closeMenu = () => {
-    menu?.remove();
-    menu = null;
-  };
+  const picked = s.historySel.filter((id) => list.some((e) => e.id === id));
   return h(
     "aside",
     { class: "sidebar" },
@@ -93,47 +92,164 @@ function sidebar(app: App): HTMLElement {
     })),
     !s.settings.history ? h("p", { class: "small muted pad", text: "History is off. Turn it on in Settings." }) : null,
     list.length === 0 && s.settings.history ? h("p", { class: "small muted pad", text: s.history.length ? "Nothing matches." : "Your roundtables will show up here." }) : null,
+    list.length ? selectBar(app, list.length, picked) : null,
     h(
       "ul",
-      { class: "history" },
-      list.map((e) =>
-        h(
-          "li",
-          {
-            class: s.opened?.id === e.id ? "active" : "",
-            attrs: { tabindex: "0", "data-id": e.id },
-            on: {
-              click: () => void app.openHistory(e.id),
-              keydown: (ev) => {
-                if (ev.key === "Enter") void app.openHistory(e.id);
-              },
-              contextmenu: (ev) => {
-                ev.preventDefault();
-                closeMenu();
-                menu = h(
-                  "div",
-                  { class: "menu", role: "menu" },
-                  h("button", {
-                    type: "button",
-                    class: "menu-item danger",
-                    text: "Delete",
-                    attrs: { role: "menuitem" },
-                    on: { click: () => { closeMenu(); void app.deleteHistory(e.id); } },
-                  }),
-                );
-                menu.style.left = `${ev.clientX}px`;
-                menu.style.top = `${ev.clientY}px`;
-                document.body.appendChild(menu);
-                setTimeout(() => document.addEventListener("click", closeMenu, { once: true }), 0);
-              },
-            },
-          },
-          h("span", { class: "q", text: firstLine(e.question, 60) }),
-          h("span", { class: "meta" }, e.source === "claude" ? h("span", { class: "badge", text: "Claude" }) : null, h("span", { text: shortDate(e.ts) })),
-        ),
-      ),
+      { class: s.selecting ? "history selecting" : "history", attrs: { "aria-label": "Past roundtables", ...(s.selecting ? { "aria-multiselectable": "true" } : {}) } },
+      list.map((e) => historyRow(app, e)),
     ),
   );
+}
+
+/** The line over the list: a count and Select, or what is picked and Delete. */
+function selectBar(app: App, total: number, picked: string[]): HTMLElement {
+  const s = app.state;
+  if (!s.selecting) {
+    return h(
+      "div",
+      { class: "select-bar" },
+      h("span", { class: "select-count", text: roundtables(total) }),
+      h("button", { class: "btn small ghost", type: "button", text: "Select", attrs: { "aria-label": "Select roundtables to delete" }, on: { click: () => app.setSelecting(true) } }),
+    );
+  }
+  const all = picked.length === total;
+  return h(
+    "div",
+    { class: "select-bar on", role: "toolbar", attrs: { "aria-label": "Selected roundtables" } },
+    h("span", { class: "select-count", attrs: { "aria-live": "polite" }, text: picked.length ? `${picked.length} selected` : "Pick roundtables" }),
+    h(
+      "span",
+      { class: "select-actions" },
+      h("button", {
+        class: "btn small ghost",
+        type: "button",
+        text: all ? "None" : "All",
+        attrs: { "aria-label": all ? "Select none" : "Select all" },
+        on: { click: () => app.set({ historySel: all ? [] : filterHistory(s.history, s.historyFilter).map((e) => e.id) }) },
+      }),
+      h("button", {
+        class: "btn small danger",
+        type: "button",
+        text: "Delete",
+        disabled: !picked.length,
+        attrs: { "aria-label": picked.length ? `Delete ${roundtables(picked.length)}` : "Delete selected" },
+        on: { click: () => void app.deleteHistory(picked) },
+      }),
+      h("button", { class: "btn small ghost", type: "button", text: "Done", attrs: { "aria-label": "Stop selecting" }, on: { click: () => app.setSelecting(false) } }),
+    ),
+  );
+}
+
+let openMenu: HTMLElement | null = null;
+function closeMenu() {
+  openMenu?.remove();
+  openMenu = null;
+}
+
+/** Right click (or the menu key) on a row: Open, Delete, or delete what is picked. */
+function rowMenu(app: App, e: HistoryEntry, x: number, y: number) {
+  closeMenu();
+  const targets = deleteTargets(app.state.historySel, e.id);
+  const item = (text: string, label: string, run: () => void, cls = "menu-item") =>
+    h("button", { type: "button", class: cls, text, attrs: { role: "menuitem", "aria-label": label }, on: { click: () => { closeMenu(); run(); } } });
+  const menu = h(
+    "div",
+    { class: "menu", role: "menu", attrs: { "aria-label": `Roundtable: ${firstLine(e.question, 60)}` } },
+    targets.length === 1 ? item("Open", `Open ${firstLine(e.question, 60)}`, () => void app.openHistory(e.id)) : null,
+    item(targets.length === 1 ? "Delete" : `Delete ${roundtables(targets.length)}`, targets.length === 1 ? `Delete ${firstLine(e.question, 60)}` : `Delete ${roundtables(targets.length)}`, () => void app.deleteHistory(targets), "menu-item danger"),
+  );
+  menu.addEventListener("keydown", (ev) => {
+    const items = [...menu.querySelectorAll<HTMLButtonElement>(".menu-item")];
+    const i = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (ev.key === "Escape") {
+      closeMenu();
+      [...document.querySelectorAll<HTMLElement>(".history li")].find((li) => li.dataset.id === e.id)?.focus();
+    } else if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      ev.preventDefault();
+      items[(i + (ev.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
+    }
+  });
+  menu.style.left = `${Math.min(x, window.innerWidth - 200)}px`;
+  menu.style.top = `${Math.min(y, window.innerHeight - 90)}px`;
+  document.body.appendChild(menu);
+  openMenu = menu;
+  menu.querySelector<HTMLButtonElement>(".menu-item")?.focus();
+  setTimeout(() => document.addEventListener("click", closeMenu, { once: true }), 0);
+}
+
+function historyRow(app: App, e: HistoryEntry): HTMLElement {
+  const s = app.state;
+  const picked = s.historySel.includes(e.id);
+  const q = firstLine(e.question, 60);
+  const cls = [s.opened?.id === e.id ? "active" : "", picked ? "picked" : ""].filter(Boolean).join(" ");
+  const li = h(
+    "li",
+    {
+      class: cls,
+      attrs: {
+        tabindex: "0",
+        "data-id": e.id,
+        "aria-label": `${q}, ${shortDate(e.ts)}`,
+        ...(s.opened?.id === e.id ? { "aria-current": "true" } : {}),
+        ...(s.selecting ? { "aria-selected": String(picked) } : {}),
+      },
+      on: {
+        click: (ev) => {
+          if ((ev.target as HTMLElement).closest(".row-delete, .row-check")) return;
+          app.clickHistory(e.id, ev);
+        },
+        keydown: (ev) => {
+          const rows = [...document.querySelectorAll<HTMLElement>(".history li")];
+          const i = rows.indexOf(ev.currentTarget as HTMLElement);
+          if (ev.target !== ev.currentTarget) return;
+          if (ev.key === "Enter") app.clickHistory(e.id, ev);
+          else if (ev.key === " " && s.selecting) {
+            ev.preventDefault();
+            app.clickHistory(e.id, { metaKey: true });
+          } else if (ev.key === "Delete" || ev.key === "Backspace") {
+            ev.preventDefault();
+            void app.deleteHistory(deleteTargets(s.historySel, e.id));
+          } else if (ev.key === "Escape" && s.selecting) app.setSelecting(false);
+          else if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+            ev.preventDefault();
+            const next = rows[i + (ev.key === "ArrowDown" ? 1 : -1)];
+            if (next && ev.shiftKey) app.clickHistory(next.dataset.id!, { shiftKey: true });
+            else next?.focus();
+          }
+        },
+        contextmenu: (ev) => {
+          ev.preventDefault();
+          const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+          // The menu key sends no pointer position: open the menu at the row.
+          rowMenu(app, e, ev.clientX || r.left + 24, ev.clientY || r.bottom - 4);
+        },
+      },
+    },
+    s.selecting
+      ? h("input", {
+          class: "row-check",
+          type: "checkbox",
+          checked: picked,
+          attrs: { "aria-label": `Select ${q}`, tabindex: "-1" },
+          on: { change: () => app.clickHistory(e.id, { metaKey: true }) },
+        })
+      : null,
+    h("span", { class: "row-text" }, h("span", { class: "q", text: q }), h("span", { class: "meta" }, e.source === "claude" ? h("span", { class: "badge", text: "Claude" }) : null, h("span", { text: shortDate(e.ts) }))),
+    s.selecting
+      ? null
+      : h(
+          "button",
+          {
+            class: "row-delete",
+            type: "button",
+            title: "Delete",
+            attrs: { "aria-label": `Delete ${q}` },
+            on: { click: (ev) => { ev.stopPropagation(); void app.deleteHistory([e.id]); } },
+          },
+          glyph("trash"),
+        ),
+  );
+  return li;
 }
 
 function centre(app: App): HTMLElement {
@@ -144,11 +260,18 @@ function centre(app: App): HTMLElement {
     return h(
       "div",
       { class: "pane" },
-      h("div", { class: "actions left" }, button("New question", () => app.newQuestion(), "btn"), button("Ask a follow-up", () => app.followUp(), "btn"), button("Copy as Markdown", () => void app.api.copyText(withCredit(s.opened!.transcript, s.settings.export_credit)).then(() => app.showToast("Copied as Markdown.")), "btn ghost"), button("Download .md", () => void app.api.saveTextFile("roundtable.md", withCredit(s.opened!.transcript, s.settings.export_credit)), "btn ghost")),
+      h("div", { class: "actions left" }, button("New question", () => app.newQuestion(), "btn"), button("Ask a follow-up", () => app.followUp(), "btn"), button("Copy as Markdown", () => void app.api.copyText(withCredit(s.opened!.transcript, s.settings.export_credit)).then(() => app.showToast("Copied as Markdown.")), "btn ghost"), button("Download .md", () => void app.api.saveTextFile("roundtable.md", withCredit(s.opened!.transcript, s.settings.export_credit)), "btn ghost"), deleteOpened(app)),
       h("div", { class: "transcript card" }, renderMarkdown(s.opened.transcript)),
     );
   }
   return askBox(app);
+}
+
+/** Delete the open roundtable, with Undo. */
+function deleteOpened(app: App): HTMLElement {
+  const b = withGlyph(button("Delete", () => void app.deleteHistory([app.state.opened!.id]), "btn ghost danger push-right"), "trash");
+  b.setAttribute("aria-label", "Delete this roundtable");
+  return b;
 }
 
 function askBox(app: App): HTMLElement {
@@ -161,7 +284,7 @@ function askBox(app: App): HTMLElement {
   // The cost line, when a provider seat sits: published prices, free on this computer, else unknown.
   const costText = costLine(plan.map((p) => p.head), ask.rounds, s.providers.list);
   const cost = costText ? h("p", { class: "estimate cost small muted", attrs: { "data-cost": "" }, text: costText }) : null;
-  const go = button(ask.coach ? "Sharpen and ask" : "Ask the table", () => void app.startAsk(), "btn primary large", n === 0 || !ask.question.trim());
+  const go = button(ask.coach ? "Sharpen and ask" : "Ask the table", () => void app.startAsk(), "btn primary large", n === 0 || flagOnly(ask.question));
   const chairMissing = s.keys.claude.status !== "connected" && !app.cliHeads().includes("claude");
   return h(
     "div",
@@ -176,7 +299,7 @@ function askBox(app: App): HTMLElement {
       on: {
         input: (e) => {
           ask.question = (e.target as HTMLTextAreaElement).value;
-          go.disabled = n === 0 || !ask.question.trim();
+          go.disabled = n === 0 || flagOnly(ask.question);
         },
         keydown: (e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !go.disabled) go.click();

@@ -282,7 +282,19 @@ describe("screen 5, first roundtable", () => {
     await click("Open Roundtable");
     expect(app.state.view).toBe("main");
     expect(app.state.settings.onboarded).toBe(true);
-    expect(root.querySelector(".history li")).not.toBeNull();
+    // The sample is the setup check: it is not kept as a roundtable.
+    expect(root.querySelector(".history li")).toBeNull();
+  });
+
+  it("keeps a question the person typed in place of the sample", async () => {
+    const { app } = await start({ keys: ["claude", "gemini"] }, { screen: 5 });
+    const q = root.querySelector<HTMLTextAreaElement>("textarea.question")!;
+    q.value = "Should I repaint the kitchen this month?";
+    q.dispatchEvent(new Event("input"));
+    await click("Ask the table");
+    await tick(20);
+    await click("Open Roundtable");
+    expect(app.state.history.map((e) => e.question)).toEqual(["Should I repaint the kitchen this month?"]);
   });
 
   it("when every AI fails, shows the first error and Back to keys", async () => {
