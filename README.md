@@ -192,8 +192,8 @@ clients do not time out.
 - Claude app, Claude Code, Codex and Cursor: one button each.
 - Any other MCP app: copy its setup from "Another AI app? Copy its setup".
 - ChatGPT: switch on **Share with ChatGPT**. It starts a private web link through a
-  Cloudflare quick tunnel (needs `cloudflared`: `brew install cloudflared`, or
-  `winget install --id Cloudflare.cloudflared`). Paste the link into ChatGPT. Switch it off and the
+  Cloudflare quick tunnel (needs `cloudflared`, from Cloudflare's downloads page or Homebrew on a
+  Mac, or `winget install --id Cloudflare.cloudflared` on Windows). Paste the link into ChatGPT. Switch it off and the
   link stops working. Every call shows in the app.
 
 **ChatGPT (web, Plus, Pro, Business, Enterprise or Education):**

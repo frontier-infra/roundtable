@@ -27,7 +27,7 @@ Roundtable adds itself as a tool your AI can call. Your keys stay in your keycha
 
 ChatGPT runs on the web, so it cannot reach this computer by itself. Share with ChatGPT gives Roundtable a private web link.
 
-1. Install cloudflared once. Mac: run brew install cloudflared in Terminal. Windows: run winget install --id Cloudflare.cloudflared.
+1. Install cloudflared once. Mac: get it from Cloudflare's downloads page, or with Homebrew. Windows: run winget install --id Cloudflare.cloudflared. The switch says what to do if it is missing.
 2. Switch on Share with ChatGPT and click Copy link.
 3. In ChatGPT on the web: Settings, Security and login, turn on Developer mode.
 4. Open Plugins, click +, paste the link as the MCP server URL, and choose No authentication.
