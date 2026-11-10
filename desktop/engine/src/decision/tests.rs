@@ -240,6 +240,8 @@ fn system_one_wire_and_local_detection() {
 
 #[test]
 fn council_run_carries_the_decision_into_transcript_and_events() {
+    // Other tests point ROUNDTABLE_GLM_URL at their own servers; this lock keeps them apart.
+    let _env = crate::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
     std::env::set_var("ROUNDTABLE_TOOL_PATH", "");
     let (heads_base, _) = server(vec![("/v1/chat/completions", 200, json!({"choices": [{"message": {"content": "POSITION: Bake bread."}}]}).to_string())]);
     let (s1, seen) = server(vec![("/v1/systemone", 200, systemone_reply())]);

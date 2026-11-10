@@ -855,6 +855,7 @@ mod tests {
 
     #[test]
     fn advisory_run_against_fake_provider() {
+        let _env = crate::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
         no_tools();
         let url = fake_server(200, r#"{"choices":[{"message":{"content":"Bake bread."}}]}"#);
         std::env::set_var("ROUNDTABLE_GLM_URL", &url);
