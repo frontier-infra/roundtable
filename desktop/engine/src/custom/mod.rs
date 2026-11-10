@@ -56,6 +56,9 @@ pub fn preset(id: &str) -> Option<&'static Preset> {
 
 /// The most tokens a provider seat may write in one answer.
 pub const MAX_TOKENS: u32 = 4000;
+/// The budget for the one retry when a thinking model spent all of MAX_TOKENS
+/// thinking and wrote no answer (finish_reason "length", empty content).
+pub const THINKING_MAX_TOKENS: u32 = 16000;
 /// How long a model list may take. Local servers answer in milliseconds.
 pub const LIST_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long a local probe may take before the app says nothing is there.
@@ -359,13 +362,23 @@ pub fn chat(cfg: &ProviderConfig, model: &str, key: Option<&str>, prompt: &str, 
         std::thread::sleep(rate_limit_wait());
         res = http::send("POST", &url, &headers, Some(&body), timeout);
     }
+    // A thinking model can spend the whole budget thinking and send no answer
+    // (finish_reason "length", empty content). Ask once more with room to answer.
+    if matches!(&res, Ok(v) if out_of_room(v)) {
+        let body = http::chat_body(model, prompt, THINKING_MAX_TOKENS, None);
+        if let Ok(v) = http::send("POST", &url, &headers, Some(&body), timeout) {
+            res = Ok(v);
+        }
+    }
     match res {
         Ok(v) => {
             let t = http::strip_think(&http::chat_text(&v));
-            if t.is_empty() {
-                Outcome::Empty(format!("{}: empty answer", seat_id(&cfg.id, model)))
-            } else {
+            if !t.is_empty() {
                 Outcome::Answered(t)
+            } else if finish_reason(&v) == "length" {
+                Outcome::Empty(format!("{}: used its whole answer budget thinking and wrote no answer", seat_id(&cfg.id, model)))
+            } else {
+                Outcome::Empty(format!("{}: empty answer", seat_id(&cfg.id, model)))
             }
         }
         Err(e) if e.class == ErrorClass::Timeout => Outcome::Timeout,
@@ -377,6 +390,15 @@ pub fn chat(cfg: &ProviderConfig, model: &str, key: Option<&str>, prompt: &str, 
             c => Outcome::Failed(c, e.detail),
         },
     }
+}
+
+fn finish_reason(v: &Value) -> &str {
+    v.pointer("/choices/0/finish_reason").and_then(|f| f.as_str()).unwrap_or("")
+}
+
+/// True when the answer is empty because the model ran out of tokens.
+fn out_of_room(v: &Value) -> bool {
+    finish_reason(v) == "length" && http::strip_think(&http::chat_text(v)).is_empty()
 }
 
 fn rate_limit_wait() -> Duration {
