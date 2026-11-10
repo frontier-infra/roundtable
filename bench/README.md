@@ -9,7 +9,8 @@ twelve real decisions a small-business owner or technical lead faces.
    it, plus hidden facts a good answer should surface. Two scenarios
    (`database-pick`, `funding-choice`) are "it depends" questions: the right
    answer names what to find out first.
-2. The question goes to the council (`roundtable ask --heads <seats> --rounds 2`)
+2. The question goes to the council (`roundtable ask --heads <seats> --mode quick`, or
+   `--mode deep` for Deep Think)
    and to one single AI (`--heads <single>`), with nothing else added.
 3. A judge on a model that is not a seat scores both answers 1 to 5 on seven
    lines and picks the one it would rather act on. It runs twice per scenario,
@@ -51,9 +52,12 @@ bench/run.sh --resume                      # reuse saved scenarios for the date
 bench/run.sh --report-only                 # rebuild the .md from saved results
 ```
 
-Defaults: seats `claude,codex,grok`, 2 rounds, single AI `claude`, judge
-`opencode`, 3 scenarios at once. Override with `--seats`, `--rounds`,
-`--single`, `--judge` (or `RT_SEATS`, `RT_ROUNDS`, `RT_SINGLE`, `RT_JUDGE`).
+Defaults: seats `claude,codex,grok`, Quick mode (the mode picks the rounds), single AI
+`claude`, judge `opencode`, 3 scenarios at once. `--mode deep` runs Deep Think and keeps
+its results as `<id>.deep.json` next to the Quick ones, judged against the same single
+answer; the report lists every mode of the day with a Mode column and a time and words
+table. `--mode none` runs a build from before modes. Override with `--seats`, `--rounds`,
+`--single`, `--judge` (or `RT_SEATS`, `RT_MODE`, `RT_ROUNDS`, `RT_SINGLE`, `RT_JUDGE`).
 The runner refuses a judge that is also a seat.
 
 Every call goes through the `roundtable` command (`RT_BIN`), so it uses the

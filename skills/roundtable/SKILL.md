@@ -100,10 +100,17 @@ A table of two or more seats gets a decision verdict by default. It leads the tr
 answers fold under it. With no brief, the chair first checks for missing key facts; when the pick
 depends on them, the verdict opens with `QUESTIONS FIRST`. Lead your answer with the verdict.
 
-**MCP tool arguments:** `question`, `heads`, `rounds`, `personas`, `research`, `coach`,
+**MCP tool arguments:** `question`, `heads`, `rounds`, `mode`, `personas`, `research`, `coach`,
 `coach_answers`, `verdict`, `blind`, `attach`. With `coach: true` and no `coach_answers`, the
 tool returns the coach's questions. Ask the user (or answer from what you know), then call
 again with the same question, `coach: true` and `coach_answers` in order.
+
+**Quick or Deep Think.** `--mode quick` (MCP `mode: "quick"`) is the default: one blind round,
+short seat answers and a short verdict, about 2 minutes. Use `--mode deep` (MCP `mode: "deep"`)
+for a complex ask: several stakeholders, money or legal stakes, more than three options, or
+missing facts. It runs the coach first (over MCP it returns the coach's questions unless you pass
+`coach_answers`), up to 4 rounds that argue against the leading pick, and a long verdict. It
+takes about 14 minutes. When the coach's brief looks complex it suggests Deep Think.
 
 **Two axes that compose:** *rounds* (advisory `--rounds 1`, default → independent blind
 answers; deliberation `--rounds 2` to `4` → each head reads the whole table and revises, chair
@@ -147,7 +154,7 @@ each row by its seat: "CFO (Claude)".
 ## The Claude workflow (you, the moderator)
 
 1. **Curate the question.** The heads see only what you pass — none of this conversation. Put essential background in a `-c` context file or `--attach` it rather than a giant `-q`. When the question is vague, use the coach.
-2. **Pick the mode.** Default to advisory + fast. Use `--rounds 2` to `4` for high-stakes convergence; add `--research` only when the answer needs the web. Add `--personas` when the decision needs named expertise (a pricing call, a security review, a hire), or `--personas auto` to have seats suggested. Add `--verdict` when the user wants one decision, a plan or a vote; quote its minority view in your answer.
+2. **Pick the mode.** Default to Quick. Use `--mode deep` for a complex, high-stakes ask (several stakeholders, money or legal stakes, more than three options, missing facts). Use `--rounds 2` to `4` for high-stakes convergence; add `--research` only when the answer needs the web. Add `--personas` when the decision needs named expertise (a pricing call, a security review, a hire), or `--personas auto` to have seats suggested. Add `--verdict` when the user wants one decision, a plan or a vote; quote its minority view in your answer.
 3. **Read all heads + form your own view.** You are a seat at the table — don't just relay.
 4. **Synthesize, don't average** — consensus (state as high-confidence), disagreement (name the tension, say which side is more credible and why), recommendation (one decided answer).
 5. **Attribute briefly** — one line on what each head contributed.

@@ -25,6 +25,11 @@ pub struct Brief {
     pub constraints: String,
     /// What a good answer looks like.
     pub good_answer: String,
+    /// The coach suggests Deep Think: several stakeholders, money or legal stakes, more than
+    /// three options, or missing facts. The person accepts or not. Not part of the brief the table reads.
+    pub deep: bool,
+    /// Why, in one short sentence. Empty when the coach gave no reason.
+    pub deep_why: String,
 }
 
 const FIELDS: [(&str, &str); 4] = [("GOAL", "Goal"), ("CONTEXT", "Context"), ("CONSTRAINTS", "Constraints"), ("GOOD ANSWER", "A good answer")];
@@ -150,8 +155,32 @@ pub fn brief_prompt(question: &str, qa: &[(String, String)]) -> String {
             p.push_str(&format!("Q: {}\nA: {}\n", one_line(q), one_line(a)));
         }
     }
-    p.push_str("\n--- YOUR JOB ---\nReply with exactly four lines and nothing else:\nGOAL: <what they want to decide or achieve, in one sentence>\nCONTEXT: <the facts that matter, in one or two sentences>\nCONSTRAINTS: <limits on money, time, people or risk, or \"None given\">\nGOOD ANSWER: <what a useful answer looks like: its form and what it must cover>\nUse only what they said. Do not invent facts.\n");
+    p.push_str(&format!("\n--- YOUR JOB ---\nReply with exactly five lines and nothing else:\nGOAL: <what they want to decide or achieve, in one sentence>\nCONTEXT: <the facts that matter, in one or two sentences>\nCONSTRAINTS: <limits on money, time, people or risk, or \"None given\">\nGOOD ANSWER: <what a useful answer looks like: its form and what it must cover>\n{DEEP_LINE}Use only what they said. Do not invent facts.\n"));
     p
+}
+
+/// The brief's last line: should this question get Deep Think? Same words as `lib/coach.py`.
+pub const DEEP_LINE: &str = "DEEP THINK: <yes or no>: <why, in one short sentence>. Say yes when the decision is complex: several stakeholders, money or legal stakes, more than three options, or missing facts the pick depends on.\n";
+
+/// The coach's Deep Think line: (suggested, why). No line means no suggestion.
+pub fn parse_deep(reply: &str) -> (bool, String) {
+    for line in reply.lines() {
+        let t = line.trim().trim_start_matches(['-', '*']).trim().replace("**", "");
+        let t = t.trim();
+        let Some(rest) = deep_rest(t) else { continue };
+        let low = rest.to_ascii_lowercase();
+        let yes = low.starts_with("yes");
+        let why = if yes || low.starts_with("no") { &rest[if yes { 3 } else { 2 }..] } else { rest };
+        let why = why.trim_start_matches([':', ',', '-', '.', ' ']).trim().to_string();
+        return (yes, if yes { why } else { String::new() });
+    }
+    (false, String::new())
+}
+
+/// The text after "DEEP THINK:" (any case, a dash or a space between the words).
+fn deep_rest(t: &str) -> Option<&str> {
+    let up = t.to_ascii_uppercase();
+    ["DEEP THINK:", "DEEP-THINK:", "DEEPTHINK:"].iter().find(|k| up.starts_with(**k)).map(|k| t[k.len()..].trim())
 }
 
 /// Read the four brief lines back. Missing fields stay empty; with no goal, the question is the goal.
@@ -161,6 +190,10 @@ pub fn parse_brief(reply: &str, question: &str) -> Brief {
     for line in reply.lines() {
         let t = line.trim().trim_start_matches(['-', '*']).trim().replace("**", "");
         let t = t.trim();
+        if deep_rest(t).is_some() {
+            cur = None;
+            continue;
+        }
         let up = t.to_ascii_uppercase();
         let hit = FIELDS.iter().enumerate().find_map(|(i, (key, label))| {
             [key.to_string(), label.to_ascii_uppercase(), if i == 3 { "WHAT A GOOD ANSWER LOOKS LIKE".into() } else { String::new() }]
@@ -186,6 +219,7 @@ pub fn parse_brief(reply: &str, question: &str) -> Brief {
     if b.goal.trim().is_empty() {
         b.goal = one_line(question);
     }
+    (b.deep, b.deep_why) = parse_deep(reply);
     b
 }
 
@@ -424,4 +458,19 @@ mod tests {
         assert_eq!(s.why, "Money and direction.");
         assert!(parse_suggestion("I would pick finance people.", &lib).is_none());
     }
+    #[test]
+    fn the_brief_carries_a_deep_think_suggestion() {
+        let p = brief_prompt("Sign the vendor contract?", &[]);
+        assert!(p.contains("exactly five lines") && p.contains(DEEP_LINE));
+        let b = parse_brief("GOAL: Decide on the contract.\nGOOD ANSWER: A pick.\nDEEP THINK: yes: Legal stakes and four options.", "Q");
+        assert!(b.deep);
+        assert_eq!(b.deep_why, "Legal stakes and four options.");
+        assert_eq!(b.good_answer, "A pick.", "the Deep Think line never runs into the brief");
+        assert!(!b.to_markdown().contains("DEEP"));
+        let b = parse_brief("GOAL: g\n**DEEP THINK:** no, it is simple.", "Q");
+        assert!(!b.deep && b.deep_why.is_empty());
+        assert_eq!(parse_deep("GOAL: g"), (false, String::new()));
+        assert_eq!(parse_deep("- Deep-Think: YES, money is at stake"), (true, "money is at stake".to_string()));
+    }
+
 }

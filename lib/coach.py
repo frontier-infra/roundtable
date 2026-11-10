@@ -19,7 +19,10 @@ Standard library only. core.sh makes the chair calls; this file builds and reads
   coach.py chair-prompt QUESTION ROUND POSFILE  the chair's prompt after a round
   coach.py deliberation-prompt BASEFILE PREV POSFILE ROUND CHAIRFILE   a round 2+ prompt
   coach.py agreed < CHAIR                       exit 0 on true agreement (no listed differences)
-  coach.py verdict-prompt SHAPE QUESTION BRIEFFILE QFILE POSFILE [MATFILE] the verdict prompt
+  coach.py verdict-prompt SHAPE QUESTION BRIEFFILE QFILE POSFILE [MATFILE] [MODE] the verdict prompt
+  coach.py seat-rule MODE                       the LENGTH section at the end of every seat's prompt
+  coach.py estimate MODE ROUNDS                 "Deep Think: about N minutes."
+  coach.py deep-hint < REPLY                    the coach's Deep Think suggestion as a NOTE line, or nothing
   coach.py codex-config CONFIG.TOML             the part of a Codex config a seat keeps
 """
 import os, re, subprocess, sys, urllib.request
@@ -152,12 +155,63 @@ def agreed(chair):
     return is_consensus(chair) and not differences(chair)
 
 
+# ---- Modes: Quick (the default) and Deep Think. Same rules as desktop/engine/src/mode.rs ----
+
+MODES = {"": "quick", "quick": "quick", "fast": "quick", "deep": "deep", "deep-think": "deep", "deepthink": "deep", "think": "deep"}
+MODE_TITLE = {"quick": "Quick", "deep": "Deep Think"}
+MODE_ROUNDS = {"quick": 1, "deep": 4}
+SEAT_WORDS = {"quick": 250, "deep": 800}
+
+
+def mode_of(s):
+    return MODES.get((s or "").strip().lower().replace("_", "-").replace(" ", "-"))
+
+
+def seat_rule(mode):
+    if mode == "deep":
+        return ("## LENGTH\nTake up to about %d words. Lead with your pick and how sure you are. Then reason it through: what each serious option "
+                "costs and buys, the risks that could hurt this person, the facts you do not have and how to find them out, and the steps in order." % SEAT_WORDS[mode])
+    return ("## LENGTH\nKeep your answer to about %d words. Lead with your pick and how sure you are. Then give the main trade-off, "
+            "the risks that could hurt this person, and the facts you do not have that would change the pick. "
+            "Include CASE AGAINST: two short bullets, the strongest case that your pick is wrong for this person." % SEAT_WORDS["quick"])
+
+
+def estimate_minutes(mode, rounds):
+    rounds = max(1, min(4, rounds))
+    seat, verdict, coach = (140, 75, 45) if mode == "deep" else (50, 30, 0)
+    chair = rounds * 30 if rounds > 1 and mode == "deep" else 0
+    secs = coach + rounds * seat + chair + verdict
+    return max(1, -(-secs // 60))
+
+
+def estimate_line(mode, rounds):
+    n = estimate_minutes(mode, rounds)
+    return "%s: about %d minute%s." % (MODE_TITLE[mode], n, "" if n == 1 else "s")
+
+
 SHAPE_JOB = {
-    "decision": "Then **WHY** (at most four bullets) and **RISKS** (at most three bullets: what could hurt this person).",
-    "pros-cons": "Then **PROS** (bullets) and **CONS** (bullets) of the pick.",
-    "plan": "Then **PLAN**: the rest of the steps as a numbered list, each step with who and by when.",
+    "decision": "Then **TRADE-OFFS**: one short bullet per serious option (at most three), what it costs and what it buys. Then **RISKS**: at most three short bullets, the risks that could hurt this person, each with how to blunt it. Then **UNKNOWNS**: at most two short bullets, the facts that would change the pick and how to find each one out.",
+    "pros-cons": "Then **PROS** and **CONS** of the pick: at most two short bullets each.",
+    "plan": "Then **PLAN**: at most three more numbered steps (4 to 6), each with who and by when.",
     "vote": "Then **VOTES**: one bullet per seat, \"<seat name>: <the option it backs>\". Then \"RESULT: <option> wins <n> to <m>\", or \"RESULT: tie\".",
 }
+DEEP_JOB = {
+    "decision": "",
+    "plan": "",
+    "pros-cons": "**PROS** and **CONS**: the case for and against the pick, in bullets.\n",
+    "vote": "**VOTES**: one bullet per seat, \"<seat name>: <the option it backs>\". Then \"RESULT: <option> wins <n> to <m>\", or \"RESULT: tie\".\n",
+}
+VERDICT_DEEP = ("Then write the full verdict under these bold headings, in this order:\n"
+                "**REASONING**: why the pick holds, grouped by theme; give each theme a short bold label and name the seats behind it.\n"
+                "**TRADE-OFFS**: what each serious option costs and buys.\n"
+                "**RISKS**: what could hurt this person, how likely it is, and how to blunt each one.\n"
+                "**UNKNOWNS**: the facts nobody has, why each one matters, and how to find it out (who, how, by when).\n"
+                "**PLAN**: every step in order, numbered, each with who and by when, and the checkpoint that would make the person stop or switch.\n")
+VERDICT_DEEP_END = ("**THE MINORITY VIEW IN FULL**: the strongest case against the pick, argued fairly on its own terms, and what would have to be true for it to win.\n"
+                    "Use the seats' own numbers and add no new facts. Take the room this needs, up to about 1,200 words. The decision lines come first: the person reads them first.\n")
+VERDICT_ENDING = ("Then end with exactly these two lines:\nMINORITY VIEW: <the strongest case against the pick, in one or two sentences: what it says and when it would be the right call. "
+                  "Never \"None\": when every seat agreed, give the best case for the strongest other option>\n"
+                  "HELD BY: <the seats that held it, by their names above, or \"Nobody at the table\">\n")
 VERDICT_CORE = ("Lead with one decision. Start with exactly these lines:\nDECISION: <the pick, in one sentence>\nCONFIDENCE: <high, medium or low> (<0 to 100>%)\n"
                 "WOULD CHANGE IT: <the fact or event that would change the pick, in one sentence>\nNEXT STEPS:\n1. <the first concrete step, one the person can start today>\n"
                 "2. <the second step>\n3. <the third step>\n")
@@ -166,7 +220,7 @@ VERDICT_CLARIFY = ("Key facts are missing (the OPEN QUESTIONS above), so open wi
                    "DECISION names the pick that holds under the most likely answers and says how the answers would change it (\"If ..., then ...\").\n")
 
 
-def verdict_prompt(shape, question, brief, open_qs, positions, material=""):
+def verdict_prompt(shape, question, brief, open_qs, positions, material="", mode="quick"):
     p = "You are the neutral CHAIR of an AI council. Write the final verdict on this question:\n\n%s\n\n" % question.strip()
     if brief.strip():
         p += "THE BRIEF:\n%s\n\n" % brief.strip()
@@ -178,10 +232,12 @@ def verdict_prompt(shape, question, brief, open_qs, positions, material=""):
     p += "--- FINAL POSITIONS ---\n\n" + positions + "--- YOUR JOB ---\n"
     if open_qs:
         p += VERDICT_CLARIFY
-    p += (VERDICT_CORE + SHAPE_JOB[shape] + "\nUse the seats' own numbers and add no new facts. Keep it under 300 words: the person reads this first, and the seat answers sit folded under it.\n"
-          "Then end with exactly these two lines:\nMINORITY VIEW: <the strongest view that differs from the verdict, in one sentence, or \"None\">\n"
-          "HELD BY: <the seats that held it, by their names above, or \"Nobody\">\n")
-    return p
+    p += VERDICT_CORE
+    if mode == "deep":
+        p += VERDICT_DEEP + DEEP_JOB[shape] + VERDICT_DEEP_END
+    else:
+        p += SHAPE_JOB[shape] + "\nUse the seats' own numbers and add no new facts. Keep the decision lines under 200 words and the whole verdict under 300: the person reads this first, and the seat answers sit folded under it.\n"
+    return p + VERDICT_ENDING
 
 
 def open_questions_section(qs):
@@ -221,13 +277,48 @@ def brief_prompt(q, qa):
         p += "\nTHEIR ANSWERS TO YOUR CLARIFYING QUESTIONS:\n"
         for x, a in answered:
             p += "Q: %s\nA: %s\n" % (one_line(x), one_line(a))
-    p += ("\n--- YOUR JOB ---\nReply with exactly four lines and nothing else:\n"
+    p += ("\n--- YOUR JOB ---\nReply with exactly five lines and nothing else:\n"
           "GOAL: <what they want to decide or achieve, in one sentence>\n"
           "CONTEXT: <the facts that matter, in one or two sentences>\n"
           "CONSTRAINTS: <limits on money, time, people or risk, or \"None given\">\n"
           "GOOD ANSWER: <what a useful answer looks like: its form and what it must cover>\n"
-          "Use only what they said. Do not invent facts.\n")
+          + DEEP_LINE + "Use only what they said. Do not invent facts.\n")
     return p
+
+
+# The brief's last line: should this question get Deep Think? Same words as coach.rs.
+DEEP_LINE = ("DEEP THINK: <yes or no>: <why, in one short sentence>. Say yes when the decision is complex: several stakeholders, "
+             "money or legal stakes, more than three options, or missing facts the pick depends on.\n")
+
+
+def _deep_rest(t):
+    up = t.upper()
+    for k in ("DEEP THINK:", "DEEP-THINK:", "DEEPTHINK:"):
+        if up.startswith(k):
+            return t[len(k):].strip()
+    return None
+
+
+def parse_deep(reply):
+    """The coach's Deep Think line: (suggested, why). No line means no suggestion."""
+    for line in reply.splitlines():
+        t = line.strip().lstrip("-*").strip().replace("**", "").strip()
+        rest = _deep_rest(t)
+        if rest is None:
+            continue
+        low = rest.lower()
+        yes = low.startswith("yes")
+        why = rest[3 if yes else 2:] if (yes or low.startswith("no")) else rest
+        why = why.lstrip(":,-. ").strip()
+        return yes, (why if yes else "")
+    return False, ""
+
+
+def deep_hint(why):
+    why = why.strip().rstrip(".")
+    if not why:
+        return "NOTE: The coach suggests Deep Think for this one. Run it again with --mode deep."
+    return "NOTE: The coach suggests Deep Think: %s. Run it again with --mode deep." % why
 
 
 def parse_brief(reply, q):
@@ -235,6 +326,9 @@ def parse_brief(reply, q):
     cur = None
     for line in reply.splitlines():
         t = line.strip().lstrip("-*").strip().replace("**", "").strip()
+        if _deep_rest(t) is not None:
+            cur = None
+            continue
         up = t.upper()
         hit = None
         for i, (key, label) in enumerate(FIELDS):
@@ -487,7 +581,22 @@ def main(argv):
     elif cmd == "verdict-prompt":
         qs = [l for l in read(argv[4]).splitlines() if l.strip()] if os.path.exists(argv[4]) else []
         sys.stdout.write(verdict_prompt(argv[1], argv[2], read(argv[3]) if os.path.exists(argv[3]) else "", qs, read(argv[5]),
-                                        read(argv[6]) if len(argv) > 6 and os.path.exists(argv[6]) else ""))
+                                        read(argv[6]) if len(argv) > 6 and os.path.exists(argv[6]) else "",
+                                        mode_of(argv[7]) or "quick" if len(argv) > 7 else "quick"))
+    elif cmd == "seat-rule":
+        sys.stdout.write(seat_rule(mode_of(argv[1]) or "quick"))
+    elif cmd == "estimate":
+        sys.stdout.write(estimate_line(mode_of(argv[1]) or "quick", int(argv[2])))
+    elif cmd == "mode":
+        m = mode_of(argv[1])
+        if not m:
+            sys.stderr.write("ERROR: Unknown mode '%s'. Use quick or deep.\n" % argv[1].strip().lower())
+            return 2
+        sys.stdout.write(m)
+    elif cmd == "deep-hint":
+        yes, why = parse_deep(sys.stdin.read())
+        if yes:
+            print(deep_hint(why))
     elif cmd == "codex-config":
         sys.stdout.write(filter_codex_config(read(argv[1]) if os.path.exists(argv[1]) else ""))
     elif cmd == "brief-prompt":

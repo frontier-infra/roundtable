@@ -4,6 +4,7 @@
 use roundtable_engine::council::{self, AskOptions, Event, RunResult};
 use roundtable_engine::keys::{self, KeyStore, Keys};
 use roundtable_engine::settings::Settings;
+use roundtable_engine::mode::{self, Mode};
 use roundtable_engine::{attach, clis, coach, custom, decision, history, mcp, paths, personas, providers, verify, CREDIT_LINE, VERSION};
 use std::io::IsTerminal;
 use serde_json::json;
@@ -45,8 +46,15 @@ Ask flags:
                         qwen,kimi,opencode,cursor
       --seats CSV       Seats by provider:model (ollama:llama3.2, openrouter:openai/gpt-4o-mini)
                         or AI name. Alone, the table is exactly these; with --heads, added
-      --rounds N        1 to 4. 1: each AI answers once (default). 2 to 4: they read
-                        each other and revise toward consensus; Claude chairs
+      --mode MODE       quick (the default): one round, short answers (about 250
+                        words a seat), a short verdict, about 2 minutes.
+                        deep: Deep Think. The coach first, up to 4 rounds that argue
+                        against the leading pick, answers up to about 800 words, and
+                        a long verdict (reasoning, trade-offs, risks, unknowns, a step
+                        plan, the minority view in full). It says how long first
+      --rounds N        1 to 4, instead of the mode's rounds. 2 to 4: they read each
+                        other and revise. In Deep Think, Claude chairs every round and
+                        the run stops early on agreement; Quick runs them back to back
       --personas SPEC   Seat roles: a preset (pricing), a pack (business-roles),
                         or persona names (cfo,ceo@claude). generic: plain seats.
                         auto: suggest seats from the question (or the brief)
@@ -126,7 +134,9 @@ struct AskArgs {
     heads: Option<String>,
     seats: Option<String>,
     personas: Option<String>,
-    rounds: u32,
+    /// None: the mode's rounds.
+    rounds: Option<u32>,
+    mode: Mode,
     timeout: Option<u64>,
     research: bool,
     out: Option<String>,
@@ -155,7 +165,8 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
         heads: None,
         seats: None,
         personas: None,
-        rounds: 1,
+        rounds: None,
+        mode: Mode::Quick,
         timeout: None,
         research: false,
         out: None,
@@ -188,7 +199,10 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
             "--heads" => a.heads = Some(val(&mut i)?),
             "--seats" => a.seats = Some(val(&mut i)?),
             "--personas" => a.personas = Some(val(&mut i)?),
-            "--rounds" => a.rounds = val(&mut i)?.parse().map_err(|_| "--rounds needs a number".to_string())?,
+            "--rounds" => a.rounds = Some(val(&mut i)?.parse().map_err(|_| "--rounds needs a number".to_string())?),
+            "--mode" => a.mode = Mode::parse(&val(&mut i)?)?,
+            "--deep" => a.mode = Mode::Deep,
+            "--quick" => a.mode = Mode::Quick,
             "--timeout" => a.timeout = Some(val(&mut i)?.parse().map_err(|_| "--timeout needs seconds".to_string())?),
             "--research" => a.research = true,
             "--out" => a.out = Some(val(&mut i)?),
@@ -373,8 +387,9 @@ fn cmd_ask(args: &[String]) -> u8 {
             return 2;
         }
     };
-    if a.coach && brief.is_none() {
-        brief = run_coach(&coach_text, &a.coach_answers, &k, &settings, a.events);
+    // Deep Think: the coach always runs (unless a brief came with the run).
+    if (a.coach || a.mode.coach()) && brief.is_none() {
+        brief = run_coach(&coach_text, &a.coach_answers, &k, &settings, a.events, a.mode);
     }
     let mut spec = a.personas.clone().or_else(|| k.env.get("ROUNDTABLE_PERSONAS").cloned()).unwrap_or_default();
     let lib = personas::Library::load(&settings);
@@ -401,8 +416,13 @@ fn cmd_ask(args: &[String]) -> u8 {
             return 2;
         }
     };
-    if a.rounds > council::MAX_ROUNDS {
+    let rounds = a.rounds.unwrap_or(a.mode.default_rounds());
+    if rounds > council::MAX_ROUNDS {
         eprintln!("NOTE: --rounds is at most {}. Running {}.", council::MAX_ROUNDS, council::MAX_ROUNDS);
+    }
+    let rounds = rounds.clamp(1, council::MAX_ROUNDS);
+    if a.mode == Mode::Deep && !a.events {
+        eprintln!("NOTE: {}", mode::estimate_line(a.mode, rounds));
     }
     let opts = AskOptions {
         question: a.question.clone(),
@@ -415,9 +435,10 @@ fn cmd_ask(args: &[String]) -> u8 {
         clarify: a.clarify,
         heads,
         seats,
-        rounds: a.rounds.clamp(1, council::MAX_ROUNDS),
+        rounds,
         research: a.research,
         timeout: a.timeout.map(std::time::Duration::from_secs).unwrap_or_else(|| council::default_timeout(a.research, &settings)),
+        mode: a.mode,
     };
     let stdout = std::sync::Mutex::new(std::io::stdout());
     let emit = |e: &Event| {
@@ -448,7 +469,7 @@ fn cmd_ask(args: &[String]) -> u8 {
 
 /// `--coach`: the coach's questions, the person's answers (flags, else the terminal), then the brief.
 /// None when the coach did not answer, or the person skipped the brief.
-fn run_coach(question: &str, given: &[String], k: &Keys, settings: &Settings, quiet: bool) -> Option<String> {
+fn run_coach(question: &str, given: &[String], k: &Keys, settings: &Settings, quiet: bool, mode: Mode) -> Option<String> {
     let tty = !quiet && std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
     let qs = match coach::ask_questions(question, k, settings, coach::CHAIR_WAIT) {
         Ok(q) => q,
@@ -473,7 +494,12 @@ fn run_coach(question: &str, given: &[String], k: &Keys, settings: &Settings, qu
         qa.push((q.clone(), a));
     }
     let brief = match coach::make_brief(question, &qa, k, settings, coach::CHAIR_WAIT) {
-        Ok(b) => b.to_markdown(),
+        Ok(b) => {
+            if b.deep && mode == Mode::Quick && !quiet {
+                eprintln!("{}", deep_hint(&b.deep_why));
+            }
+            b.to_markdown()
+        }
         Err(e) => {
             eprintln!("NOTE: {e} Asking the question as typed.");
             return None;
@@ -489,6 +515,16 @@ fn run_coach(question: &str, given: &[String], k: &Keys, settings: &Settings, qu
         }
     }
     Some(brief)
+}
+
+/// The coach's Deep Think suggestion, as the terminal shows it. Same words as `lib/core.sh`.
+fn deep_hint(why: &str) -> String {
+    let why = why.trim().trim_end_matches('.');
+    if why.is_empty() {
+        "NOTE: The coach suggests Deep Think for this one. Run it again with --mode deep.".into()
+    } else {
+        format!("NOTE: The coach suggests Deep Think: {why}. Run it again with --mode deep.")
+    }
 }
 
 /// `roundtable coach questions -q Q --json` and `roundtable coach brief --json` (JSON on stdin:
@@ -643,9 +679,13 @@ fn cmd_mcp(args: &[String]) -> u8 {
                 if hs.is_empty() {
                     return ("No valid heads selected.".into(), true);
                 }
-                // The coach: questions first, unless the caller brings the answers.
+                let depth = match Mode::parse(c.mode.as_deref().unwrap_or("")) {
+                    Ok(m) => m,
+                    Err(e) => return (e, true),
+                };
+                // The coach: questions first, unless the caller brings the answers. Deep Think always coaches.
                 let mut brief = None;
-                if c.coach {
+                if c.coach || depth.coach() {
                     match coach::ask_questions(&c.question, &k, &settings, coach::CHAIR_WAIT) {
                         Ok(qs) if !qs.is_empty() && c.coach_answers.is_empty() => return (mcp::coach_reply(&qs), false),
                         Ok(qs) => {
@@ -680,7 +720,8 @@ fn cmd_mcp(args: &[String]) -> u8 {
                     question: c.question.clone(),
                     heads: hs,
                     seats,
-                    rounds: c.rounds.unwrap_or(1).clamp(1, council::MAX_ROUNDS),
+                    rounds: c.rounds.unwrap_or(depth.default_rounds()).clamp(1, council::MAX_ROUNDS),
+                    mode: depth,
                     research: c.research,
                     timeout: council::default_timeout(c.research, &settings),
                     brief,

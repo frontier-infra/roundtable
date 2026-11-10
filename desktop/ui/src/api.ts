@@ -236,6 +236,10 @@ export interface Brief {
   constraints: string;
   /** What a good answer looks like. */
   good_answer: string;
+  /** The coach suggests Deep Think for this brief. */
+  deep?: boolean;
+  /** Why, in one short sentence. */
+  deep_why?: string;
 }
 
 export interface CoachQuestions {
@@ -344,6 +348,8 @@ export interface AskRequest {
   question: string;
   heads: string[];
   rounds: number;
+  /** quick or deep (Deep Think). */
+  mode?: "quick" | "deep";
   research: boolean;
   contextPath?: string | null;
   contextText?: string | null;
@@ -364,7 +370,7 @@ export interface AskRequest {
 
 /** One line from `roundtable ask --events`, plus `process_exit` from the app. */
 export type EngineEvent =
-  | { event: "run_started"; heads: string[]; rounds: number; mode: string; seats?: SeatInfo[] }
+  | { event: "run_started"; heads: string[]; rounds: number; mode: string; seats?: SeatInfo[]; depth?: "quick" | "deep" }
   | { event: "head_started"; head: string; round: number; seat?: string }
   | { event: "head_done"; head: string; round: number; status: string; text: string; reason?: string; message?: string; fix?: Fix; via?: string; seat?: string }
   | { event: "round_done"; round: number }
@@ -560,6 +566,7 @@ export async function tauriApi(): Promise<Api> {
         question: req.question,
         heads: req.heads,
         rounds: req.rounds,
+        mode: req.mode ?? null,
         research: req.research,
         contextPath: req.contextPath ?? null,
         contextText: req.contextText ?? null,

@@ -3,6 +3,7 @@
 //! A shape is a decision with confidence, pros and cons, an action plan, or a vote.
 //! Every shape ends by naming the minority view and who held it.
 
+use crate::mode::Mode;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -45,13 +46,21 @@ impl Shape {
             Shape::Vote => "Vote",
         }
     }
-    /// What the shape adds after the decision core.
-    fn job(self) -> &'static str {
+    /// What the shape adds after the decision core in a Quick verdict: a few short lines.
+    fn quick_job(self) -> &'static str {
         match self {
-            Shape::Decision => "Then **WHY** (at most four bullets) and **RISKS** (at most three bullets: what could hurt this person).",
-            Shape::ProsCons => "Then **PROS** (bullets) and **CONS** (bullets) of the pick.",
-            Shape::Plan => "Then **PLAN**: the rest of the steps as a numbered list, each step with who and by when.",
+            Shape::Decision => "Then **TRADE-OFFS**: one short bullet per serious option (at most three), what it costs and what it buys. Then **RISKS**: at most three short bullets, the risks that could hurt this person, each with how to blunt it. Then **UNKNOWNS**: at most two short bullets, the facts that would change the pick and how to find each one out.",
+            Shape::ProsCons => "Then **PROS** and **CONS** of the pick: at most two short bullets each.",
+            Shape::Plan => "Then **PLAN**: at most three more numbered steps (4 to 6), each with who and by when.",
             Shape::Vote => "Then **VOTES**: one bullet per seat, \"<seat name>: <the option it backs>\". Then \"RESULT: <option> wins <n> to <m>\", or \"RESULT: tie\".",
+        }
+    }
+    /// What the shape adds to a Deep Think verdict, before the minority view in full.
+    fn deep_job(self) -> &'static str {
+        match self {
+            Shape::Decision | Shape::Plan => "",
+            Shape::ProsCons => "**PROS** and **CONS**: the case for and against the pick, in bullets.\n",
+            Shape::Vote => "**VOTES**: one bullet per seat, \"<seat name>: <the option it backs>\". Then \"RESULT: <option> wins <n> to <m>\", or \"RESULT: tie\".\n",
         }
     }
 }
@@ -66,7 +75,7 @@ pub const CLARIFY: &str = "Key facts are missing (the OPEN QUESTIONS above), so 
 
 /// The chair's prompt for the verdict. `table` is (label, final answer) per seat;
 /// `attachments` the material every seat read; `open` the chair's open questions when the question lacks key facts.
-pub fn prompt(shape: Shape, question: &str, brief: Option<&str>, attachments: Option<&str>, open: &[String], table: &[(String, String)]) -> String {
+pub fn prompt(shape: Shape, mode: Mode, question: &str, brief: Option<&str>, attachments: Option<&str>, open: &[String], table: &[(String, String)]) -> String {
     let mut p = format!("You are the neutral CHAIR of an AI council. Write the final verdict on this question:\n\n{}\n\n", question.trim());
     if let Some(b) = brief.filter(|b| !b.trim().is_empty()) {
         p.push_str(&format!("THE BRIEF:\n{}\n\n", b.trim()));
@@ -90,12 +99,23 @@ pub fn prompt(shape: Shape, question: &str, brief: Option<&str>, attachments: Op
     if !open.is_empty() {
         p.push_str(CLARIFY);
     }
-    p.push_str(&format!(
-        "{CORE}{}\nUse the seats' own numbers and add no new facts. Keep it under 300 words: the person reads this first, and the seat answers sit folded under it.\nThen end with exactly these two lines:\nMINORITY VIEW: <the strongest view that differs from the verdict, in one sentence, or \"None\">\nHELD BY: <the seats that held it, by their names above, or \"Nobody\">\n",
-        shape.job()
-    ));
+    p.push_str(CORE);
+    match mode {
+        Mode::Quick => p.push_str(&format!(
+            "{}\nUse the seats' own numbers and add no new facts. Keep the decision lines under 200 words and the whole verdict under 300: the person reads this first, and the seat answers sit folded under it.\n",
+            shape.quick_job()
+        )),
+        Mode::Deep => p.push_str(&format!("{DEEP}{}{DEEP_END}", shape.deep_job())),
+    }
+    p.push_str(ENDING);
     p
 }
+
+/// The long verdict of a Deep Think run, after the decision lines.
+pub const DEEP: &str = "Then write the full verdict under these bold headings, in this order:\n**REASONING**: why the pick holds, grouped by theme; give each theme a short bold label and name the seats behind it.\n**TRADE-OFFS**: what each serious option costs and buys.\n**RISKS**: what could hurt this person, how likely it is, and how to blunt each one.\n**UNKNOWNS**: the facts nobody has, why each one matters, and how to find it out (who, how, by when).\n**PLAN**: every step in order, numbered, each with who and by when, and the checkpoint that would make the person stop or switch.\n";
+pub const DEEP_END: &str = "**THE MINORITY VIEW IN FULL**: the strongest case against the pick, argued fairly on its own terms, and what would have to be true for it to win.\nUse the seats' own numbers and add no new facts. Take the room this needs, up to about 1,200 words. The decision lines come first: the person reads them first.\n";
+/// Every verdict ends with the minority view in one line and who held it.
+pub const ENDING: &str = "Then end with exactly these two lines:\nMINORITY VIEW: <the strongest case against the pick, in one or two sentences: what it says and when it would be the right call. Never \"None\": when every seat agreed, give the best case for the strongest other option>\nHELD BY: <the seats that held it, by their names above, or \"Nobody at the table\">\n";
 
 /// The verdict a run gets: the shape asked for, or a decision on any table of two seats
 /// or more when none was asked for. `none` (or `off`) turns it off.
@@ -182,7 +202,7 @@ pub fn parts(text: &str) -> Parts {
         if let Some(v) = after(line, "MINORITY VIEW:") {
             p.minority = Some(v).filter(|v| !v.is_empty() && !v.trim_matches(['"', '.']).eq_ignore_ascii_case("none"));
         } else if let Some(v) = after(line, "HELD BY:") {
-            p.held_by = Some(v).filter(|v| !v.is_empty() && !v.trim_matches(['"', '.']).eq_ignore_ascii_case("nobody"));
+            p.held_by = Some(v).filter(|v| !v.is_empty() && !v.trim_matches(['"', '.']).to_ascii_lowercase().starts_with("nobody"));
         } else if let Some(v) = after(line, "CONFIDENCE:") {
             let low = v.to_ascii_lowercase();
             p.confidence = ["high", "medium", "low"].iter().find(|w| low.starts_with(**w)).map(|w| w.to_string());
@@ -222,21 +242,38 @@ mod tests {
 
     #[test]
     fn prompt_names_the_minority_lines() {
-        let p = prompt(Shape::Vote, "Q", Some("- **Goal:** g"), None, &[], &[("A".into(), "x".into())]);
+        let p = prompt(Shape::Vote, Mode::Quick, "Q", Some("- **Goal:** g"), None, &[], &[("A".into(), "x".into())]);
         assert!(p.contains("THE BRIEF:\n- **Goal:** g"));
         assert!(!p.contains("THE MATERIAL"));
-        let m = prompt(Shape::Decision, "Q", None, Some("### notes.txt\nCode word: HERON-42.\n"), &[], &[("A".into(), "x".into())]);
+        let m = prompt(Shape::Decision, Mode::Quick, "Q", None, Some("### notes.txt\nCode word: HERON-42.\n"), &[], &[("A".into(), "x".into())]);
         assert!(m.contains("THE MATERIAL EVERY SEAT READ:\n### notes.txt\nCode word: HERON-42.\n\n--- FINAL POSITIONS ---"));
         assert!(p.contains("MINORITY VIEW:") && p.contains("HELD BY:"));
         assert!(!p.contains('\u{2014}'));
         for s in SHAPES {
-            let p = prompt(*s, "Q", None, None, &[], &[]);
+            let p = prompt(*s, Mode::Quick, "Q", None, None, &[], &[]);
             assert!(p.contains("--- YOUR JOB ---\nLead with one decision.") && p.contains("WOULD CHANGE IT:") && p.contains("NEXT STEPS:\n1."), "every shape keeps the core: {p}");
             assert!(!p.contains("QUESTIONS FIRST"));
         }
-        let p = prompt(Shape::Decision, "Q", None, None, &["What is the workload?".into(), "How big?".into()], &[]);
+        let p = prompt(Shape::Decision, Mode::Quick, "Q", None, None, &["What is the workload?".into(), "How big?".into()], &[]);
         assert!(p.contains("OPEN QUESTIONS:\n- What is the workload?\n- How big?\n\n--- FINAL POSITIONS"));
         assert!(p.contains("--- YOUR JOB ---\nKey facts are missing") && p.find("QUESTIONS FIRST").unwrap() < p.find("DECISION:").unwrap());
+    }
+
+    #[test]
+    fn quick_is_short_and_deep_is_long() {
+        let q = prompt(Shape::Decision, Mode::Quick, "Q", None, None, &[], &[]);
+        assert!(q.contains("decision lines under 200 words") && q.contains("**TRADE-OFFS**") && q.contains("**UNKNOWNS**") && !q.contains("**REASONING**"));
+        let d = prompt(Shape::Decision, Mode::Deep, "Q", None, None, &[], &[]);
+        assert!(d.find("DECISION:").unwrap() < d.find("**REASONING**").unwrap(), "the decision comes first");
+        for h in ["**TRADE-OFFS**", "**RISKS**", "**UNKNOWNS**", "**PLAN**", "**THE MINORITY VIEW IN FULL**", "MINORITY VIEW:", "HELD BY:"] {
+            assert!(d.contains(h), "{h}");
+        }
+        assert!(!d.contains("under 200 words") && !d.contains('\u{2014}'));
+        assert!(prompt(Shape::Vote, Mode::Deep, "Q", None, None, &[], &[]).contains("**VOTES**"));
+        // The long verdict still reads back: its plan is not taken for the next steps.
+        let p = parts("DECISION: Cut 15%.\nCONFIDENCE: medium (60%)\nNEXT STEPS:\n1. a\n2. b\n3. c\n\n**REASONING**\n**Cash**: 18 months.\n**PLAN**\n1. x\n2. y\nMINORITY VIEW: Cut deeper.\nHELD BY: Grok");
+        assert_eq!(p.next_steps, vec!["a", "b", "c"]);
+        assert_eq!(p.minority.as_deref(), Some("Cut deeper."));
     }
 
     #[test]

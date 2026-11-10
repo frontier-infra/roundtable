@@ -55,15 +55,31 @@ def load_scenarios(path):
     return sc
 
 
-def ask(rt, question, heads, rounds, timeout):
+MODES = ("quick", "deep", "none")
+# Rounds a mode runs when --rounds is not given ("none": a build before modes, one round).
+MODE_ROUNDS = {"quick": 1, "deep": 4, "none": 1}
+
+
+def mode_label(mode):
+    return {"quick": "Quick", "deep": "Deep Think", "none": "No mode (a build before modes)"}.get(mode or "none", str(mode))
+
+
+def ask(rt, question, heads, rounds, timeout, mode="none"):
     """Run `roundtable ask` with --events. Returns a dict with per-round head
-    answers, chair verdicts, and the transcript."""
-    cmd = [rt, "ask", "-q", question, "--heads", heads, "--rounds", str(rounds),
-           "--timeout", str(timeout), "--events", "--no-history"]
+    answers, chair verdicts, and the transcript. `mode` quick or deep adds
+    --mode; "none" leaves it off (a build before modes). `rounds` None leaves
+    --rounds off, so the mode picks."""
+    cmd = [rt, "ask", "-q", question, "--heads", heads]
+    if mode in ("quick", "deep"):
+        cmd += ["--mode", mode]
+    if rounds is not None:
+        cmd += ["--rounds", str(rounds)]
+    cmd += ["--timeout", str(timeout), "--events", "--no-history"]
+    n = rounds if rounds is not None else MODE_ROUNDS.get(mode, 1)
     t0 = time.time()
     p = subprocess.run(cmd, capture_output=True, text=True,
-                       timeout=timeout * (rounds * 3 + 4) + 60)
-    out = {"cmd": cmd[:2] + ["-q", "<question>"] + cmd[4:], "exit": p.returncode,
+                       timeout=timeout * (n * 3 + 6) + 60)
+    out = {"cmd": cmd[:2] + ["-q", "<question>"] + cmd[4:], "exit": p.returncode, "mode": mode,
            "secs": round(time.time() - t0, 1), "heads": {}, "chair": {},
            "transcript": "", "consensus": None, "verdict": "", "clarify": [],
            "stderr_tail": p.stderr[-400:]}
@@ -201,18 +217,30 @@ def judge(rt, judge_head, s, rt_ans, single_ans, rt_first, timeout):
     return res
 
 
+def result_path(outdir, sid, mode):
+    """Quick (and a run before modes) keeps <id>.json; Deep Think keeps <id>.deep.json."""
+    return os.path.join(outdir, f"{sid}.json" if mode in ("quick", "none") else f"{sid}.{mode}.json")
+
+
 def run_scenario(args, s, outdir):
-    path = os.path.join(outdir, f"{s['id']}.json")
+    path = result_path(outdir, s["id"], args.mode)
     if args.resume and os.path.exists(path):
         with open(path) as f:
             return json.load(f)
-    log(f"{s['id']}: table and single")
+    # Deep Think is judged against the same single answer as Quick, when Quick already ran.
+    other = result_path(outdir, s["id"], "quick")
+    single = None
+    if args.mode == "deep" and os.path.exists(other):
+        with open(other) as f:
+            single = json.load(f).get("single")
+    log(f"{s['id']}: table ({mode_label(args.mode)})" + ("" if single else " and single"))
     with cf.ThreadPoolExecutor(2) as ex:
-        ft = ex.submit(ask, args.rt, s["question"], args.seats, args.rounds, args.timeout)
-        fs = ex.submit(ask, args.rt, s["question"], args.single, 1, args.timeout)
-        table, single = ft.result(), fs.result()
+        ft = ex.submit(ask, args.rt, s["question"], args.seats, args.rounds, args.timeout, args.mode)
+        fs = None if single else ex.submit(ask, args.rt, s["question"], args.single, 1, args.timeout)
+        table = ft.result()
+        single = single or fs.result()
     rt_ans, si_ans = table_answer(table), single_answer(single)
-    rec = {"id": s["id"], "table": table, "single": single,
+    rec = {"id": s["id"], "mode": args.mode, "table": table, "single": single,
            "table_answer": rt_ans, "single_answer": si_ans, "judges": []}
     if rt_ans and si_ans:
         rng = random.Random(s["id"])
@@ -234,7 +262,7 @@ def mean(xs):
 def summarize(s, rec):
     js = [j for j in rec["judges"] if j.get("ok")]
     row = {"id": s["id"], "topic": s["topic"], "shape": s["shape"], "n_judge": len(js),
-           "n_facts": len(s["hidden_facts"])}
+           "n_facts": len(s["hidden_facts"]), "mode": rec.get("mode") or rec["table"].get("mode") or "none"}
     for side in ("rt", "single"):
         row[side] = {k: mean([j[side][k] for j in js]) for k in KEYS}
         row[side]["total"] = round(sum(v for v in row[side].values() if v is not None), 2) if js else None
@@ -262,23 +290,41 @@ def fmt(x):
     return "-" if x is None else (f"{x:.1f}" if isinstance(x, float) else str(x))
 
 
+def command_line(args, mode):
+    base = f"{os.path.basename(args.rt)} ask --heads {args.seats}"
+    if mode in ("quick", "deep"):
+        base += f" --mode {mode}"
+    if args.rounds is not None:
+        base += f" --rounds {args.rounds}"
+    elif mode == "none":
+        base += " --rounds 1"
+    return base
+
+
 def report(args, scen, rows, date):
     short = {"risks": "Risk", "tradeoffs": "Trade", "recommendation": "Rec", "unknowns": "Unkn",
              "hidden_facts": "Facts", "next_steps": "Next", "minority_view": "Minor"}
+    order = ("quick", "none", "deep")
+    modes = [m for m in order if any(r["mode"] == m for r in rows)]
+    # The totals are for the main mode: Quick when it ran, else the one that did.
+    main = modes[0] if modes else "none"
+    mrows = [r for r in rows if r["mode"] == main]
     L = []
     L.append(f"# Usefulness bench, {date}")
     L.append("")
     L.append(f"- Build: `{args.build}`")
-    L.append(f"- Command: `{os.path.basename(args.rt)} ask --heads {args.seats} --rounds {args.rounds}`")
+    for m in modes:
+        n = sum(r["mode"] == m for r in rows)
+        L.append(f"- {mode_label(m)}: `{command_line(args, m)}`, {n} scenario{'s' if n != 1 else ''}")
     L.append(f"- Single AI: `{args.single}` (one answer, same question)")
     L.append(f"- Judge: `{args.judge}`, scored twice per scenario with the order swapped")
-    L.append(f"- Scenarios: {len(rows)} (bench/scenarios.json)")
+    L.append(f"- Scenarios: {len({r['id'] for r in rows})} (bench/scenarios.json)")
     L.append("")
-    w = sum(r["pref"] == "table" for r in rows)
-    l = sum(r["pref"] == "single" for r in rows)
-    t = sum(r["pref"] == "tie" for r in rows)
-    na = sum(r["pref"] == "n/a" for r in rows)
-    L.append("## Totals")
+    w = sum(r["pref"] == "table" for r in mrows)
+    l = sum(r["pref"] == "single" for r in mrows)
+    t = sum(r["pref"] == "tie" for r in mrows)
+    na = sum(r["pref"] == "n/a" for r in mrows)
+    L.append(f"## Totals ({mode_label(main)})")
     L.append("")
     L.append(f"Pairwise preference: Roundtable {w}, single AI {l}, tie {t}" + (f", not judged {na}" if na else "") + ".")
     L.append("")
@@ -286,16 +332,16 @@ def report(args, scen, rows, date):
     L.append("|---|---|---|---|")
     lines = []
     for k, name, _ in RUBRIC:
-        a = mean([r["rt"][k] for r in rows])
-        b = mean([r["single"][k] for r in rows])
+        a = mean([r["rt"][k] for r in mrows])
+        b = mean([r["single"][k] for r in mrows])
         lines.append((k, name, a, b))
         L.append(f"| {name} | {fmt(a)} | {fmt(b)} | {fmt(None if a is None or b is None else round(a - b, 2))} |")
-    ta = mean([r["rt"]["total"] for r in rows])
-    tb = mean([r["single"]["total"] for r in rows])
+    ta = mean([r["rt"]["total"] for r in mrows])
+    tb = mean([r["single"]["total"] for r in mrows])
     L.append(f"| **Total (of 35)** | **{fmt(ta)}** | **{fmt(tb)}** | **{fmt(None if ta is None or tb is None else round(ta - tb, 2))}** |")
-    fa = sum((r["rt"]["facts"] or 0) for r in rows)
-    fb = sum((r["single"]["facts"] or 0) for r in rows)
-    nf = sum(r["n_facts"] for r in rows if r["n_judge"])
+    fa = sum((r["rt"]["facts"] or 0) for r in mrows)
+    fb = sum((r["single"]["facts"] or 0) for r in mrows)
+    nf = sum(r["n_facts"] for r in mrows if r["n_judge"])
     if nf:
         L.append("")
         L.append(f"Hidden facts caught: Roundtable {fa:.1f} of {nf} ({100 * fa / nf:.0f}%), single AI {fb:.1f} of {nf} ({100 * fb / nf:.0f}%).")
@@ -303,51 +349,74 @@ def report(args, scen, rows, date):
     if weak:
         L.append("")
         L.append("Weakest Roundtable lines: " + "; ".join(f"{n} ({fmt(a)})" for _, n, a, _ in weak) + ".")
-    secs_t = mean([r["secs"]["table"] for r in rows])
-    secs_s = mean([r["secs"]["single"] for r in rows])
-    wt = mean([r["words"]["table"] for r in rows])
-    ws = mean([r["words"]["single"] for r in rows])
+    secs_s = mean([r["secs"]["single"] for r in mrows])
+    ws = mean([r["words"]["single"] for r in mrows])
     L.append("")
-    L.append(f"Mean time: Roundtable {fmt(secs_t)} s, single {fmt(secs_s)} s. Mean words judged: Roundtable {fmt(wt)}, single {fmt(ws)}.")
+    L.append("## Time and words by mode")
+    L.append("")
+    L.append("| Mode | Scenarios | Roundtable total (of 35) | Mean time | Mean words judged |")
+    L.append("|---|---|---|---|---|")
     base = getattr(args, "baseline_rows", None)
+    if base:
+        L.append(f"| Baseline ({args.baseline}) | {len(base)} | {fmt(mean([r['rt']['total'] for r in base]))} | "
+                 f"{fmt(mean([r['secs']['table'] for r in base]))} s | {fmt(mean([r['words']['table'] for r in base]))} |")
+    for m in modes:
+        rs = [r for r in rows if r["mode"] == m]
+        L.append(f"| {mode_label(m)} | {len(rs)} | {fmt(mean([r['rt']['total'] for r in rs]))} | "
+                 f"{fmt(mean([r['secs']['table'] for r in rs]))} s | {fmt(mean([r['words']['table'] for r in rs]))} |")
+    L.append(f"| Single AI | {len(mrows)} | {fmt(tb)} | {fmt(secs_s)} s | {fmt(ws)} |")
     if base:
         L.append("")
         L.append(f"## Against the baseline ({args.baseline})")
         L.append("")
         bp = {k: sum(r["pref"] == k for r in base) for k in ("table", "single", "tie")}
-        L.append(f"Pairwise preference then: Roundtable {bp['table']}, single AI {bp['single']}, tie {bp['tie']}. Now: Roundtable {w}, single AI {l}, tie {t}.")
+        L.append(f"Pairwise preference then: Roundtable {bp['table']}, single AI {bp['single']}, tie {bp['tie']}. Now ({mode_label(main)}): Roundtable {w}, single AI {l}, tie {t}.")
         L.append("")
         L.append("| Rubric line | Roundtable before | Roundtable now | Change | Single before | Single now |")
         L.append("|---|---|---|---|---|---|")
         for k, name, _ in RUBRIC + [("total", "**Total (of 35)**", "")]:
             a0 = mean([r["rt"][k] for r in base])
-            a1 = mean([r["rt"][k] for r in rows])
+            a1 = mean([r["rt"][k] for r in mrows])
             b0 = mean([r["single"][k] for r in base])
-            b1 = mean([r["single"][k] for r in rows])
+            b1 = mean([r["single"][k] for r in mrows])
             ch = None if a0 is None or a1 is None else round(a1 - a0, 2)
             L.append(f"| {name} | {fmt(a0)} | {fmt(a1)} | {fmt(ch)} | {fmt(b0)} | {fmt(b1)} |")
         L.append("")
-        L.append("| Scenario | Roundtable before | Roundtable now | Single before | Single now | Pick before | Pick now |")
+        L.append("| Scenario | Roundtable before | Roundtable now | Time before | Time now | Pick before | Pick now |")
         L.append("|---|---|---|---|---|---|---|")
         bb = {r["id"]: r for r in base}
-        for r in rows:
+        for r in mrows:
             o = bb.get(r["id"])
             if not o:
                 continue
-            L.append(f"| {r['id']} | {fmt(o['rt']['total'])} | {fmt(r['rt']['total'])} | {fmt(o['single']['total'])} | {fmt(r['single']['total'])} | {o['pref']} | {r['pref']} |")
+            L.append(f"| {r['id']} | {fmt(o['rt']['total'])} | {fmt(r['rt']['total'])} | {fmt(o['secs']['table'])} s | {fmt(r['secs']['table'])} s | {o['pref']} | {r['pref']} |")
+    deep = [r for r in rows if r["mode"] == "deep"]
+    if deep and main != "deep":
+        L.append("")
+        L.append("## Deep Think")
+        L.append("")
+        L.append(f"| Scenario | {mode_label(main)} total | Deep Think total | Single AI | {mode_label(main)} time | Deep Think time | {mode_label(main)} words | Deep Think words | Pick |")
+        L.append("|---|---|---|---|---|---|---|---|---|")
+        qq = {r["id"]: r for r in mrows}
+        for r in deep:
+            q = qq.get(r["id"])
+            g = (lambda f: fmt(f(q)) if q else "-")
+            L.append(f"| {r['id']} | {g(lambda x: x['rt']['total'])} | {fmt(r['rt']['total'])} | {fmt(r['single']['total'])} | "
+                     f"{g(lambda x: x['secs']['table'])} s | {fmt(r['secs']['table'])} s | {g(lambda x: x['words']['table'])} | {fmt(r['words']['table'])} | {r['pref']} |")
     L.append("")
     L.append("## Per scenario")
     L.append("")
     hdr = " | ".join(short[k] for k in KEYS)
-    L.append(f"| Scenario | Side | {hdr} | Total | Facts | Pick |")
-    L.append("|---|---|" + "---|" * (len(KEYS) + 3))
-    for r in rows:
+    L.append(f"| Scenario | Mode | Side | {hdr} | Total | Facts | Pick |")
+    L.append("|---|---|---|" + "---|" * (len(KEYS) + 3))
+    for r in sorted(rows, key=lambda r: (order.index(r["mode"]) if r["mode"] in order else 9)):
         for side, label in (("rt", "Roundtable"), ("single", "Single")):
             cells = " | ".join(fmt(r[side][k]) for k in KEYS)
             pick = r["pref"] if side == "rt" else ""
             facts = f"{fmt(r[side]['facts'])}/{r['n_facts']}"
             name = f"{r['id']}{' (depends)' if r['shape'] == 'depends' else ''}" if side == "rt" else ""
-            L.append(f"| {name} | {label} | {cells} | {fmt(r[side]['total'])} | {facts} | {pick} |")
+            mode = mode_label(r["mode"]) if side == "rt" else ""
+            L.append(f"| {name} | {mode} | {label} | {cells} | {fmt(r[side]['total'])} | {facts} | {pick} |")
     L.append("")
     L.append("## Run notes")
     L.append("")
@@ -356,12 +425,12 @@ def report(args, scen, rows, date):
         failed = "; ".join(f"r{k} {h}: {m}" for k, hs in sorted(r["failed"].items()) for h, m in hs.items())
         cons = {True: "consensus", False: "no consensus", None: "no chair ruling"}[r["consensus"]]
         clar = f"; opened with {r['clarify']} questions" if r.get("clarify") else ""
-        L.append(f"- **{r['id']}**: {r['rounds_used']} round(s), {cons}{clar}; seated {seated}"
+        L.append(f"- **{r['id']}** ({mode_label(r['mode'])}): {r['rounds_used']} round(s), {cons}{clar}; seated {seated}"
                  + (f"; failed {failed}" if failed else "")
-                 + f"; {fmt(r['secs']['table'])} s vs {fmt(r['secs']['single'])} s; votes {', '.join(r['votes']) or 'none'}.")
+                 + f"; {fmt(r['secs']['table'])} s vs {fmt(r['secs']['single'])} s; {r['words']['table']} words; votes {', '.join(r['votes']) or 'none'}.")
         for y in r["why"]:
             if y:
-                L.append("  - Judge: " + y.replace(" \u2014 ", "; ").replace("\u2014", ", "))
+                L.append("  - Judge: " + y.replace(" — ", "; ").replace("—", ", "))
     L.append("")
     L.append("Raw answers, transcripts and judge replies are kept locally in `bench/results/" + date + "/` (not committed).")
     return "\n".join(L) + "\n"
@@ -385,7 +454,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--rt", default=os.environ.get("RT_BIN", "roundtable"), help="roundtable command (RT_BIN)")
     ap.add_argument("--seats", default=os.environ.get("RT_SEATS", "claude,codex,grok"))
-    ap.add_argument("--rounds", type=int, default=int(os.environ.get("RT_ROUNDS", "2")))
+    ap.add_argument("--mode", default=os.environ.get("RT_MODE", "quick"), choices=MODES,
+                    help="quick or deep (Deep Think); none for a build before modes")
+    ap.add_argument("--rounds", type=int, default=int(os.environ["RT_ROUNDS"]) if os.environ.get("RT_ROUNDS") else None,
+                    help="rounds instead of the mode's (the mode picks when left out)")
     ap.add_argument("--single", default=os.environ.get("RT_SINGLE", "claude"), help="the one AI to compare against")
     ap.add_argument("--judge", default=os.environ.get("RT_JUDGE", "opencode"), help="judge head; must not be a seat")
     ap.add_argument("--timeout", type=int, default=300, help="seconds per model call")
@@ -424,21 +496,26 @@ def main():
     args.build = git_build(args.rt)
     if args.report_only:
         recs = {}
-        for s in scen:
-            p = os.path.join(outdir, f"{s['id']}.json")
-            if os.path.exists(p):
-                with open(p) as f:
-                    recs[s["id"]] = json.load(f)
     else:
         with cf.ThreadPoolExecutor(args.jobs) as ex:
             futs = {ex.submit(run_scenario, args, s, outdir): s["id"] for s in scen}
             recs = {}
             for fu in cf.as_completed(futs):
                 try:
-                    recs[futs[fu]] = fu.result()
+                    recs[(futs[fu], args.mode)] = fu.result()
                 except Exception as e:  # noqa: BLE001
                     log(f"{futs[fu]}: FAILED {e}")
-    rows = [summarize(s, recs[s["id"]]) for s in scen if s["id"] in recs]
+    # The report covers every mode saved for this name: a Quick run and a Deep Think run
+    # of the same day land in one file.
+    for s in load_scenarios(args.scenarios):
+        for p in (result_path(outdir, s["id"], "quick"), result_path(outdir, s["id"], "deep")):
+            if not os.path.exists(p):
+                continue
+            with open(p) as f:
+                rec = json.load(f)
+            recs.setdefault((s["id"], rec.get("mode") or rec["table"].get("mode") or "none"), rec)
+    by_id = {s["id"]: s for s in load_scenarios(args.scenarios)}
+    rows = [summarize(by_id[sid], rec) for (sid, _), rec in sorted(recs.items(), key=lambda x: list(by_id).index(x[0][0]))]
     md = report(args, scen, rows, name)
     with open(os.path.join(HERE, "results", f"{name}.md"), "w") as f:
         f.write(md)
