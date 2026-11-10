@@ -319,10 +319,10 @@ The Rust engine keeps them, but the app hides them.
   - Build and test engine and UI on Blacksmith only: `blacksmith-4vcpu-ubuntu-2404` and `blacksmith-4vcpu-windows-2025`.
   - No secrets in these jobs.
 - CI, releases (a `desktop-v*` tag pushed on the main repo, or a manual run by a maintainer):
-  - Mac build on the Studio runner (`self-hosted, macOS, ARM64`).
+  - Mac build on `blacksmith-6vcpu-macos-latest`. The repo is public, and our self-hosted runners serve private repos only.
   - Windows build on `blacksmith-4vcpu-windows-2025`.
-  - The Studio job never runs on `pull_request`.
-  - Its `CARGO_TARGET_DIR` and DMG output go on `/Volumes/PRO-G40`. The job stops if the drive is not mounted.
+  - Release jobs never run on `pull_request`.
+  - A tag with a dash (`desktop-v0.1.1-rc1`) is a test build: artifacts only, no release.
   - No GitHub-hosted labels anywhere.
 - Checks that must pass before a release:
   - Engine unit tests.

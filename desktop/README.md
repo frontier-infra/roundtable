@@ -42,14 +42,22 @@ Preview query options: `screen=1..5`, `view=main|settings`, `claude=none|app|cod
 
 ## Releases
 
-A `desktop-v0.1.N` tag runs `.github/workflows/desktop-release.yml`:
+A `desktop-v0.1.N` tag runs `.github/workflows/desktop-release.yml` on Blacksmith runners only (this repo is public, so no self-hosted runner):
 
-- Mac: universal `.dmg`, signed and notarized, built on the Studio runner with output on `/Volumes/PRO-G40`.
-- Windows: per-user NSIS `.exe`, signed with Azure Trusted Signing, built on Blacksmith.
+- Mac: universal `.dmg`, signed with the Developer ID, notarized and stapled.
+- Windows: per-user NSIS `.exe`, signed with Azure Trusted Signing (`desktop/scripts/sign-windows.ps1`).
 - The updater manifest goes to the tag release and to the rolling `desktop-latest` release.
+
+A tag with a dash, such as `desktop-v0.1.1-rc1`, is a test build. It uploads workflow artifacts and publishes nothing.
 
 Release secrets (GitHub repository secrets, values in Bitwarden):
 
 - Updater: `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` from the item "Roundtable Desktop updater key".
-- Mac: `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` from "Apple Developer".
-- Windows: `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID`, `TRUSTED_SIGNING_ENDPOINT`, `TRUSTED_SIGNING_ACCOUNT`, `TRUSTED_SIGNING_PROFILE` from the Trusted Signing item.
+- Mac certificate: `APPLE_CERTIFICATE` (the `P12_BASE64` attachment), `APPLE_CERTIFICATE_PASSWORD` (field `IMPORT_PASSWORD`), `APPLE_TEAM_ID` from "Apple Developer".
+- Mac notarization: `APPLE_API_KEY_P8` (the `.p8` attachment, base64), `APPLE_API_KEY_ID` (field `KEY_ID`), `APPLE_API_ISSUER_ID` (in the notes) from "titanium-bot-ci".
+- Windows: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` from the item whose name starts "Azure Trusted Signing" (Entra app titanium-gh-signing). There is no client secret: GitHub signs in with OIDC.
+
+Windows signing also needs two things outside this repo:
+
+1. A federated credential on the Entra app `titanium-gh-signing`: issuer `https://token.actions.githubusercontent.com`, subject `repo:frontier-infra/roundtable:environment:desktop-release`, audience `api://AzureADTokenExchange`.
+2. The repository variable `WINDOWS_SIGNING` set to `on`. Until then the Windows job builds an artifact named `roundtable-desktop-windows-UNSIGNED`, and a release tag fails at publish.
