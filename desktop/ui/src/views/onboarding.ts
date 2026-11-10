@@ -7,6 +7,7 @@ import { PROVIDERS, CLAUDE_DOWNLOAD_URL, ISSUES_URL, type Provider } from "../pr
 import {
   allFailed,
   canContinue,
+  connectedHeads,
   cliCardText,
   canSkip,
   cardStatusText,
@@ -18,7 +19,10 @@ import {
   type HeadCard,
 } from "../state";
 import { renderMarkdown } from "../markdown";
+import { glyph, headLogo, lockup, mark, tableScene, WELCOME_SEATS } from "../brand";
 import { providerName } from "../providers";
+
+const STEP_NAMES = ["Welcome", "Set up", "Your AIs", "Claude", "First question"];
 
 export function renderOnboarding(app: App): HTMLElement {
   const s = app.state;
@@ -27,36 +31,46 @@ export function renderOnboarding(app: App): HTMLElement {
   return h(
     "main",
     { class: "onboarding", attrs: { "data-step": String(s.step) } },
-    h("div", { class: "brand" }, logo(), h("span", { text: "Roundtable" })),
-    h("section", { class: "card screen" }, screen),
-    footer(app),
+    rail(app),
+    h("div", { class: "stage" }, h("section", { class: "screen" }, screen), footer(app)),
   );
 }
 
-export function logo(): HTMLElement {
-  const ns = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(ns, "svg");
-  svg.setAttribute("viewBox", "0 0 64 64");
-  svg.setAttribute("class", "logo");
-  svg.setAttribute("aria-hidden", "true");
-  const add = (tag: string, attrs: Record<string, string>) => {
-    const e = document.createElementNS(ns, tag);
-    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
-    svg.appendChild(e);
-  };
-  add("rect", { x: "2", y: "2", width: "60", height: "60", rx: "14", fill: "var(--brand)" });
-  add("circle", { cx: "32", cy: "32", r: "12", fill: "var(--brand-ink)" });
-  for (const [x, y] of [[32, 13], [50, 26], [43, 47], [21, 47], [14, 26]]) add("circle", { cx: String(x), cy: String(y), r: "4", fill: "var(--gold)" });
-  return svg as unknown as HTMLElement;
-}
-
-function dots(step: number): HTMLElement {
+/** The left rail: the lockup, the table as it fills, and the five steps. */
+function rail(app: App): HTMLElement {
+  const s = app.state;
+  const seated = s.step === 1 ? WELCOME_SEATS : connectedHeads(s.keys, app.cliHeads());
+  const label =
+    s.step === 1
+      ? "A round table with six AIs: Claude, ChatGPT, Gemini, Grok, GLM and MiniMax."
+      : seated.length
+        ? `At the table: ${seated.map(providerName).join(", ")}.`
+        : "An empty round table with six seats.";
   return h(
-    "div",
-    { class: "progress", attrs: { "aria-label": `Step ${step} of ${STEPS}` } },
-    h("div", { class: "dots" }, Array.from({ length: STEPS }, (_, i) => h("span", { class: i + 1 <= step ? "dot on" : "dot" }))),
-    h("span", { class: "step-label", text: `Step ${step} of ${STEPS}` }),
+    "aside",
+    { class: "rail" },
+    lockup(),
+    tableScene(seated, label),
+    h(
+      "ol",
+      { class: "steps", attrs: { "aria-label": "Setup steps" } },
+      STEP_NAMES.map((name, i) => {
+        const n = i + 1;
+        const state = n < s.step ? "done" : n === s.step ? "current" : "";
+        return h(
+          "li",
+          { class: state, attrs: n === s.step ? { "aria-current": "step" } : {} },
+          h("span", { class: "step-mark", attrs: { "aria-hidden": "true" } }, n < s.step ? glyph("check") : String(n)),
+          h("span", { text: name }),
+        );
+      }),
+    ),
   );
+}
+
+/** Kept for the main screen and settings, which show the lockup in their top bars. */
+export function logo(): HTMLElement {
+  return mark();
 }
 
 function footer(app: App): HTMLElement {
@@ -70,7 +84,7 @@ function footer(app: App): HTMLElement {
     "footer",
     { class: "nav" },
     button("Back", () => app.goBack(), "btn ghost", !!(s.run && !s.run.done)),
-    dots(s.step),
+    h("span", { class: "step-label", attrs: { "aria-live": "polite" }, text: `Step ${s.step} of ${STEPS}` }),
     h("div", { class: "nav-right" }, right),
   );
 }
@@ -182,8 +196,8 @@ export function keyCard(app: App, p: Provider, opts: { removable?: boolean } = {
     h(
       "div",
       { class: "ai-head" },
-      h("div", null, h("strong", { text: p.name }), h("span", { class: "muted", text: ` by ${p.company}` })),
-      connected ? h("span", { class: "pill ok", text: "Connected" }) : null,
+      headLogo(p.id),
+      h("div", { class: "ai-name" }, h("strong", { text: p.name }), h("span", { class: "muted", text: ` by ${p.company}` })),
     ),
     p.tag ? h("p", { class: "tag", text: p.tag }) : null,
     connected
@@ -204,7 +218,7 @@ export function keyCard(app: App, p: Provider, opts: { removable?: boolean } = {
           "p",
           { class: "how small muted" },
           h("a", {
-            href: "#",
+            href: p.keyPage,
             text: "Where do I get a key?",
             on: {
               click: (e) => {
@@ -241,6 +255,7 @@ export function cliCard(app: App, d: CliDetection): HTMLElement {
         attrs: { "aria-label": `Use ${d.name}` },
         on: { change: (e) => void app.setCli(d.head, (e.target as HTMLInputElement).checked) },
       }),
+      headLogo(d.head),
       h(
         "span",
         { class: "cli-text" },
@@ -291,7 +306,7 @@ function keyCards(app: App, found: number): HTMLElement[] {
         attrs: { "aria-expanded": String(s.moreOpen) },
         on: { click: () => app.set({ moreOpen: !s.moreOpen }) },
       },
-      h("span", { text: s.moreOpen ? "▾ " : "▸ " }),
+      glyph("chevron", "glyph chev"),
       h("span", { text: `More AIs${moreConnected ? ` (${moreConnected} connected)` : ""}` }),
     ),
     s.moreOpen ? h("div", { class: "cards" }, more.map((p) => keyCard(app, p))) : null,
@@ -329,7 +344,7 @@ function keys(app: App): HTMLElement[] {
         attrs: { "aria-expanded": String(keysOpen) },
         on: { click: () => app.set({ keysOpen: !keysOpen }) },
       },
-      h("span", { text: keysOpen ? "▾ " : "▸ " }),
+      glyph("chevron", "glyph chev"),
       h("span", { text: `Or use an API key${keyed ? ` (${keyed} connected)` : ""}` }),
     ),
     ...(keysOpen ? [h("div", { class: "key-section" }, keyCards(app, found))] : []),
@@ -347,9 +362,10 @@ export function claudeConnect(app: App, inSettings = false): HTMLElement[] {
       h(
         "div",
         { class: `connect-row${c.app_connected ? " done" : ""}`, attrs: { "data-target": "app" } },
-        h("div", null, h("strong", { text: "Claude app found." }), c.appMessage ? h("p", { class: "status ok", text: c.appMessage }) : c.app_connected ? h("p", { class: "status ok", text: "Connected." }) : null),
+        headLogo("claude"),
+        h("div", { class: "connect-text" }, h("strong", { text: "Claude app found." }), c.appMessage ? h("p", { class: "status ok", text: c.appMessage }) : c.app_connected ? h("p", { class: "status ok", text: "Connected." }) : null),
         c.app_connected
-          ? h("span", { class: "check", text: "✓", attrs: { "aria-label": "Connected" } })
+          ? h("span", { class: "check", attrs: { role: "img", "aria-label": "Connected" } }, glyph("check"))
           : button(c.busy === "app" ? "Connecting..." : "Connect to the Claude app", () => void app.connectClaude("app"), "btn primary", !!c.busy),
       ),
     );
@@ -359,9 +375,10 @@ export function claudeConnect(app: App, inSettings = false): HTMLElement[] {
       h(
         "div",
         { class: `connect-row${c.code_connected ? " done" : ""}`, attrs: { "data-target": "code" } },
-        h("div", null, h("strong", { text: "Claude Code found." }), c.codeMessage ? h("p", { class: "status ok", text: c.codeMessage }) : c.code_connected ? h("p", { class: "status ok", text: "Connected." }) : null),
+        headLogo("claude"),
+        h("div", { class: "connect-text" }, h("strong", { text: "Claude Code found." }), c.codeMessage ? h("p", { class: "status ok", text: c.codeMessage }) : c.code_connected ? h("p", { class: "status ok", text: "Connected." }) : null),
         c.code_connected
-          ? h("span", { class: "check", text: "✓", attrs: { "aria-label": "Connected" } })
+          ? h("span", { class: "check", attrs: { role: "img", "aria-label": "Connected" } }, glyph("check"))
           : button(c.busy === "code" ? "Connecting..." : "Connect to Claude Code", () => void app.connectClaude("code"), "btn primary", !!c.busy),
       ),
     );
@@ -382,7 +399,7 @@ export function claudeConnect(app: App, inSettings = false): HTMLElement[] {
       h(
         "div",
         { class: "notice" },
-        h("p", null, "Claude is not on this computer yet. ", h("a", { href: "#", text: "Download Claude", on: { click: (e) => { e.preventDefault(); void app.api.openUrl(CLAUDE_DOWNLOAD_URL); } } })),
+        h("p", null, "Claude is not on this computer yet. ", h("a", { href: CLAUDE_DOWNLOAD_URL, text: "Download Claude", on: { click: (e) => { e.preventDefault(); void app.api.openUrl(CLAUDE_DOWNLOAD_URL); } } })),
       ),
     );
   }
@@ -419,7 +436,7 @@ export function answerCard(c: HeadCard): HTMLElement {
   return h(
     "article",
     { class: `answer ${c.status}`, attrs: { "data-head": c.head } },
-    h("header", null, h("strong", { text: providerName(c.head) }), h("span", { class: `pill ${c.status}`, text: cardStatusText(c) })),
+    h("header", null, headLogo(c.head, "sm"), h("strong", { text: providerName(c.head) }), h("span", { class: `state ${c.status}`, text: cardStatusText(c) })),
     c.text ? renderMarkdown(c.text.replace(/^\s*\**POSITION:\**\s*/i, "")) : c.status === "thinking" || c.status === "waiting" ? h("div", { class: "shimmer", attrs: { "aria-hidden": "true" } }) : h("p", { class: "muted", text: c.message ?? "" }),
   );
 }

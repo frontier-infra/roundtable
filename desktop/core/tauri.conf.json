@@ -35,9 +35,23 @@
     "externalBin": ["binaries/roundtable-engine"],
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
     "createUpdaterArtifacts": false,
-    "macOS": { "minimumSystemVersion": "11.0" },
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "dmg": {
+        "background": "dmg/background.png",
+        "windowSize": { "width": 660, "height": 400 },
+        "appPosition": { "x": 180, "y": 212 },
+        "applicationFolderPosition": { "x": 480, "y": 212 }
+      }
+    },
     "windows": {
-      "nsis": { "installMode": "currentUser", "displayLanguageSelector": false },
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "nsis/header.bmp",
+        "sidebarImage": "nsis/sidebar.bmp"
+      },
       "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true }
     }
   },

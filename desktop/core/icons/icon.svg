@@ -1,18 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2B3A67"/>
-      <stop offset="1" stop-color="#16203F"/>
-    </linearGradient>
-  </defs>
-  <rect x="80" y="80" width="864" height="864" rx="196" fill="url(#bg)"/>
-  <circle cx="512" cy="512" r="190" fill="#F4EFE6"/>
-  <circle cx="512" cy="512" r="118" fill="none" stroke="#D9A441" stroke-width="22"/>
-  <g fill="#D9A441">
-    <circle cx="512" cy="232" r="54"/>
-    <circle cx="778" cy="425" r="54"/>
-    <circle cx="676" cy="738" r="54"/>
-    <circle cx="348" cy="738" r="54"/>
-    <circle cx="246" cy="425" r="54"/>
-  </g>
+  <!-- Roundtable: a round table with six seats; the chair (top) in Roundtable pink. See desktop/BRAND.md. -->
+  <rect x="80" y="80" width="864" height="864" rx="196" fill="#0B0B0C"/>
+  <rect x="81" y="81" width="862" height="862" rx="195" fill="none" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="2"/>
+  <circle cx="512" cy="512" r="142.5" fill="none" stroke="#F3F3F2" stroke-width="36.5"/>
+  <path d="M 462.6 278.3 A 57.0 57.0 0 1 1 561.4 278.3" fill="none" stroke="#FF2E88" stroke-width="25.1" stroke-linecap="round"/>
+  <circle cx="512.0" cy="249.8" r="27.4" fill="#FF2E88"/>
+  <path d="M 689.7 352.4 A 57.0 57.0 0 1 1 739.1 437.9" fill="none" stroke="#F3F3F2" stroke-width="25.1" stroke-linecap="round"/>
+  <circle cx="739.1" cy="380.9" r="27.4" fill="#F3F3F2"/>
+  <path d="M 739.1 586.1 A 57.0 57.0 0 1 1 689.7 671.6" fill="none" stroke="#F3F3F2" stroke-width="25.1" stroke-linecap="round"/>
+  <circle cx="739.1" cy="643.1" r="27.4" fill="#F3F3F2"/>
+  <path d="M 561.4 745.7 A 57.0 57.0 0 1 1 462.6 745.7" fill="none" stroke="#F3F3F2" stroke-width="25.1" stroke-linecap="round"/>
+  <circle cx="512.0" cy="774.2" r="27.4" fill="#F3F3F2"/>
+  <path d="M 334.3 671.6 A 57.0 57.0 0 1 1 284.9 586.1" fill="none" stroke="#F3F3F2" stroke-width="25.1" stroke-linecap="round"/>
+  <circle cx="284.9" cy="643.1" r="27.4" fill="#F3F3F2"/>
+  <path d="M 284.9 437.9 A 57.0 57.0 0 1 1 334.3 352.4" fill="none" stroke="#F3F3F2" stroke-width="25.1" stroke-linecap="round"/>
+  <circle cx="284.9" cy="380.9" r="27.4" fill="#F3F3F2"/>
 </svg>
