@@ -2321,6 +2321,70 @@ details.pack summary {
 
   .step-body {
     padding-left: 0;
+/* Decision model (decision.ts) */
+.decision {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 14px 18px;
+  margin-bottom: 12px;
+}
+
+.decision.disagrees {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+}
+
+.decision-line {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.decision-bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.decision-bars li {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) minmax(60px, 160px) 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.decision-bars .track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.decision-bars .bar {
+  display: block;
+  height: 100%;
+  background: var(--muted);
+}
+
+.decision-bars li.top .bar {
+  background: var(--accent);
+}
+
+.decision-bars li.top .label {
+  font-weight: 600;
+}
+
+.decision-warn {
+  margin-top: 10px;
+  color: var(--warn);
+  font-weight: 600;
+}
+
+@media (max-width: 560px) {
+  .decision-bars li {
+    grid-template-columns: 1fr;
+    gap: 2px;
   }
 }
 

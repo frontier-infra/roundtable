@@ -34,6 +34,8 @@ pub struct Settings {
     pub blind_first_round: bool,
     /// The verdict shape the ask box starts with: decision, pros-cons, plan or vote.
     pub verdict_shape: String,
+    /// The decision model that rates the verdict. Off unless a provider is chosen.
+    pub decision: crate::decision::DecisionSettings,
 }
 
 impl Default for Settings {
@@ -53,6 +55,7 @@ impl Default for Settings {
             coach: true,
             blind_first_round: true,
             verdict_shape: "decision".into(),
+            decision: Default::default(),
         }
     }
 }

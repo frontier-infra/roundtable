@@ -1,6 +1,8 @@
 // The app's backend, as the UI sees it. `tauriApi` talks to the Rust core;
 // `mock.ts` gives the same shape for tests and the browser preview.
 
+import type { DecisionEvent, DecisionSettings } from "./decision";
+
 export type HeadId = "claude" | "gemini" | "openai" | "grok" | "glm" | "minimax";
 
 export interface AppInfo {
@@ -106,6 +108,8 @@ export interface Settings {
   blind_first_round: boolean;
   /** The verdict shape the ask box starts with. */
   verdict_shape: VerdictShape;
+  /** The decision model that rates the verdict. Off when missing or provider is null. */
+  decision?: DecisionSettings;
 }
 
 /** The chair's final verdict: a decision with confidence, pros and cons, an action plan, or a vote. */
@@ -238,7 +242,9 @@ export type EngineEvent =
   | { event: "run_done"; transcript: string; answered: number; consensus?: boolean; history_id?: string }
   | { event: "process_exit" }
   /** A one-head retry finished. Its transcript holds just that head. */
-  | { event: "retry_done"; head: string; transcript: string; seat?: string };
+  | { event: "retry_done"; head: string; transcript: string; seat?: string }
+  /** The decision model rated the verdict (only when one is on). */
+  | DecisionEvent;
 
 /** What to do about a head that did not answer. */
 export type Fix = "sign_in" | "add_key" | "install" | "retry";

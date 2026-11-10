@@ -161,6 +161,8 @@ pub enum Event {
         #[serde(flatten)]
         parts: verdict::Parts,
     },
+    /// The decision model's rating of the verdict (only when one is on).
+    Decision(crate::decision::Outcome),
     RunDone {
         transcript: String,
         answered: usize,
@@ -176,6 +178,8 @@ pub struct RunResult {
     pub transcript: String,
     pub answered: usize,
     pub consensus: Option<bool>,
+    /// The decision model's rating, when one is on.
+    pub decision: Option<crate::decision::Outcome>,
 }
 
 /// Default per-head time limit: 300 s, or 360 s with web search.
@@ -514,9 +518,9 @@ fn seat_body(seat: &Seat, body: &str) -> String {
     }
 }
 
-/// The verdict section, when the run asked for one.
-fn say_verdict(say: &mut dyn FnMut(&str), opts: &AskOptions, keys: &Keys, settings: &Settings, finals: &[(String, String)], emit: &(dyn Fn(&Event) + Sync)) {
-    let Some(shape) = opts.verdict else { return };
+/// The verdict section, when the run asked for one. Returns the verdict text.
+fn say_verdict(say: &mut dyn FnMut(&str), opts: &AskOptions, keys: &Keys, settings: &Settings, finals: &[(String, String)], emit: &(dyn Fn(&Event) + Sync)) -> Option<String> {
+    let shape = opts.verdict?;
     let text = chair(keys, settings, &verdict::prompt(shape, &opts.question, opts.brief.as_deref(), finals), opts.timeout);
     let text = if text.trim().is_empty() { verdict::UNAVAILABLE.to_string() } else { text.trim().to_string() };
     emit(&Event::Verdict { shape, parts: verdict::parts(&text), text: text.clone() });
@@ -525,6 +529,7 @@ fn say_verdict(say: &mut dyn FnMut(&str), opts: &AskOptions, keys: &Keys, settin
     say("");
     say(&text);
     say("");
+    Some(text)
 }
 
 /// Run the council. `emit` gets every event as it happens; the transcript comes back.
@@ -588,6 +593,8 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
     let mut answered = 0usize;
     let mut consensus = None;
     let labels_of = |res: &[HeadRun]| -> Vec<String> { seats.iter().zip(res).map(|(s, r)| personas::seat_label(s, &label_for(s.head, settings, r))).collect() };
+    // The chair's last word (final verdict, else last round's), for the decision model hook.
+    let mut final_chair: Option<String> = None;
 
     if advisory {
         let res = first_round(&base);
@@ -605,7 +612,7 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
             say(&seat_body(seat, &o.body()));
             say("");
         }
-        say_verdict(&mut say, opts, keys, settings, &finals, emit);
+        final_chair = say_verdict(&mut say, opts, keys, settings, &finals, emit);
         say("---");
         say("_Advisory mode: independent answers, no cross-talk. Use `--rounds N` for deliberation to consensus._");
     } else {
@@ -638,6 +645,7 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
                 chair
             };
             let c = is_consensus(&chair);
+            final_chair = Some(chair.clone());
             emit(&Event::ChairVerdict { round: r, consensus: c, text: chair.clone() });
             say(&format!("### \u{1fa91} Chair verdict - round {r}"));
             say("");
@@ -650,7 +658,9 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
                 break;
             }
         }
-        say_verdict(&mut say, opts, keys, settings, &finals, emit);
+        if let Some(v) = say_verdict(&mut say, opts, keys, settings, &finals, emit) {
+            final_chair = Some(v);
+        }
         say("---");
         if cons {
             say("_Deliberation converged. The chair's final verdict above is the council consensus._");
@@ -659,7 +669,19 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
         }
         consensus = Some(cons);
     }
-    RunResult { transcript: out, answered, consensus }
+    // Decision model hook (decision/HOOK.md): rates the verdict after the final round and the final verdict.
+    let decision = crate::decision::after_verdict(
+        &crate::decision::Verdict { question: &opts.question, context: opts.context.as_deref(), positions: &finals, chair: final_chair.as_deref(), consensus },
+        keys,
+        settings,
+        opts.timeout,
+    );
+    if let Some(d) = &decision {
+        out.push('\n');
+        out.push_str(&d.markdown());
+        emit(&Event::Decision(d.clone()));
+    }
+    RunResult { transcript: out, answered, consensus, decision }
 }
 
 #[cfg(test)]
