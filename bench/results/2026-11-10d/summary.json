@@ -1,0 +1,818 @@
+[
+ {
+  "id": "pricing-msp",
+  "topic": "Pricing a service",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 6,
+  "rt": {
+   "risks": 4.5,
+   "tradeoffs": 4.5,
+   "recommendation": 5.0,
+   "unknowns": 4.0,
+   "hidden_facts": 5.0,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 33.0,
+   "facts": 6.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 4.0,
+   "recommendation": 4.0,
+   "unknowns": 3.0,
+   "hidden_facts": 4.5,
+   "next_steps": 5.0,
+   "minority_view": 2.5,
+   "total": 27.0,
+   "facts": 6.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "A lands one reconciled, verifiable call with all six hidden fundamentals (cost-based pricing, stack cost, BAA/compliance add-on, written scope, per-client history with a landing spot for big-jump clients, onboarding fee and 12-month term), quantified risks, named unknowns and an explicit minority view, while B is solid and more digestible but thinner on unknowns, jump-clients, and any dissent against its own recommendation.",
+   "Both raise essentially all six hidden facts, but B adds what A lacks: one reconciled call with stated confidence and explicit what-would-change-it conditions, clear flagging of the unknowns (labor cost, ticket load, client mix) that actually decide the number, and an honest minority view, whereas A assumes its figures and never states a case against its own plan."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 279.7,
+   "single": 37.0
+  },
+  "words": {
+   "table": 5303,
+   "single": 824
+  }
+ },
+ {
+  "id": "hire-vs-contract",
+  "topic": "Hiring versus contracting",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 4.5,
+   "tradeoffs": 5.0,
+   "recommendation": 5.0,
+   "unknowns": 4.0,
+   "hidden_facts": 4.5,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 33.0,
+   "facts": 4.5
+  },
+  "single": {
+   "risks": 4.5,
+   "tradeoffs": 4.5,
+   "recommendation": 4.0,
+   "unknowns": 5.0,
+   "hidden_facts": 5.0,
+   "next_steps": 4.5,
+   "minority_view": 3.0,
+   "total": 30.5,
+   "facts": 5.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "Both surface all five hidden facts and reach the same sound call, but B states its confidence and the exact conditions that would flip the decision and includes a real case against itself, while A never argues the strongest counter to offering her the job.",
+   "Both land the same sound call with accurate math and the key facts, but A's decision block alone supplies what B omits \u2014 stated confidence, explicit would-change triggers, a realistic conversion-comp budget, and a genuine minority caution \u2014 while B's only clear edge (framing the unknowns as questions) doesn't offset its missing confidence statement and near-absent dissent; A's buried treatment of whether mobile is core to the roadmap keeps it from a clean sweep, and its length is noise rather than error."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 164.1,
+   "single": 21.9
+  },
+  "words": {
+   "table": 3391,
+   "single": 468
+  }
+ },
+ {
+  "id": "database-pick",
+  "topic": "Picking a database",
+  "shape": "depends",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 4.5,
+   "tradeoffs": 4.5,
+   "recommendation": 5.0,
+   "unknowns": 5.0,
+   "hidden_facts": 5.0,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 34.0,
+   "facts": 5.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 4.0,
+   "recommendation": 4.0,
+   "unknowns": 4.0,
+   "hidden_facts": 4.0,
+   "next_steps": 4.0,
+   "minority_view": 4.0,
+   "total": 28.0,
+   "facts": 4.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "B leads with the questions that decide, gives one reconciled call with stated confidence and explicit would-change conditions, and uniquely surfaces the migration-cost/clean-data-layer regret point, while A is strong but assumes rather than asks and misses that hidden fact.",
+   "A leads with the deciding questions, gives one reconciled call with stated confidence and explicit flip conditions, and catches all five hidden facts including the migration-cost/clean-data-layer point that B misses, while B gives a solid Postgres default but buries its unknowns in a closing line and never addresses migration regret."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 3,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 151.4,
+   "single": 18.9
+  },
+  "words": {
+   "table": 2462,
+   "single": 571
+  }
+ },
+ {
+  "id": "security-incident",
+  "topic": "Security incident response",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 6,
+  "rt": {
+   "risks": 5.0,
+   "tradeoffs": 4.0,
+   "recommendation": 5.0,
+   "unknowns": 4.0,
+   "hidden_facts": 5.0,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 33.0,
+   "facts": 6.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 2.0,
+   "recommendation": 3.5,
+   "unknowns": 3.5,
+   "hidden_facts": 5.0,
+   "next_steps": 5.0,
+   "minority_view": 1.0,
+   "total": 24.0,
+   "facts": 6.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "Both catch all six hidden facts, but A puts the payment freeze in the first five minutes (the highest-stakes item for a bookkeeper), states one confident reconciled call with an explicit what-would-change-it and an honest dissent, while B delays the money risk until after an hour-long technical audit, makes bank and vendor warnings conditional, and offers no trade-offs or minority view.",
+   "Both catch all six hidden facts and give concrete ordered steps, but B adds what A lacks \u2014 an explicit reconciled verdict with confidence and a would-change condition, named trade-offs (lockout cost vs attacker access, insurer panel), the pivotal unknown of whether the attacker actually got in, and a fairly stated minority view \u2014 while A is a one-voice runbook with no dissent and almost no cost discussion."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 188.2,
+   "single": 30.1
+  },
+  "words": {
+   "table": 3894,
+   "single": 798
+  }
+ },
+ {
+  "id": "vendor-contract",
+  "topic": "A vendor contract",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 6,
+  "rt": {
+   "risks": 4.5,
+   "tradeoffs": 3.5,
+   "recommendation": 5.0,
+   "unknowns": 4.5,
+   "hidden_facts": 4.5,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 32.0,
+   "facts": 6.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 4.0,
+   "recommendation": 4.0,
+   "unknowns": 4.5,
+   "hidden_facts": 5.0,
+   "next_steps": 4.0,
+   "minority_view": 4.0,
+   "total": 29.5,
+   "facts": 6.0
+  },
+  "votes": [
+   "single",
+   "rt"
+  ],
+  "pref": "tie",
+  "why": [
+   "Both reach the same sound call, but A delivers every hidden fact\u2014including the competing-quote leverage that B's actionable verdict drops\u2014through clean single-voice guidance, while B buries part of its advice in a long four-seat transcript with conflicting thresholds.",
+   "Both surface all six hidden facts, but A adds a single reconciled verdict with explicit confidence and change-conditions, sharper situation-specific risks (rollover at list price, the discount genuinely lapsing, the year-one pricing ambiguity), and more precise ordered steps, while B matches on facts and unknowns yet is thinner on risks, minority view, and confidence."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 175.8,
+   "single": 17.7
+  },
+  "words": {
+   "table": 3480,
+   "single": 478
+  }
+ },
+ {
+  "id": "gtm-new-product",
+  "topic": "Go-to-market for a new product",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 5.0,
+   "tradeoffs": 5.0,
+   "recommendation": 5.0,
+   "unknowns": 4.5,
+   "hidden_facts": 5.0,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 34.5,
+   "facts": 5.0
+  },
+  "single": {
+   "risks": 4.5,
+   "tradeoffs": 4.0,
+   "recommendation": 4.0,
+   "unknowns": 4.0,
+   "hidden_facts": 4.5,
+   "next_steps": 4.5,
+   "minority_view": 2.0,
+   "total": 27.5,
+   "facts": 4.5
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "Both nail the channel, legal-record/consent risks, and CAI/outreach-over-ads spend, but A adds a single reconciled verdict with stated confidence and change-conditions, paid (not free) pilots with a time-saved gate, staged budget release, and an explicit fair minority view, while B's free-pilot advice weakens validation and it never presents the case against its own recommendation.",
+   "Both catch all five hidden facts and give concrete next steps, but B additionally states its confidence and what would change the call, names its assumptions, works the real pricing tradeoff (quarterly boards make per-association monthly expensive per meeting), stages the $15k behind paid-pilot proof, and honestly presents the case against itself \u2014 while A never states confidence and offers no fair dissenting option."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 226.1,
+   "single": 32.0
+  },
+  "words": {
+   "table": 4552,
+   "single": 930
+  }
+ },
+ {
+  "id": "build-vs-buy",
+  "topic": "Build versus buy",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 4.0,
+   "tradeoffs": 5.0,
+   "recommendation": 5.0,
+   "unknowns": 5.0,
+   "hidden_facts": 5.0,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 34.0,
+   "facts": 5.0
+  },
+  "single": {
+   "risks": 5.0,
+   "tradeoffs": 4.5,
+   "recommendation": 4.5,
+   "unknowns": 3.0,
+   "hidden_facts": 5.0,
+   "next_steps": 4.0,
+   "minority_view": 4.0,
+   "total": 30.0,
+   "facts": 5.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "Both make the same sound call and catch all five hidden facts, but A also surfaces the decision-critical unknowns B silently assumes away (internal IT vs customer-facing, actual Zendesk SKU/seat mix) and pairs them with more operational first steps, while B's vivid long-tail risk list cannot offset its thinner unknowns and next steps.",
+   "Both catch all five hidden facts and do the math, but B additionally flags the pivotal unknown (internal IT vs customer-facing, cost vs friction as the real complaint), states its decision up front with explicit confidence and what would change it, and gives today-specific steps, while A assumes the customer-support scenario and never asks."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 176.8,
+   "single": 22.0
+  },
+  "words": {
+   "table": 2950,
+   "single": 542
+  }
+ },
+ {
+  "id": "restructure",
+  "topic": "A layoff or restructure",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 6,
+  "rt": {
+   "risks": 5.0,
+   "tradeoffs": 5.0,
+   "recommendation": 5.0,
+   "unknowns": 4.5,
+   "hidden_facts": 4.5,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 34.0,
+   "facts": 6.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 4.0,
+   "recommendation": 4.0,
+   "unknowns": 4.0,
+   "hidden_facts": 5.0,
+   "next_steps": 4.0,
+   "minority_view": 2.0,
+   "total": 27.0,
+   "facts": 6.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "B opens with one reconciled call (stated confidence, what would change it), names the decisive unknowns the question hides (what '20%' means, why revenue fell), works the net-burn tradeoff with real math, and gives a fair named minority view \u2014 beating A everywhere except the explicit disparate-impact check and single-voice readability.",
+   "Both answers cover the same hidden-fact ground, but A adds what B lacks \u2014 a single reconciled verdict stated up front with confidence and a would-change condition, risk analysis that covers both under- and over-cutting (including the gross-vs-net-burn sizing trap and the danger of promising 'the only cut', which B ironically tells the CEO to promise), and an honest labeled minority view, whereas B argues one direction with no credible case against its own plan."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 202.9,
+   "single": 40.1
+  },
+  "words": {
+   "table": 4128,
+   "single": 1064
+  }
+ },
+ {
+  "id": "funding-choice",
+  "topic": "A funding round choice",
+  "shape": "depends",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 4.0,
+   "tradeoffs": 4.5,
+   "recommendation": 4.5,
+   "unknowns": 5.0,
+   "hidden_facts": 4.0,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 32.0,
+   "facts": 4.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 4.5,
+   "recommendation": 4.0,
+   "unknowns": 5.0,
+   "hidden_facts": 4.0,
+   "next_steps": 3.0,
+   "minority_view": 3.0,
+   "total": 27.5,
+   "facts": 4.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "B matches A on risks, tradeoffs, unknowns, and hidden facts (both miss SAFE-side terms like pro rata/MFN/stacking) but delivers a clearer single call with stated confidence and flip condition, ordered same-day next steps, and an explicit, fairly-presented minority view, while A gives no confidence, no ordered steps, and only implicit treatment of the case against its lean.",
+   "Both surface the same hidden facts (1, 2, 3, 5) with correct math and both miss the SAFE-term checks (pro rata, MFN, stacking), but A additionally states confidence and what would flip the call, gives ordered same-day steps, and an explicit minority view, while B's balance is implicit and its actions are unordered checklists."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 3,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 266.5,
+   "single": 34.6
+  },
+  "words": {
+   "table": 4040,
+   "single": 624
+  }
+ },
+ {
+  "id": "churn",
+  "topic": "A customer churn problem",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 6,
+  "rt": {
+   "risks": 4.0,
+   "tradeoffs": 4.0,
+   "recommendation": 5.0,
+   "unknowns": 4.5,
+   "hidden_facts": 4.0,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 31.5,
+   "facts": 5.0
+  },
+  "single": {
+   "risks": 3.5,
+   "tradeoffs": 3.0,
+   "recommendation": 4.0,
+   "unknowns": 4.0,
+   "hidden_facts": 5.0,
+   "next_steps": 4.5,
+   "minority_view": 2.0,
+   "total": 26.0,
+   "facts": 6.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "A acts on the same diagnosis-first logic as B but with a sharper timed decision path (verify the metric, split involuntary churn and start dunning fixes immediately, retained-salon control group, two-week decision deadline), an explicit confidence and would-change condition, and honest dissent, while B is a strong checklist that catches all hidden facts yet is thinner on risks, tradeoffs and any minority view.",
+   "B matches A's diagnostic substance (and adds the metric-sanity check A assumes away) while delivering a single explicit decision with confidence and change-conditions, concrete time-boxed steps, and a genuinely fair minority view, whereas A's only clear edge is naming salon closures and it never argues the case for building now."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 121.7,
+   "single": 17.4
+  },
+  "words": {
+   "table": 2666,
+   "single": 495
+  }
+ },
+ {
+  "id": "data-privacy",
+  "topic": "A data-privacy question",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 6,
+  "rt": {
+   "risks": 4.5,
+   "tradeoffs": 4.0,
+   "recommendation": 5.0,
+   "unknowns": 5.0,
+   "hidden_facts": 5.0,
+   "next_steps": 4.5,
+   "minority_view": 5.0,
+   "total": 33.0,
+   "facts": 6.0
+  },
+  "single": {
+   "risks": 4.5,
+   "tradeoffs": 3.5,
+   "recommendation": 4.0,
+   "unknowns": 3.0,
+   "hidden_facts": 5.0,
+   "next_steps": 5.0,
+   "minority_view": 2.0,
+   "total": 27.0,
+   "facts": 6.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "Both answers cover all six essentials, but B states one reconciled decision with explicit confidence and what would change it, identifies the decisive unknowns (what the app collects, what staff can see) instead of assuming health data like A, frames the real tradeoffs (scope, EU hosting, data reuse), and fairly presents a credible minority view, whereas A assumes its facts and offers no dissent.",
+   "Both surface all six hidden facts and give clear don't-just-turn-it-on calls with ordered steps, but A states its confidence and exactly what would change the verdict, names the two unknown facts (what the app collects, what gym staff can see) that decide the scope, sharpens the risks that would actually bite (misstated processor role, SDKs firing pre-consent), and honestly presents a minority view, while B assumes its facts and offers no dissent."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 199.7,
+   "single": 37.7
+  },
+  "words": {
+   "table": 4049,
+   "single": 1018
+  }
+ },
+ {
+  "id": "ai-tooling",
+  "topic": "An AI tooling choice",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 4.0,
+   "tradeoffs": 4.0,
+   "recommendation": 5.0,
+   "unknowns": 4.5,
+   "hidden_facts": 4.0,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 31.5,
+   "facts": 4.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 4.0,
+   "recommendation": 4.0,
+   "unknowns": 3.5,
+   "hidden_facts": 5.0,
+   "next_steps": 4.0,
+   "minority_view": 3.5,
+   "total": 28.0,
+   "facts": 5.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "B gives one reconciled, findable call with stated confidence, an explicit would-change-it trigger, pre-set trial thresholds and day-one steps (and an honest labeled minority view), while A catches all five hidden facts \u2014 including the data-retention/security gate B underplays \u2014 but hedges its recommendation and offers weaker unknown-handling and no real case against its own pick.",
+   "A gives a findable call with stated confidence, a would-change trigger, hard trial thresholds, an exception-seat policy and spend caps \u2014 a plan the owner can execute this week \u2014 while B's fuller security gate and all-five hidden facts don't offset its softer, confidence-free decision rules."
+  ],
+  "rounds_used": 2,
+  "consensus": false,
+  "clarify": 0,
+  "verdict": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "kraken-proxy:deepseek-v4.1-flash",
+    "kraken-proxy:gemini-3.1-flash-lite"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 186.8,
+   "single": 25.3
+  },
+  "words": {
+   "table": 3563,
+   "single": 614
+  }
+ }
+]

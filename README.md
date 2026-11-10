@@ -81,7 +81,9 @@ high-stakes calls, a **multi-round deliberation** lets every head read the whole
 revise until a **Claude chair** declares `CONSENSUS` or names the remaining disagreement.
 Disagreement is signal, not noise.
 
-- **🗳️ Advisory** *(default)* — every head answers once, blind to the others. Raw, independent reads.
+- **⚡ Quick** *(default, `--mode quick`)*: every head answers once, blind, in about 250 words, and the chair gives a short verdict: the pick, how sure, what would change it, three next steps and one minority view. About 2 minutes.
+- **🧠 Deep Think** (`--mode deep`): for complex asks. The coach sharpens the question first, then up to 4 rounds where the seats argue against the leading pick, answers of up to about 800 words, and a long verdict: the reasoning by theme, the trade-offs, the risks, the unknowns and how to resolve them, a step plan and the minority view in full. It says how long it takes before it asks.
+- **🗳️ Advisory**: every head answers once, blind to the others. Raw, independent reads.
 - **⚖️ Deliberation** (`--rounds N`) — heads see each other and revise; a neutral chair rules `CONSENSUS` / `CONTINUE` and stops early on agreement.
 - **🔑 API keys are enough** — no local CLIs required. Missing heads are skipped; the council runs on whatever subset you've configured.
 - **📦 One package, everywhere:** a Claude Code plugin, a CLI, and an MCP server from the same code.
@@ -111,6 +113,11 @@ roundtable "Postgres or SQLite for a single-tenant internal tool?"
 
 # 3. Deliberate to consensus on a high-stakes call
 roundtable ask -q "Should we rewrite the billing service in Go?" --rounds 3
+roundtable ask -q "Should we raise prices 20%?" --personas pricing    # seat roles (personas/)
+
+# 4. Sharpen the question, get a verdict you can paste, read a file first
+roundtable ask -q "Should we raise prices 20%?" --coach --verdict decision --attach ./pricing.pdf
+roundtable ask -q "And if a competitor cuts prices?" --follow-up /tmp/rt.md --personas auto
 ```
 
 `roundtable doctor` shows which heads are configured and pings each for reachability.
@@ -118,8 +125,12 @@ roundtable ask -q "Should we rewrite the billing service in Go?" --rounds 3
 ### Flags
 
 `-q/--question` · `-c/--context <file>` (shared background for every head) ·
-`--heads grok,codex,openai,glm,minimax,claude,gemini` · `--rounds N` (deliberation) ·
-`--research` (web on, multi-step) · `--timeout <secs>` · `--out <file>`.
+`--heads grok,codex,openai,glm,minimax,claude,gemini` · `--mode quick|deep` (Quick, the default, or Deep Think) · `--rounds N` (1 to 4, instead of the mode's rounds) · `--personas SPEC` (seat roles, see `personas/README.md`) ·
+`--research` (web on, multi-step) · `--timeout <secs>` · `--out <file>` ·
+`--coach` (up to three clarifying questions, then a brief; `--coach-answer A` answers in order, `--brief FILE` brings your own) ·
+`--verdict decision|pros-cons|plan|vote|none` (on a table of two or more, a decision by default: the pick, its confidence, what would change it and three next steps lead the transcript, the seat answers fold under it, and it names the minority view and who held it) · `--no-clarify` (skip the missing-facts check: with no brief, the chair opens with two or three questions when the pick depends on facts you did not give) ·
+`--no-blind` (round 1 open; blind is the default) · `--attach <file, PDF or link>` (read once; long ones summarized once and shared) ·
+`--follow-up <transcript>` · `--personas auto` (suggested seats).
 
 Exit 0 if at least one head answered.
 
@@ -143,7 +154,8 @@ configured, so **API keys alone are enough** (no local CLIs required).
 Roundtable ships an MCP server as a subcommand of the one binary:
 
 ```bash
-roundtable mcp serve     # stdio JSON-RPC; one tool: roundtable(question, heads?, rounds?, research?)
+roundtable mcp serve     # stdio JSON-RPC; one tool: roundtable(question, heads?, rounds?, personas?, research?, coach?, coach_answers?, verdict?, blind?, attach?)
+roundtable mcp serve --http   # Streamable HTTP for remote clients (see Use Roundtable from your AI)
 roundtable mcp config    # prints the server JSON block to paste manually
 ```
 
@@ -167,6 +179,63 @@ Wires **Claude Code** (skill + MCP), **Cursor** (`~/.cursor/mcp.json`),
 ```json
 { "command": "roundtable", "args": ["mcp", "serve"] }
 ```
+
+## Use Roundtable from your AI
+
+Any app that speaks MCP can call Roundtable: Claude, ChatGPT, Codex, Cursor, VS Code and more.
+The tool returns the chair's verdict first. The full transcript comes as a resource
+(`roundtable://run/<id>`). While a run goes, Roundtable sends progress notifications so
+clients do not time out.
+
+**In the Roundtable app:** Settings, then Use Roundtable from your AI.
+
+- Claude app, Claude Code, Codex and Cursor: one button each.
+- Any other MCP app: copy its setup from "Another AI app? Copy its setup".
+- ChatGPT: switch on **Share with ChatGPT**. It starts a private web link through a
+  Cloudflare quick tunnel (needs `cloudflared`, from Cloudflare's downloads page or Homebrew on a
+  Mac, or `winget install --id Cloudflare.cloudflared` on Windows). Paste the link into ChatGPT. Switch it off and the
+  link stops working. Every call shows in the app.
+
+**ChatGPT (web, Plus, Pro, Business, Enterprise or Education):**
+
+1. Turn on Share with ChatGPT in the app and press Copy link.
+2. In ChatGPT: Settings, Security and login, turn on Developer mode.
+3. Open Plugins, press +, paste the link as the MCP server URL, choose No authentication. The
+   link itself carries the token, so share it with no one.
+4. In a chat, choose Developer mode from the + menu, pick Roundtable, and ask:
+   "Use the Roundtable app's roundtable tool to ask: ...".
+
+**OpenAI Responses API or Agents SDK:** a remote MCP tool with the server URL and the token.
+
+```json
+{"type": "mcp", "server_label": "roundtable", "server_url": "https://<your-link>.trycloudflare.com/mcp",
+ "authorization": "<token>", "require_approval": "never"}
+```
+
+**Claude API (MCP connector):** `mcp_servers: [{"type": "url", "url": "https://<your-link>/mcp", "name": "roundtable", "authorization_token": "<token>"}]`.
+**Claude custom connectors** (claude.ai): add a custom connector with the full link
+(`.../mcp/<token>`) and no OAuth.
+
+**From the command line:**
+
+```bash
+roundtable mcp serve                       # stdio, for local apps
+roundtable mcp config --client codex       # setup for claude, claude-code, codex, cursor, vscode, windsurf, generic
+roundtable mcp serve --http                # Streamable HTTP on http://127.0.0.1:8765/mcp
+ROUNDTABLE_MCP_TOKEN=$(roundtable mcp token) roundtable mcp serve --http --port 8765
+cloudflared tunnel --url http://127.0.0.1:8765   # a public https URL for remote clients
+```
+
+`--http` binds 127.0.0.1 unless you pass `--host`. Every request needs the token, as
+`Authorization: Bearer <token>` or as the last part of the URL (`/mcp/<token>`). Limits: 6
+roundtables a minute and 2 at once by default (`--calls-per-minute`, `--max-running`).
+A remote caller gets only the roundtable tool: no shell, no files on your computer. It can
+attach public web links (never a private or local address) and send documents as text in
+`files`. Each AI seat still runs in its own private space. Calls are logged to
+`mcp-remote.log` in the Roundtable data folder.
+
+Codex stops a tool after 60 seconds unless told otherwise. The app and `roundtable install`
+set `tool_timeout_sec = 1800` for Roundtable.
 
 ## Use in Claude Code
 
@@ -205,6 +274,14 @@ AI agent to install, configure, run, and wire Roundtable into its own harness.
 - **Website & docs** — https://roundtable.sh
 - **Source** — https://github.com/frontier-infra/roundtable
 - **Frontier Infra** — https://frontierinfra.org
+- **Jebadiah, our free decision model**: `ollama pull frontierinfra/jebadiah` (9B; also `:4b` and `:27b`), https://ollama.com/frontierinfra/jebadiah
+
+## About
+
+Roundtable is free. Made by Frontier Infra, built by Titanium Computing.
+
+- Need AI in your business? [Titanium Computing](https://titaniumcomputing.com/?utm_source=roundtable&utm_medium=readme)
+- [Built by Jason Brashear, CTO](https://titaniumcomputing.com/jason-brashear/?utm_source=roundtable&utm_medium=readme)
 
 ## Privacy, trademarks, and decision limits
 

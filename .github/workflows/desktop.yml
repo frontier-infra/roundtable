@@ -1,0 +1,85 @@
+# Desktop app checks. Runs on Blacksmith only, with no secrets, so fork PRs are safe.
+name: desktop
+
+on:
+  pull_request:
+    paths: ["desktop/**", "docs/app/**", ".github/workflows/desktop*.yml", ".claude-plugin/**", "lib/**", "personas/**"]
+  push:
+    branches: [main]
+    paths: ["desktop/**", "docs/app/**", ".github/workflows/desktop*.yml", ".claude-plugin/**", "lib/**", "personas/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ui:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    defaults:
+      run:
+        working-directory: desktop/ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/ui/package-lock.json
+      - run: npm ci
+      - name: Version, release tags, changelog and update manifest
+        run: node --test ../scripts/release.test.mjs
+      - run: npx tsc --noEmit
+      - run: npx vitest run
+      # The release runs vite build; a CSS error must fail the PR, not the tag.
+      - name: vite build
+        run: npx vite build
+      - name: Every clickable link is alive
+        run: node ../scripts/check-links.mjs
+
+  engine:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Engine unit tests and the key-leak scan
+        run: cargo test -p roundtable-engine
+      - name: Engine tests without the Frontier labs pack
+        run: cargo test -p roundtable-engine --no-default-features --lib personas
+      - name: Parity with the bash engine
+        run: |
+          cargo build -p roundtable-engine
+          python3 scripts/parity.py target/debug/roundtable-engine
+      - name: MCP selftest against the built binary
+        run: target/debug/roundtable-engine mcp selftest
+
+  windows:
+    runs-on: blacksmith-4vcpu-windows-2025
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the engine sidecar
+        run: node scripts/sidecar.mjs
+        env:
+          TAURI_ENV_DEBUG: "true"
+      - name: Engine and app tests
+        run: cargo test --workspace
+      - name: MCP selftest against the built binary
+        run: target\debug\roundtable-engine.exe mcp selftest

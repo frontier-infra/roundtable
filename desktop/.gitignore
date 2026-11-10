@@ -1,0 +1,7 @@
+target/
+core/binaries/
+core/gen/
+core/icons/android/
+core/icons/ios/
+ui/node_modules/
+ui/dist/

@@ -1,0 +1,9 @@
+# frontierinfra/jebadiah:27b, Jebadiah 27B v2.1 (Q4_K_M), a decision model from Frontier Infra.
+# Weights: https://huggingface.co/frontier-infra/jebadiah-27b-v2-1-GGUF (Apache-2.0, base Qwen3.5).
+# Jebadiah is not a chat model. It returns probabilities over typed option labels.
+# Ask it through a decision server (jeb serve) or decide_ollama.py in raw mode, thinking off.
+# publish.sh downloads jebadiah-27b-v2-1-Q4_K_M.gguf next to this file, then runs ollama create.
+FROM ./jebadiah-27b-v2-1-Q4_K_M.gguf
+PARAMETER temperature 0
+PARAMETER num_ctx 8192
+LICENSE """Apache License 2.0. https://huggingface.co/frontier-infra/jebadiah-27b-v2-1-GGUF/blob/main/LICENSE"""

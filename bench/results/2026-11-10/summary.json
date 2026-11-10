@@ -1,0 +1,715 @@
+[
+ {
+  "id": "pricing-msp",
+  "topic": "Pricing a service",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 6,
+  "rt": {
+   "risks": 4.0,
+   "tradeoffs": 4.5,
+   "recommendation": 4.0,
+   "unknowns": 3.5,
+   "hidden_facts": 4.5,
+   "next_steps": 5.0,
+   "minority_view": 5.0,
+   "total": 30.5,
+   "facts": 6.0
+  },
+  "single": {
+   "risks": 3.5,
+   "tradeoffs": 3.5,
+   "recommendation": 4.5,
+   "unknowns": 3.5,
+   "hidden_facts": 4.5,
+   "next_steps": 5.0,
+   "minority_view": 1.5,
+   "total": 26.0,
+   "facts": 5.5
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "Both land the cost-based pricing, tool-stack cost, compliance add-on, scope exclusions, invoice-first analysis, and a concrete rollout, but A also protects against the expensive first 90 days (charged cleanup, minimum term, no waived onboarding) and the adverse-selection risks that B misses \u2014 B even advises waiving the onboarding fee with a 90-day cancellation right \u2014 while A's chair explicitly reconciles the council into one actionable call with honest stated disagreements.",
+   "B catches all six hidden facts \u2014 including charging for the expensive first-90-days cleanup that A explicitly waives \u2014 and honestly airs dissent, while A's only edge is a single cleaner price point with no counter-case at all."
+  ],
+  "rounds_used": 2,
+  "consensus": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {
+    "grok": "Grok stopped with an error: Error: max turns reached"
+   },
+   "2": {}
+  },
+  "secs": {
+   "table": 289.7,
+   "single": 53.1
+  },
+  "words": {
+   "table": 2160,
+   "single": 537
+  }
+ },
+ {
+  "id": "hire-vs-contract",
+  "topic": "Hiring versus contracting",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 4.5,
+   "tradeoffs": 5.0,
+   "recommendation": 4.0,
+   "unknowns": 4.5,
+   "hidden_facts": 5.0,
+   "next_steps": 4.0,
+   "minority_view": 4.5,
+   "total": 31.5,
+   "facts": 5.0
+  },
+  "single": {
+   "risks": 5.0,
+   "tradeoffs": 5.0,
+   "recommendation": 5.0,
+   "unknowns": 3.5,
+   "hidden_facts": 4.5,
+   "next_steps": 5.0,
+   "minority_view": 3.5,
+   "total": 31.5,
+   "facts": 4.5
+  },
+  "votes": [
+   "rt",
+   "single"
+  ],
+  "pref": "tie",
+  "why": [
+   "B catches all five hidden facts \u2014 including the ownership/roadmap decider and the fixed-retainer option \u2014 and explicitly names the unknowns that drive the choice while its chair still lands one reconciled call, whereas A is crisper and fully actionable but thinner on what must be found out before deciding.",
+   "Both catch all five hidden facts and the same key risks, but B delivers one reconciled call with explicit decision thresholds and concrete ordered steps (down to the drafted message and which accounts to reclaim), while A buries its identical recommendation under three overlapping voices, four redundant cost tables, and process artifacts like an internal contradiction and a stray leaked-instruction reference."
+  ],
+  "rounds_used": 1,
+  "consensus": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {}
+  },
+  "secs": {
+   "table": 128.4,
+   "single": 24.3
+  },
+  "words": {
+   "table": 1346,
+   "single": 381
+  }
+ },
+ {
+  "id": "database-pick",
+  "topic": "Picking a database",
+  "shape": "depends",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 4.0,
+   "tradeoffs": 4.0,
+   "recommendation": 4.0,
+   "unknowns": 4.0,
+   "hidden_facts": 4.5,
+   "next_steps": 3.0,
+   "minority_view": 4.0,
+   "total": 27.5,
+   "facts": 4.5
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 3.5,
+   "recommendation": 4.0,
+   "unknowns": 3.0,
+   "hidden_facts": 4.0,
+   "next_steps": 4.0,
+   "minority_view": 4.0,
+   "total": 26.5,
+   "facts": 4.0
+  },
+  "votes": [
+   "single",
+   "single"
+  ],
+  "pref": "single",
+  "why": [
+   "Both deliver the same well-conditioned Postgres call and B alone gates it on the missing workload facts, but B buries that under redundant councilor repetition, leaked assumptions about a fleet the reader does not run, and three unreconciled first steps, while A states the pick, the deviation conditions, the regret ranking, and one concrete next step cleanly.",
+   "Both reach the same well-conditionalized Postgres call and catch the same four hidden facts, but B delivers it as one clear answer with a single safe, concrete first step, while A buries its slightly sharper clarifying questions under council artifacts, leaked personal context, an unsupported estimate, and three unreconciled hosting paths the reader must resolve alone."
+  ],
+  "rounds_used": 1,
+  "consensus": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {}
+  },
+  "secs": {
+   "table": 97.4,
+   "single": 14.6
+  },
+  "words": {
+   "table": 959,
+   "single": 284
+  }
+ },
+ {
+  "id": "security-incident",
+  "topic": "Security incident response",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 6,
+  "rt": {
+   "risks": 5.0,
+   "tradeoffs": 3.5,
+   "recommendation": 4.0,
+   "unknowns": 4.5,
+   "hidden_facts": 4.5,
+   "next_steps": 5.0,
+   "minority_view": 4.0,
+   "total": 30.5,
+   "facts": 6.0
+  },
+  "single": {
+   "risks": 5.0,
+   "tradeoffs": 2.0,
+   "recommendation": 5.0,
+   "unknowns": 2.0,
+   "hidden_facts": 5.0,
+   "next_steps": 5.0,
+   "minority_view": 1.0,
+   "total": 25.0,
+   "facts": 6.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "Both catch all six hidden facts with equally concrete steps, but A also flags the unknowns that change the plan (admin access, MFA prompt, downloaded files), states real trade-offs (evidence vs containment, lockout vs restoring her account), and honestly presents dissenting options, while B assumes its facts, names no trade-offs, and offers no case against itself.",
+   "Both nail the core containment (revoke sessions, rules/forwarding, bank, logs, insurer), but B also asks the questions that actually shape the plan (admin access, MFA prompt approval, downloaded files), preserves evidence and checks her device, and honestly presents dissent, while A assumes facts and offers no trade-offs or minority view; B's only real gap is the breach-notification duty, which A alone raises."
+  ],
+  "rounds_used": 1,
+  "consensus": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex"
+   ]
+  },
+  "failed": {
+   "1": {
+    "grok": "That AI took too long to answer."
+   }
+  },
+  "secs": {
+   "table": 317.0,
+   "single": 37.5
+  },
+  "words": {
+   "table": 1262,
+   "single": 521
+  }
+ },
+ {
+  "id": "vendor-contract",
+  "topic": "A vendor contract",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 6,
+  "rt": {
+   "risks": 5.0,
+   "tradeoffs": 4.0,
+   "recommendation": 4.5,
+   "unknowns": 4.5,
+   "hidden_facts": 4.5,
+   "next_steps": 5.0,
+   "minority_view": 4.5,
+   "total": 32.0,
+   "facts": 6.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 3.0,
+   "recommendation": 4.0,
+   "unknowns": 3.0,
+   "hidden_facts": 3.0,
+   "next_steps": 3.0,
+   "minority_view": 2.0,
+   "total": 22.0,
+   "facts": 3.5
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "B (via its chair) gives one reconciled clear call while covering all six hidden facts \u2014 including the existing contract's non-renewal notice window, data-export/exit terms, and competitor quotes \u2014 whereas A misses the notice window, export rights, and any real leverage path, and pads in an irrelevant Desk-posting artifact.",
+   "Both give the right call with correct math, but A catches the two traps B misses entirely \u2014 the existing contract's auto-renew notice window and data-export/exit terms \u2014 and adds a chair-reconciled decision rule, quantified trade-offs, a fair minority line, and paste-ready next steps, while B is clear and compact but thinner on facts, trade-offs, and any honest case for signing."
+  ],
+  "rounds_used": 1,
+  "consensus": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {}
+  },
+  "secs": {
+   "table": 114.1,
+   "single": 40.8
+  },
+  "words": {
+   "table": 1229,
+   "single": 296
+  }
+ },
+ {
+  "id": "gtm-new-product",
+  "topic": "Go-to-market for a new product",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 5.0,
+   "tradeoffs": 4.0,
+   "recommendation": 4.0,
+   "unknowns": 4.0,
+   "hidden_facts": 5.0,
+   "next_steps": 4.5,
+   "minority_view": 4.5,
+   "total": 31.0,
+   "facts": 5.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 4.0,
+   "recommendation": 5.0,
+   "unknowns": 4.0,
+   "hidden_facts": 5.0,
+   "next_steps": 5.0,
+   "minority_view": 2.0,
+   "total": 29.0,
+   "facts": 5.0
+  },
+  "votes": [
+   "rt",
+   "single"
+  ],
+  "pref": "tie",
+  "why": [
+   "Both catch all five hidden facts and give concrete steps, but A also names the competitive threat (Zoom/Otter/platforms adding this), frames the free-vs-paid pilot trade-off explicitly with a chair reconciling the two calls, and presents real dissent, while B never argues the case against its own plan and misses competitive risk entirely.",
+   "Both surface the same five hidden facts, but A delivers one decisive, immediately executable playbook with explicit decision gates, while B makes the reader reconcile two plans and decide the pivotal free-vs-paid question themselves."
+  ],
+  "rounds_used": 1,
+  "consensus": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex"
+   ]
+  },
+  "failed": {
+   "1": {
+    "grok": "Grok stopped with an error: Error: max turns reached"
+   }
+  },
+  "secs": {
+   "table": 162.4,
+   "single": 51.7
+  },
+  "words": {
+   "table": 1399,
+   "single": 524
+  }
+ },
+ {
+  "id": "build-vs-buy",
+  "topic": "Build versus buy",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 4.0,
+   "tradeoffs": 4.0,
+   "recommendation": 4.0,
+   "unknowns": 4.0,
+   "hidden_facts": 5.0,
+   "next_steps": 4.5,
+   "minority_view": 4.0,
+   "total": 29.5,
+   "facts": 5.0
+  },
+  "single": {
+   "risks": 4.5,
+   "tradeoffs": 5.0,
+   "recommendation": 5.0,
+   "unknowns": 3.0,
+   "hidden_facts": 5.0,
+   "next_steps": 4.5,
+   "minority_view": 4.0,
+   "total": 31.0,
+   "facts": 5.0
+  },
+  "votes": [
+   "single",
+   "single"
+  ],
+  "pref": "single",
+  "why": [
+   "B catches every hidden fact A does but delivers the same 'don't build' call in one clear voice with sharper cost framing (the build equals 1.7 years of Zendesk), priced alternatives including a ~$3,400/yr downgrade path, and a next step that diagnoses whether cost or capability is driving the request, while A buries an equally good call in a three-part council transcript padded with speculative asides (Coolify, MSP/PSA) that assume facts not in evidence.",
+   "Both catch all five hidden facts, but A lands the same verdict in one decisive voice with concrete per-option prices (including a ~$3,400/yr downgrade path), while B's council-and-chair format adds length, duplicate math, and a speculative PSA tangent without more decision value for the reader."
+  ],
+  "rounds_used": 1,
+  "consensus": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex"
+   ]
+  },
+  "failed": {
+   "1": {
+    "grok": "Grok stopped with an error: Error: max turns reached"
+   }
+  },
+  "secs": {
+   "table": 112.6,
+   "single": 21.2
+  },
+  "words": {
+   "table": 924,
+   "single": 353
+  }
+ },
+ {
+  "id": "restructure",
+  "topic": "A layoff or restructure",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 6,
+  "rt": {
+   "risks": 4.5,
+   "tradeoffs": 4.5,
+   "recommendation": 4.0,
+   "unknowns": 5.0,
+   "hidden_facts": 5.0,
+   "next_steps": 4.5,
+   "minority_view": 3.5,
+   "total": 31.0,
+   "facts": 6.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 4.5,
+   "recommendation": 5.0,
+   "unknowns": 4.0,
+   "hidden_facts": 5.0,
+   "next_steps": 5.0,
+   "minority_view": 2.0,
+   "total": 29.5,
+   "facts": 6.0
+  },
+  "votes": [
+   "rt",
+   "single"
+  ],
+  "pref": "tie",
+  "why": [
+   "Both catch all six hidden facts, but B matches A's plan while adding sharper unknowns (what the board's 20% means, why revenue fell), more precise legal detail (state WARN thresholds, revocation period), warnings A lacks (buyouts, workload reset, customer outreach), and an honest airing of disagreements \u2014 while its chair still reconciles the council into one clear next action, and A offers no dissent at all.",
+   "B covers the same six hidden facts in one clear voice with concrete runway math and a crisp sizing rule the reader can act on today, while A's council format \u2014 though reconciled by the chair and broader on risks \u2014 leaves the runway bar (breakeven-in-6 vs 18-24 months) unreconciled and buries the call in four voices."
+  ],
+  "rounds_used": 1,
+  "consensus": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {}
+  },
+  "secs": {
+   "table": 160.7,
+   "single": 30.6
+  },
+  "words": {
+   "table": 1976,
+   "single": 560
+  }
+ },
+ {
+  "id": "funding-choice",
+  "topic": "A funding round choice",
+  "shape": "depends",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 5.0,
+   "tradeoffs": 5.0,
+   "recommendation": 4.0,
+   "unknowns": 5.0,
+   "hidden_facts": 4.0,
+   "next_steps": 4.0,
+   "minority_view": 5.0,
+   "total": 32.0,
+   "facts": 5.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 4.5,
+   "recommendation": 5.0,
+   "unknowns": 4.0,
+   "hidden_facts": 4.0,
+   "next_steps": 4.0,
+   "minority_view": 2.5,
+   "total": 28.0,
+   "facts": 5.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "Both surface nearly all the hidden facts and give the same conditional rule, but B adds the forced-raise and milestone-gap risks, a concrete downside cash test, and honestly preserved dissent, matching A's dilution math despite its noisier format.",
+   "Both land on the right it-depends structure, but A (via its reconciled chair ruling) surfaces more of what actually decides the deal \u2014 the downside cash test with runway floor, the forced-raise-if-RBF trap, personal-guarantee/lien gates, break-even at each repayment cap, and the $500K gap \u2014 while B is crisper and fully sound but thinner on risk depth and never argues against its own pick."
+  ],
+  "rounds_used": 2,
+  "consensus": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ],
+   "2": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {},
+   "2": {}
+  },
+  "secs": {
+   "table": 255.7,
+   "single": 34.3
+  },
+  "words": {
+   "table": 1578,
+   "single": 365
+  }
+ },
+ {
+  "id": "churn",
+  "topic": "A customer churn problem",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 6,
+  "rt": {
+   "risks": 4.5,
+   "tradeoffs": 4.0,
+   "recommendation": 4.5,
+   "unknowns": 4.0,
+   "hidden_facts": 5.0,
+   "next_steps": 4.5,
+   "minority_view": 4.0,
+   "total": 30.5,
+   "facts": 6.0
+  },
+  "single": {
+   "risks": 4.0,
+   "tradeoffs": 3.0,
+   "recommendation": 4.5,
+   "unknowns": 2.5,
+   "hidden_facts": 4.0,
+   "next_steps": 5.0,
+   "minority_view": 3.0,
+   "total": 26.0,
+   "facts": 5.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "Both make the same clear not-yet call with strong ordered steps, but A catches all six hidden facts including the annual-loss urgency math, probes key unknowns B assumes away (revenue-vs-logo churn, formula consistency), and surfaces salon-specific risks like Square bundling and day-view bloat, while its chair properly reconciles the councilors into one call.",
+   "B catches all six hidden facts \u2014 including the annualized-loss urgency math A omits \u2014 and flags decision-shaping unknowns (logo-vs-revenue churn, formula consistency) while still landing one reconciled clear call, whereas A is cleaner and slightly stronger on immediate next steps but misses the stakes and metric-validity checks."
+  ],
+  "rounds_used": 1,
+  "consensus": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {}
+  },
+  "secs": {
+   "table": 96.7,
+   "single": 18.2
+  },
+  "words": {
+   "table": 1226,
+   "single": 341
+  }
+ },
+ {
+  "id": "data-privacy",
+  "topic": "A data-privacy question",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 6,
+  "rt": {
+   "risks": 5.0,
+   "tradeoffs": 4.0,
+   "recommendation": 4.5,
+   "unknowns": 4.5,
+   "hidden_facts": 5.0,
+   "next_steps": 4.5,
+   "minority_view": 5.0,
+   "total": 32.5,
+   "facts": 6.0
+  },
+  "single": {
+   "risks": 4.5,
+   "tradeoffs": 3.5,
+   "recommendation": 5.0,
+   "unknowns": 3.5,
+   "hidden_facts": 5.0,
+   "next_steps": 4.5,
+   "minority_view": 2.0,
+   "total": 28.0,
+   "facts": 6.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "Both catch all six hidden facts and clearly say don't just turn it on, but B adds expert nuance that prevents real mistakes (DPF cert must be your own entity, EU hosting alone doesn't fix US access, gym will send its own DPA template) and honestly maps the remaining disagreements, while A is crisper but offers no dissenting view and thinner tradeoffs and unknowns.",
+   "Both give the same clear core call and catch all six hidden facts, but A goes deeper on expert nuances (contract labels don't fix roles, provider DPF doesn't cover you, EU hosting doesn't cure US access), explicitly reconciles its dissenting voices, flags the facts it lacks and why they matter, and ends with concrete two-minute first steps, while B offers no minority-view or counter-case treatment and thinner unknown-flagging."
+  ],
+  "rounds_used": 1,
+  "consensus": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex",
+    "grok"
+   ]
+  },
+  "failed": {
+   "1": {}
+  },
+  "secs": {
+   "table": 211.3,
+   "single": 31.4
+  },
+  "words": {
+   "table": 1707,
+   "single": 388
+  }
+ },
+ {
+  "id": "ai-tooling",
+  "topic": "An AI tooling choice",
+  "shape": "recommend",
+  "n_judge": 2,
+  "n_facts": 5,
+  "rt": {
+   "risks": 4.0,
+   "tradeoffs": 4.0,
+   "recommendation": 4.5,
+   "unknowns": 4.0,
+   "hidden_facts": 4.5,
+   "next_steps": 4.5,
+   "minority_view": 5.0,
+   "total": 30.5,
+   "facts": 5.0
+  },
+  "single": {
+   "risks": 3.0,
+   "tradeoffs": 4.0,
+   "recommendation": 5.0,
+   "unknowns": 4.0,
+   "hidden_facts": 3.0,
+   "next_steps": 5.0,
+   "minority_view": 4.0,
+   "total": 28.0,
+   "facts": 4.0
+  },
+  "votes": [
+   "rt",
+   "rt"
+  ],
+  "pref": "table",
+  "why": [
+   "Both converge on the same clear call (Copilot Business default, survey first, 2-week measured pilot), but B additionally covers the enterprise controls and code-data handling, the predictable-bill/overage-cap risk, and a sanctioned exception path for power users \u2014 the substance A misses \u2014 while its length and minor unreconciled disagreements cost it little.",
+   "Both make the same clear call with pilot-and-measure steps, but A additionally raises the code-data-handling/enterprise-controls check that B skips entirely and presents explicit reconciled dissent, while B's switching-cost trap is its only unique catch."
+  ],
+  "rounds_used": 1,
+  "consensus": true,
+  "seated": {
+   "1": [
+    "claude",
+    "codex"
+   ]
+  },
+  "failed": {
+   "1": {
+    "grok": "Grok stopped with an error: Error: max turns reached"
+   }
+  },
+  "secs": {
+   "table": 95.8,
+   "single": 36.4
+  },
+  "words": {
+   "table": 1231,
+   "single": 442
+  }
+ }
+]

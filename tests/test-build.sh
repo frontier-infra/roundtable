@@ -23,7 +23,8 @@ SDIST="$(ls "$WORK"/dist/roundtable_sh-"$EXPECT_VERSION".tar.gz)"
 
 step "wheel contents"
 for f in roundtable_cli/_engine/bin/roundtable roundtable_cli/_engine/lib/core.sh \
-         roundtable_cli/_engine/lib/mcp.py roundtable_cli/_engine/skill/SKILL.md; do
+         roundtable_cli/_engine/lib/mcp.py roundtable_cli/_engine/lib/personas.py \
+         roundtable_cli/_engine/personas/business-roles.json roundtable_cli/_engine/skill/SKILL.md; do
   "$WORK/tools/bin/python" -c "import sys,zipfile; n=zipfile.ZipFile(sys.argv[1]).namelist(); sys.exit(0 if sys.argv[2] in n else 1)" "$WHEEL" "$f" \
     || { echo "missing from wheel: $f"; exit 1; }
   echo "ok $f"
@@ -42,7 +43,8 @@ for kind in wheel sdist; do
   run() { env -i HOME="$HOME_DIR" PATH="$WORK/v-$kind/bin:/usr/bin:/bin" "$RT" "$@"; }
 
   got="$(run --version)"; echo "$got"
-  [ "$got" = "roundtable $EXPECT_VERSION" ] || { echo "bad version: $got"; exit 1; }
+  [ "$(printf '%s\n' "$got" | head -n1)" = "roundtable $EXPECT_VERSION" ] || { echo "bad version: $got"; exit 1; }
+  printf '%s\n' "$got" | grep -q "^Free from Titanium Computing. .*https://titaniumcomputing.com/?utm_source=roundtable" || { echo "no credit line: $got"; exit 1; }
 
   # The README's first example. No keys here, so every head is skipped,
   # but the command must run and print the council transcript.

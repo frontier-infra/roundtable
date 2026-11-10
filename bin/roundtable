@@ -39,6 +39,7 @@ Commands:
   heads      Choose which heads are enabled by default
   doctor     Show per-head config + reachability
   config     Show (masked) or edit the config file ('config edit')
+  personas   List persona packs, presets and seats ('personas --json')
   mcp        Run the MCP server (e.g. 'roundtable mcp serve')
   install    Auto-wire Roundtable into detected harnesses
   version    Print the version
@@ -49,13 +50,31 @@ Engine flags (passed through to 'ask'):
   -q, --question TEXT   The question (also accepted as a positional)
   -c, --context FILE    Prepend a shared context file
       --heads CSV       Subset: claude,openai,grok,glm,minimax,gemini,codex
-      --rounds N        N>=2 -> deliberation to consensus (default 1 = advisory)
+      --mode MODE       quick (default): one round, short answers, a short verdict.
+                        deep: Deep Think. The coach first, up to 4 rounds, long
+                        answers and a long verdict. It says how long first
+      --rounds N        1 to 4, instead of the mode's. Deep Think: a chair rules each
+                        round and stops on consensus. Quick: rounds run back to back
+      --personas SPEC   Seat roles: a preset (pricing), a pack (business-roles),
+                        or names (cfo,ceo@claude). generic = plain seats.
+                        auto = suggest seats from the question or brief
+      --coach           Up to 3 clarifying questions first, then a brief the table reads
+      --coach-answer A  An answer to the coach's next question (repeat, in order)
+      --coach-questions Print the coach's questions and stop
+      --brief FILE      A ready brief (goal, context, constraints, a good answer)
+      --verdict SHAPE   Final verdict: decision, pros-cons, plan or vote; it always
+                        names the minority view and who held it
+      --no-blind        Round 1 open: each seat reads the seats before it
+      --attach SRC      A text file, PDF or link every seat reads (repeat); long ones
+                        are summarized once and the summary shared
+      --follow-up FILE  A follow-up: the earlier transcript comes first
       --timeout S       Per-head timeout, seconds
       --research        Allow web/tool use where heads support it
       --out FILE        Also save the transcript to FILE
 
 Config: $RT_CONFIG_FILE
 Docs:   https://roundtable.sh
+Free from Titanium Computing. Need AI in your business? https://titaniumcomputing.com/?utm_source=roundtable&utm_medium=cli
 EOF
 }
 
@@ -101,6 +120,10 @@ case "$cmd" in
     shift
     if [ -f "$LIBDIR/mcp.py" ]; then exec python3 "$LIBDIR/mcp.py" "$@"; fi
     echo "roundtable: MCP server not available ($LIBDIR/mcp.py missing)" >&2; exit 1 ;;
+
+  personas)
+    shift
+    exec python3 "$LIBDIR/personas.py" list "$@" ;;
 
   install)
     shift

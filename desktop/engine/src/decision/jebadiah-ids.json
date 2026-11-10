@@ -1,0 +1,31 @@
+{
+  "_about": "The one list of our Jebadiah id patterns. detect::OURS and detect::HOSTS (Rust) and OUR_NAMESPACES and OUR_HOSTS in ui/src/jebadiah.ts must match it; tests in both check that, and every example below.",
+  "namespaces": ["frontier-infra", "frontierinfra", "jbrashearfrontierinfra"],
+  "hosts": ["hf.co/", "huggingface.co/", "registry.ollama.ai/"],
+  "ours": [
+    "frontier-infra/jebadiah-9b-v2",
+    "frontier-infra/jebadiah-27b-v2-1-MLX-4bit",
+    "hf.co/frontier-infra/jebadiah-9b-v2-1-GGUF:Q4_K_M",
+    "huggingface.co/frontier-infra/jebadiah-27b",
+    "frontierinfra/jebadiah",
+    "frontierinfra/jebadiah:27b",
+    "frontierinfra/jebadiah:latest",
+    "jbrashearfrontierinfra/jebadiah:latest",
+    "registry.ollama.ai/frontierinfra/jebadiah:4b",
+    "Frontier-Infra/Jebadiah-4B-v2"
+  ],
+  "not_ours": [
+    "Jebadiah/Aria-7b-128k-v1",
+    "jebadiah/hermes-lexi-fun-stone-l3-8b",
+    "hf.co/Jebadiah/jebadiah-9b-uncensored-GGUF:Q4_K_M",
+    "jebadiah/jebadiah-9b",
+    "jebadiah-9b",
+    "jebadiah-4b-v2-mlx-8bit",
+    "jebadiah:latest",
+    "jebadiah",
+    "hf.co/someone/frontier-infra-jebadiah-9b",
+    "frontier-infra/jebadiahx-9b",
+    "frontier-infra-fan/jebadiah-9b",
+    "llama3:8b"
+  ]
+}

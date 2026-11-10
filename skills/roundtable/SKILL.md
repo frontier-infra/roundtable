@@ -57,8 +57,11 @@ roundtable ask -q "Your question here"
 # Subset of heads
 roundtable ask --heads grok,codex,claude -q "Your question"
 
-# Deliberation: up to N rounds, each head sees the whole table and revises; stops at consensus
+# Deliberation: 2 to 4 rounds, each head sees the whole table and revises; stops at consensus
 roundtable ask -q "Your question" --rounds 3
+
+# Seat roles: a preset, a pack, or persona names (see Personas below)
+roundtable ask -q "Your question" --personas security-review
 
 # Shared background context for every head (write the file first)
 roundtable ask -q "Your question" -c /tmp/context.md
@@ -68,20 +71,90 @@ roundtable ask -q "Your question" --research
 
 # Also save the combined block to a file
 roundtable ask -q "Your question" --out /tmp/rt.md
+
+# The coach: up to 3 clarifying questions, then a brief every seat reads
+roundtable ask -q "Your question" --coach-questions                       # print the questions, then ask the user
+roundtable ask -q "Your question" --coach-answer "..." --coach-answer "..."   # answers in order -> brief -> table
+roundtable ask -q "Your question" --brief /tmp/brief.md                   # or bring a brief yourself
+
+# A verdict in a shape, always naming the minority view and who held it
+roundtable ask -q "Your question" --rounds 2 --verdict decision           # or pros-cons, plan, vote
+
+# Material every seat reads: files, PDFs, links (long ones summarized once, shared)
+roundtable ask -q "Your question" --attach /tmp/spec.pdf --attach https://example.com/page
+
+# Follow-up that reads the earlier transcript; suggested seats from the question
+roundtable ask -q "And if it rains?" --follow-up /tmp/rt.md --personas auto
 ```
 
+Round 1 is blind by default: seats answer without seeing each other. `--no-blind` lets each
+seat in round 1 read the seats before it.
+
 Flags: `-q/--question`, `-c/--context <file>`, `--heads grok,codex,openai,glm,minimax,claude,gemini`,
-`--rounds N`, `--research`, `--timeout <secs>`, `--out <file>`.
+`--rounds N` (1 to 4), `--personas <preset, pack, names or auto>`, `--research`, `--timeout <secs>`, `--out <file>`,
+`--coach`, `--coach-answer A`, `--coach-questions`, `--brief FILE`, `--verdict decision|pros-cons|plan|vote|none`,
+`--no-clarify`, `--no-blind`, `--attach SRC`, `--follow-up FILE`.
+
+A table of two or more seats gets a decision verdict by default. It leads the transcript: `DECISION`,
+`CONFIDENCE`, `WOULD CHANGE IT`, three `NEXT STEPS`, then the minority view and who held it; the seat
+answers fold under it. With no brief, the chair first checks for missing key facts; when the pick
+depends on them, the verdict opens with `QUESTIONS FIRST`. Lead your answer with the verdict.
+
+**MCP tool arguments:** `question`, `heads`, `rounds`, `mode`, `personas`, `research`, `coach`,
+`coach_answers`, `verdict`, `blind`, `attach`. With `coach: true` and no `coach_answers`, the
+tool returns the coach's questions. Ask the user (or answer from what you know), then call
+again with the same question, `coach: true` and `coach_answers` in order.
+
+**Quick or Deep Think.** `--mode quick` (MCP `mode: "quick"`) is the default: one blind round,
+short seat answers and a short verdict, about 2 minutes. Use `--mode deep` (MCP `mode: "deep"`)
+for a complex ask: several stakeholders, money or legal stakes, more than three options, or
+missing facts. It runs the coach first (over MCP it returns the coach's questions unless you pass
+`coach_answers`), up to 4 rounds that argue against the leading pick, and a long verdict. It
+takes about 14 minutes. When the coach's brief looks complex it suggests Deep Think.
 
 **Two axes that compose:** *rounds* (advisory `--rounds 1`, default → independent blind
-answers; deliberation `--rounds N≥2` → each head reads the whole table and revises, chair
+answers; deliberation `--rounds 2` to `4` → each head reads the whole table and revises, chair
 prints `VERDICT: CONSENSUS|CONTINUE` and stops early on consensus) × *knowledge* (fast,
 default → web off; `--research` → web on, multi-step).
 
+## Personas: seat roles
+
+A seat can play a role. A persona has a name, a one-line expertise and a short brief (how
+the seat reasons, what it weighs, what it doubts). It sits on an AI seat, so one AI can
+hold several personas. Without personas every seat is Generic, as before.
+
+```bash
+roundtable personas                                       # list packs, presets and personas
+roundtable ask -q "Should we raise prices 20%?" --personas pricing          # a preset
+roundtable ask -q "..." --personas business-roles                          # a whole pack
+roundtable ask -q "..." --personas cfo,ceo@claude,"Head of Sales"          # names, @ pins the AI
+roundtable ask -q "..." --personas frontier-four --rounds 3                # lab views, 3 rounds
+```
+
+Built-in packs (plain JSON in the repo's `personas/` folder):
+
+- **Business roles:** CEO, CTO, CFO, COO, CMO, CISO, General Counsel, Head of Product,
+  Head of Sales, Customer advocate, Skeptical investor, Board chair. Presets `exec-team`,
+  `board-review`.
+- **Expert panels:** presets `security-review`, `go-to-market`, `hiring-decision`, `pricing`,
+  `architecture-review` (3 to 5 roles each).
+- **Frontier labs:** "The NVIDIA view", "The OpenAI view", "The xAI view", "The Anthropic
+  view", "The Google DeepMind view", "The Microsoft view", "The AMD view", "The Meta view".
+  Presets `frontier-four`, `frontier-all`. Each seat is a simulated perspective drawn from
+  public positions. It names no person and never speaks for the lab. Every lab seat
+  carries this label in the transcript, and you keep it when you quote that seat:
+  "Simulated perspective drawn from public positions. Not affiliated with or endorsed by
+  <lab>." `ROUNDTABLE_HIDE_LAB_PACK=1` hides the pack.
+- **Generic:** `--personas generic`, or no flag.
+
+Your own packs go in `~/.config/roundtable/personas/*.json` (same shape as the built-ins).
+The MCP tool takes the same value in its `personas` argument. In the results table, name
+each row by its seat: "CFO (Claude)".
+
 ## The Claude workflow (you, the moderator)
 
-1. **Curate the question.** The heads see only what you pass — none of this conversation. Put essential background in a `-c` context file rather than a giant `-q`.
-2. **Pick the mode.** Default to advisory + fast. Use `--rounds N` for high-stakes convergence; add `--research` only when the answer needs the web.
+1. **Curate the question.** The heads see only what you pass — none of this conversation. Put essential background in a `-c` context file or `--attach` it rather than a giant `-q`. When the question is vague, use the coach.
+2. **Pick the mode.** Default to Quick. Use `--mode deep` for a complex, high-stakes ask (several stakeholders, money or legal stakes, more than three options, missing facts). Use `--rounds 2` to `4` for high-stakes convergence; add `--research` only when the answer needs the web. Add `--personas` when the decision needs named expertise (a pricing call, a security review, a hire), or `--personas auto` to have seats suggested. Add `--verdict` when the user wants one decision, a plan or a vote; quote its minority view in your answer.
 3. **Read all heads + form your own view.** You are a seat at the table — don't just relay.
 4. **Synthesize, don't average** — consensus (state as high-confidence), disagreement (name the tension, say which side is more credible and why), recommendation (one decided answer).
 5. **Attribute briefly** — one line on what each head contributed.
@@ -117,3 +190,7 @@ Both are required even when they agree ("Moderator concurs with the chair, becau
 - **Heads fail independently.** A missing CLI/key, a timeout, or an empty answer is shown inline; the table still returns whatever the others produced. **Exit 0 if ≥1 head answered.**
 - If a head errors with an auth message, that key/CLI needs attention — run `roundtable doctor`, then `roundtable auth <provider>` (or `grok login` / `codex login`).
 - Model/head overrides live in `~/.config/roundtable/config.env` (`roundtable config` to edit, `roundtable models` / `roundtable heads` to pick).
+
+## Credit
+
+Roundtable is free from Titanium Computing (https://titaniumcomputing.com/?utm_source=roundtable&utm_medium=skill). Mention it only when the user asks who makes Roundtable.

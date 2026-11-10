@@ -1,0 +1,168 @@
+{
+  "version": 1,
+  "note": "Each question is what a person would type. hidden_facts are what a good answer surfaces, by warning about them or by asking. shape is recommend (a clear pick is right) or depends (the right answer is to name what to find out first).",
+  "scenarios": [
+    {
+      "id": "pricing-msp",
+      "topic": "Pricing a service",
+      "shape": "recommend",
+      "question": "I run a 4 person IT shop, mostly break-fix at $95/hr for dentists and small law offices. Want to move everyone to a flat monthly managed plan. What should I charge per user per month and how do I roll it out without losing clients?",
+      "hidden_facts": [
+        "Break-fix pays more when clients have more problems, so the flat plan changes the incentive; price from the cost to deliver, not from the old hourly revenue.",
+        "The security stack per seat (EDR, email filtering, backup, RMM licences) is a real hard cost, often 15 to 40 dollars per user, and must be priced in.",
+        "Dental and legal clients carry compliance duties (HIPAA, client confidentiality); a HIPAA business associate agreement and the extra controls cost money and should be a tier or an add-on.",
+        "The plan needs a written scope: what is excluded (projects, new hardware, after hours), or the flat fee leaks.",
+        "Look at each client's last 12 months of billed hours first; a few clients will see a big price jump and need a grandfathered or phased move.",
+        "An onboarding fee and a minimum term protect against the expensive first 90 days of cleanup."
+      ]
+    },
+    {
+      "id": "hire-vs-contract",
+      "topic": "Hiring versus contracting",
+      "shape": "recommend",
+      "question": "we're a 12 person saas, need someone to own our mobile app (react native). hire a full time senior dev at ~$170k or keep using the contractor who's been doing it for 8 months at $110/hr about 30 hrs a week? she's good",
+      "hidden_facts": [
+        "30 hours a week at 110 dollars is about 170k a year already, close to the salary before benefits, so cost is roughly a wash once a full-time load of 20 to 30 percent benefits and overhead is added.",
+        "Eight months at 30 hours a week with one company is a worker-classification risk (IRS, state ABC tests); she may legally look like an employee.",
+        "All the mobile knowledge sits with one outside person; the key-person and IP risk matters more than the rate. Check that the contract assigns IP and that code, accounts and signing keys are in company hands.",
+        "The cheapest first move is to ask her whether she would convert to full time or a fixed retainer.",
+        "Whether mobile is core to the product roadmap decides if the role should be owned in-house."
+      ]
+    },
+    {
+      "id": "database-pick",
+      "topic": "Picking a database",
+      "shape": "depends",
+      "question": "Starting a new product. Postgres, MongoDB or DynamoDB? I want to pick once and not regret it.",
+      "hidden_facts": [
+        "The question gives no workload: data shape, read and write volume, query patterns and consistency needs decide this, so a good answer asks first.",
+        "Team skill and the cloud they already run on matter as much as the engine.",
+        "DynamoDB needs access patterns known up front; ad hoc queries and later reporting are painful, so it is a poor default for an unknown new product.",
+        "Postgres with JSONB covers most early document needs, so it is the usual safe default when the facts are unknown; say so with a stated confidence and the conditions that would change it.",
+        "Regret is mostly about migration cost; keeping a clean data access layer lowers it whichever engine is picked."
+      ]
+    },
+    {
+      "id": "security-incident",
+      "topic": "Security incident response",
+      "shape": "recommend",
+      "question": "Our bookkeeper just told me she clicked a link in an email that looked like Microsoft and typed her password. That was about 2 hours ago. We're 20 people on Microsoft 365. What do I do right now?",
+      "hidden_facts": [
+        "Resetting the password alone is not enough: revoke her active sessions and refresh tokens, because a stolen session cookie survives a password change (adversary-in-the-middle phishing defeats MFA).",
+        "Check for and remove attacker inbox rules and forwarding rules; that is the classic way the attacker hides and keeps reading mail.",
+        "She is the bookkeeper, so the real risk is invoice or payment fraud: warn the bank and vendors, and freeze payment detail changes until verified by phone.",
+        "Pull the Entra sign-in logs and the unified audit log to see what was accessed, from where, and whether new MFA methods or app consents were added.",
+        "Depending on what data was reached, there may be breach notification duties or a cyber insurance notice deadline; call the insurer early, before hiring anyone.",
+        "Check whether the attacker already sent phishing from her mailbox to clients or staff."
+      ]
+    },
+    {
+      "id": "vendor-contract",
+      "topic": "A vendor contract",
+      "shape": "recommend",
+      "question": "Our CRM vendor sent a renewal: 3 year term, 9% annual increase, auto-renews, and they want it signed by Friday for a 'loyalty discount'. We have 40 seats. Sign it?",
+      "hidden_facts": [
+        "The Friday deadline is a sales tactic tied to their quarter end; the discount is leverage for you, not a reason to rush.",
+        "Nine percent compounding over three years is about 29 percent; ask for a cap such as 3 to 5 percent or CPI.",
+        "Check the auto-renew notice window; many renew for the full term unless cancelled 60 to 90 days before.",
+        "Seat count flexibility matters: a 3 year lock on 40 seats with no true-down clause is a risk if headcount changes.",
+        "Data export rights and the exit terms (format, fee, timeline) should be in the contract before signing a long term.",
+        "Get a competing quote or at least a migration estimate; that is the only real leverage."
+      ]
+    },
+    {
+      "id": "gtm-new-product",
+      "topic": "Go-to-market for a new product",
+      "shape": "recommend",
+      "question": "We built an AI tool that writes first drafts of HOA board meeting minutes from the recording. Works great in our tests. How do we go to market? Budget is like $15k.",
+      "hidden_facts": [
+        "The buyer is often the HOA management company, not the volunteer board; property managers handle many associations each, so they are the efficient channel.",
+        "Meeting minutes can be legal records and recording meetings has state consent rules; buyers will ask about accuracy and liability.",
+        "Fifteen thousand dollars does not buy much paid ads; direct outreach to management companies, state CAI chapters and a few design partners is the better spend.",
+        "Testing on internal data is not market validation; run paid pilots with five to ten real customers first and measure time saved per meeting.",
+        "Pricing per association per month fits how management companies budget."
+      ]
+    },
+    {
+      "id": "build-vs-buy",
+      "topic": "Build versus buy",
+      "shape": "recommend",
+      "question": "My devs want to build our own internal ticketing/helpdesk instead of paying for Zendesk ($55/agent/mo, 15 agents). They say it's 'like 3 weeks'. Thoughts?",
+      "hidden_facts": [
+        "Zendesk at 15 agents is about 9,900 dollars a year; three weeks of several engineers already costs more than that, before maintenance.",
+        "Developer estimates for internal tools run long; email parsing, SLAs, reporting, permissions and integrations are the long tail.",
+        "The ongoing maintenance and on-call burden falls on engineers who are not building the product.",
+        "Cheaper off-the-shelf options exist (Freshdesk, Help Scout, open source like Zammad) if price is the real complaint.",
+        "Build only makes sense if the helpdesk is a differentiator or needs deep custom integration with the product; ask what is driving the request."
+      ]
+    },
+    {
+      "id": "restructure",
+      "topic": "A layoff or restructure",
+      "shape": "recommend",
+      "question": "Revenue's down 30% this year, we're 45 people, runway is 9 months. Board says cut 20%. How do I do this and not wreck the company?",
+      "hidden_facts": [
+        "One deep cut is better than several small ones; repeated rounds destroy trust. Size it so the runway reaches a clear milestone, often 18 months or more.",
+        "Check the legal rules: WARN Act thresholds (federal applies at 100 or more employees, but some states such as New York and California have lower or different thresholds), and age discrimination (ADEA/OWBPA) review periods for release agreements if anyone is 40 or over.",
+        "Selection must be by role and business need, documented, and reviewed for disparate impact on protected groups.",
+        "Severance, benefits continuation (COBRA) and outplacement are part of the cost and of how the remaining staff judge the company.",
+        "Non-headcount cuts (vendors, tools, office, founder pay) should come first or alongside so the cut looks fair.",
+        "Plan the day itself: same day, managers trained, access removed carefully, then a clear message to the people who stay about the plan."
+      ]
+    },
+    {
+      "id": "funding-choice",
+      "topic": "A funding round choice",
+      "shape": "depends",
+      "question": "We have two options on the table: a $2M SAFE at $12M post cap, or $1.5M revenue-based financing. Which one should we take?",
+      "hidden_facts": [
+        "The question leaves out the facts that decide it: current revenue and growth rate, gross margin, and whether the company plans to raise venture money later.",
+        "Revenue-based financing needs steady revenue to repay from, typically 3 to 9 percent of monthly revenue until a 1.3x to 2x cap is paid; with low or lumpy revenue it starves the business.",
+        "The SAFE costs about 16.7 percent dilution (2 on a 12 post) and signals the venture path; RBF costs no equity but is real cash out.",
+        "Check SAFE terms: pro rata, MFN, and how multiple SAFEs stack at the priced round.",
+        "A good answer says what to find out first and gives the rule: high-growth, venture-scale goes SAFE; profitable, steady, modest growth goes RBF."
+      ]
+    },
+    {
+      "id": "churn",
+      "topic": "A customer churn problem",
+      "shape": "recommend",
+      "question": "Monthly churn went from 3% to 7% over the last two quarters on our scheduling software for salons. We're thinking about adding more features to fix it. good idea?",
+      "hidden_facts": [
+        "Diagnose before building: segment churn by cohort, plan, salon size and signup channel, and find when the jump started.",
+        "Talk to churned customers and read cancellation reasons; features rarely fix churn that comes from price, onboarding or a competitor.",
+        "Check what changed at the start of the rise: a price change, a release, a support change, a new signup source bringing poor-fit customers.",
+        "Small salons close at high rates; some churn is the customers going out of business, which no feature fixes.",
+        "Involuntary churn (failed card payments) is often a large, cheap win with dunning and card updaters.",
+        "At 7 percent monthly the company loses over half its customers a year; this is urgent, but the fix should be targeted."
+      ]
+    },
+    {
+      "id": "data-privacy",
+      "topic": "A data-privacy question",
+      "shape": "recommend",
+      "question": "We're a US fitness app. A gym chain in Germany wants to white-label us for their members. Do we need to change anything privacy-wise or can we just turn it on?",
+      "hidden_facts": [
+        "GDPR applies to processing German members' data; the gym is likely the controller and the app the processor, which needs a data processing agreement under Article 28.",
+        "Moving data to US servers needs a transfer basis: the EU-US Data Privacy Framework certification or standard contractual clauses with a transfer impact assessment.",
+        "Fitness and health metrics can be special-category health data under Article 9, with stricter rules and possibly a DPIA.",
+        "Data subject rights (access, deletion, export) must be supported in the product and in the process, with response deadlines.",
+        "German consent rules for tracking (TTDSG/TDDDG) mean analytics and SDKs in the app need consent; many US apps ship third-party trackers by default.",
+        "Get a short review from EU privacy counsel before turning it on; it is cheap compared with fines and the chain will ask anyway."
+      ]
+    },
+    {
+      "id": "ai-tooling",
+      "topic": "An AI tooling choice",
+      "shape": "recommend",
+      "question": "Engineering team of 25. Which AI coding tool should we standardize on? People use a mix of Copilot, Cursor and Claude Code right now. Leadership wants one tool and one bill.",
+      "hidden_facts": [
+        "Code leaves the building; check data retention, training opt-out and the enterprise terms (zero retention, SSO, audit logs) before features.",
+        "Forcing one tool has a productivity cost; developers have workflows built around different tools, so measure usage before choosing.",
+        "Run a time-boxed trial with a few real tasks and measure outcomes (cycle time, review load), not opinions.",
+        "Pricing models differ (per seat versus usage-based tokens); heavy agent use can make usage-based bills unpredictable, so set caps.",
+        "Tools change every few months; prefer short contracts and keep an exit, and consider one default plus an approved exception path rather than a hard ban."
+      ]
+    }
+  ]
+}
