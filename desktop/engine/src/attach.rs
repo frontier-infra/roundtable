@@ -153,6 +153,10 @@ fn fetch(url: &str, timeout: Duration) -> Result<(String, String, String), Strin
         ureq::Error::Status(c, _) => format!("That link answered with error {c}."),
         ureq::Error::Transport(_) => "Could not open that link. Check it and your connection.".to_string(),
     })?;
+    read_response(url, r)
+}
+
+fn read_response(url: &str, r: ureq::Response) -> Result<(String, String, String), String> {
     let ctype = r.content_type().to_ascii_lowercase();
     let mut bytes = Vec::new();
     r.into_reader().take(MAX_BYTES + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
@@ -208,18 +212,122 @@ pub fn block(atts: &[Attachment]) -> String {
 
 /// Read every source once and share each: whole, or summarized once by the chair.
 pub fn prepare(sources: &[String], keys: &crate::keys::Keys, settings: &crate::settings::Settings, timeout: Duration) -> Result<Vec<Attachment>, String> {
+    prepare_from(sources, &[], false, keys, settings, timeout)
+}
+
+/// `prepare` for a remote MCP caller: links to public addresses only (never a path on this
+/// computer, never a private or loopback address), plus documents sent inline as text.
+pub fn prepare_remote(links: &[String], files: &[(String, String)], keys: &crate::keys::Keys, settings: &crate::settings::Settings, timeout: Duration) -> Result<Vec<Attachment>, String> {
+    prepare_from(links, files, true, keys, settings, timeout)
+}
+
+/// Sources and inline documents, each shared once. `public_only` is the remote rule.
+pub fn prepare_from(sources: &[String], files: &[(String, String)], public_only: bool, keys: &crate::keys::Keys, settings: &crate::settings::Settings, timeout: Duration) -> Result<Vec<Attachment>, String> {
     let mut out = Vec::new();
+    let sum = |p: &str| Some(crate::council::chair(keys, settings, p, timeout)).filter(|t| !t.trim().is_empty());
     for src in sources.iter().filter(|s| !s.trim().is_empty()) {
-        let (name, kind, text) = read_source(src, timeout)?;
-        let sum = |p: &str| Some(crate::council::chair(keys, settings, p, timeout)).filter(|t| !t.trim().is_empty());
+        let (name, kind, text) = if public_only { read_public_link(src, timeout)? } else { read_source(src, timeout)? };
         out.push(share(name, kind, text, &sum));
     }
+    for (name, text) in files {
+        out.push(share(name.clone(), "text".into(), tidy(text), &sum));
+    }
     Ok(out)
+}
+
+/// True for an address on the open internet: not loopback, private, link-local,
+/// shared (100.64/10, which tailnets use), multicast, documentation or unspecified.
+pub fn is_public_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v) => {
+            let o = v.octets();
+            !(v.is_loopback()
+                || v.is_private()
+                || v.is_link_local()
+                || v.is_broadcast()
+                || v.is_multicast()
+                || v.is_unspecified()
+                || v.is_documentation()
+                || o[0] == 0
+                || (o[0] == 100 && (o[1] & 0xC0) == 64)
+                || (o[0] == 192 && o[1] == 0 && o[2] == 0)
+                || (o[0] == 198 && (o[1] & 0xFE) == 18)
+                || o[0] >= 240)
+        }
+        IpAddr::V6(v) => {
+            if let Some(v4) = v.to_ipv4_mapped() {
+                return is_public_ip(IpAddr::V4(v4));
+            }
+            let s = v.segments();
+            !(v.is_loopback() || v.is_unspecified() || v.is_multicast() || (s[0] & 0xfe00) == 0xfc00 || (s[0] & 0xffc0) == 0xfe80 || s[0] == 0x2001 && s[1] == 0x0db8)
+        }
+    }
+}
+
+/// Every connection (redirects too) resolves through this, so a link cannot reach this
+/// computer or its network, even by a name that changes its address between checks.
+struct PublicOnly;
+
+impl ureq::Resolver for PublicOnly {
+    fn resolve(&self, netloc: &str) -> std::io::Result<Vec<std::net::SocketAddr>> {
+        use std::net::ToSocketAddrs;
+        let all: Vec<_> = netloc.to_socket_addrs()?.collect();
+        let ok: Vec<_> = all.into_iter().filter(|a| is_public_ip(a.ip())).collect();
+        if ok.is_empty() {
+            return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "not a public address"));
+        }
+        Ok(ok)
+    }
+}
+
+/// Read a link for a remote caller: http(s) to a public address only.
+pub fn read_public_link(src: &str, timeout: Duration) -> Result<(String, String, String), String> {
+    let s = src.trim();
+    let l = s.to_ascii_lowercase();
+    if !(l.starts_with("https://") || l.starts_with("http://")) {
+        return Err("A remote connection can attach links only.".into());
+    }
+    let agent = ureq::AgentBuilder::new()
+        .timeout(timeout)
+        .redirects(3)
+        .resolver(PublicOnly)
+        .user_agent(concat!("roundtable-engine/", env!("CARGO_PKG_VERSION")))
+        .build();
+    let r = agent.get(s).call().map_err(|e| match e {
+        ureq::Error::Status(c, _) => format!("That link answered with error {c}."),
+        ureq::Error::Transport(_) => "Could not open that link. A remote connection can only read links on the public internet.".to_string(),
+    })?;
+    read_response(s, r)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_links_reach_only_public_addresses() {
+        use std::net::IpAddr;
+        for bad in ["127.0.0.1", "10.1.2.3", "192.168.1.5", "172.16.0.1", "169.254.169.254", "100.100.1.1", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:127.0.0.1"] {
+            assert!(!is_public_ip(bad.parse::<IpAddr>().unwrap()), "{bad}");
+        }
+        for good in ["1.1.1.1", "8.8.8.8", "2606:4700:4700::1111"] {
+            assert!(is_public_ip(good.parse::<IpAddr>().unwrap()), "{good}");
+        }
+        assert!(read_public_link("/etc/hosts", Duration::from_secs(1)).is_err());
+        assert!(read_public_link("http://127.0.0.1:9/x", Duration::from_secs(2)).unwrap_err().contains("public internet"));
+        assert!(read_public_link("http://localhost:9/x", Duration::from_secs(2)).is_err());
+    }
+
+    #[test]
+    fn inline_files_are_shared_like_files() {
+        let store = crate::keys::MemoryStore::default();
+        let k = crate::keys::Keys { store: &store, env: Default::default(), file: Default::default() };
+        let s = crate::settings::Settings::default();
+        let a = prepare_from(&[], &[("n.md".into(), "short notes".into())], true, &k, &s, Duration::from_secs(1)).unwrap();
+        assert_eq!((a[0].name.as_str(), a[0].shared.as_str(), a[0].text.as_str()), ("n.md", "full", "short notes"));
+        assert!(prepare_from(&["/etc/hosts".into()], &[], true, &k, &s, Duration::from_secs(1)).is_err());
+    }
 
     #[test]
     fn html_becomes_text() {

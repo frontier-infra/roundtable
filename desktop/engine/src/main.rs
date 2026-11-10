@@ -36,7 +36,8 @@ Commands:
   provider       add <preset|custom> | list | models <id> | remove <id> | detect:
                  OpenRouter, Ollama, LM Studio, Groq, Together or any OpenAI-compatible
                  base URL. Each ticked model is a seat: provider:model
-  mcp            serve | selftest | config
+  mcp            serve [--http] | selftest | config [--client X] | token: the MCP server
+                 for Claude, ChatGPT, Codex, Cursor and other AI apps (roundtable mcp help)
   version        Print the version
 
 Ask flags:
@@ -86,6 +87,26 @@ Ask flags:
                         systemone (any other System One model, for example LINK21) or off
 
 Docs: https://roundtable.sh";
+
+const MCP_USAGE: &str = "Usage: roundtable mcp <command>
+
+  serve                 Stdio MCP server (Claude app, Claude Code, Codex, Cursor, ...)
+  serve --http          Streamable HTTP MCP server at /mcp, for remote clients
+      --host H          Address to listen on (default 127.0.0.1: this computer only)
+      --port P          Port (default 8765; 0 picks a free one)
+      --token-file F    Read the token from F. Or set ROUNDTABLE_MCP_TOKEN.
+                        Without either, a new token is made and printed.
+      --calls-per-minute N   Roundtables a minute (default 6)
+      --max-running N        Roundtables at once (default 2)
+      --allow-origin O       Also allow browser origin O (repeat)
+      --events          JSON lines on stdout (for the app)
+                        Clients send the token as Authorization: Bearer <token>,
+                        or call /mcp/<token>. A public URL needs a tunnel
+                        (the app's Share with ChatGPT switch starts one).
+  selftest              Check the stdio handshake
+  config [--client X]   Print the config for X: claude, claude-code, codex,
+                        cursor, vscode, windsurf or generic (default: JSON)
+  token                 Print a new random token";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -656,87 +677,218 @@ fn cmd_attach(args: &[String]) -> u8 {
     }
 }
 
+/// One MCP tool call: the coach, attachments, seats, then the council, with progress.
+fn mcp_run(settings: &Settings, c: &mcp::Call, progress: &mcp::Progress) -> mcp::Outcome {
+    use mcp::Outcome;
+    let settings = match decision::with_override(settings.clone(), c.decision.as_deref()) {
+        Ok(s) => s,
+        Err(e) => return Outcome::error(e),
+    };
+    let store = keys::default_store();
+    let k = Keys::load(store.as_ref());
+    custom::use_configs(&settings.providers);
+    let wanted = match (c.heads.as_deref(), c.seats.as_deref()) {
+        (Some(h), Some(s)) => Some(format!("{h},{s}")),
+        (h, s) => h.or(s).map(str::to_string),
+    };
+    let hs = match wanted.as_deref() {
+        Some(csv) => council::parse_heads(csv).0,
+        None => council::default_heads(&settings, &k),
+    };
+    if hs.is_empty() {
+        return Outcome::error("No valid heads selected.");
+    }
+    let depth = match Mode::parse(c.mode.as_deref().unwrap_or("")) {
+        Ok(m) => m,
+        Err(e) => return Outcome::error(e),
+    };
+    // The coach: questions first, unless the caller brings the answers. Deep Think always coaches.
+    let mut brief = None;
+    if c.coach || depth.coach() {
+        progress(0.0, None, "The coach is reading the question.");
+        match coach::ask_questions(&c.question, &k, &settings, coach::CHAIR_WAIT) {
+            Ok(qs) if !qs.is_empty() && c.coach_answers.is_empty() => return Outcome::text(mcp::coach_reply(&qs)),
+            Ok(qs) => {
+                let qa: Vec<(String, String)> = qs.iter().cloned().zip(c.coach_answers.iter().cloned().chain(std::iter::repeat(String::new()))).collect();
+                brief = coach::make_brief(&c.question, &qa, &k, &settings, coach::CHAIR_WAIT).ok().map(|b| b.to_markdown());
+            }
+            Err(_) => {}
+        }
+    }
+    let attachments = if c.attach.is_empty() && c.files.is_empty() {
+        None
+    } else {
+        progress(0.0, None, "Reading the attached material.");
+        // A remote caller never reaches files on this computer or its network.
+        let prepared = if c.remote {
+            attach::prepare_remote(&c.attach, &c.files, &k, &settings, coach::CHAIR_WAIT)
+        } else {
+            attach::prepare_from(&c.attach, &c.files, false, &k, &settings, coach::CHAIR_WAIT)
+        };
+        match prepared {
+            Ok(list) => Some(attach::block(&list)),
+            Err(e) => return Outcome::error(e),
+        }
+    };
+    let lib = personas::Library::load(&settings);
+    let mut spec = c.personas.clone().unwrap_or_default();
+    if spec.trim().eq_ignore_ascii_case("auto") {
+        spec = coach::suggest(brief.as_deref().unwrap_or(&c.question), &lib, &k, &settings, coach::CHAIR_WAIT).personas.join(",");
+    }
+    let seats = match personas::resolve(&spec, &hs, &lib) {
+        Ok(s) => s,
+        Err(e) => return Outcome::error(e),
+    };
+    let verdict = match roundtable_engine::verdict::choose(c.verdict.as_deref(), if seats.is_empty() { hs.len() } else { seats.len() }) {
+        Ok(v) => v,
+        Err(e) => return Outcome::error(e),
+    };
+    let opts = AskOptions {
+        question: c.question.clone(),
+        heads: hs,
+        seats,
+        rounds: c.rounds.unwrap_or(depth.default_rounds()).clamp(1, council::MAX_ROUNDS),
+        mode: depth,
+        research: c.research,
+        timeout: council::default_timeout(c.research, &settings),
+        brief,
+        attachments,
+        verdict,
+        open_first_round: c.blind == Some(false),
+        clarify: true,
+        ..Default::default()
+    };
+    // Events become progress: one step per seat per round, one for the verdict.
+    #[derive(Default)]
+    struct Seen {
+        done: f64,
+        total: Option<f64>,
+        seats: usize,
+        verdict: Option<String>,
+        chair: Option<String>,
+    }
+    let seen = std::sync::Mutex::new(Seen::default());
+    let emit = |e: &Event| {
+        let mut s = seen.lock().unwrap();
+        match e {
+            Event::RunStarted { rounds, seats, heads, .. } => {
+                s.seats = if seats.is_empty() { heads.len() } else { seats.len() };
+                s.total = Some((s.seats as f64) * (*rounds as f64) + 1.0);
+                progress(0.0, s.total, &format!("The table sits: {} seat{}, up to {} round{}.", s.seats, if s.seats == 1 { "" } else { "s" }, rounds, if *rounds == 1 { "" } else { "s" }));
+            }
+            Event::HeadDone { seat, round, status, .. } => {
+                s.done += 1.0;
+                let what = if status == "answered" || status == "done" || status == "ok" { "answered" } else { status.as_str() };
+                progress(s.done, s.total, &format!("Round {round}: {seat} {what}."));
+            }
+            Event::ChairVerdict { round, consensus, text } => {
+                s.chair = Some(text.clone());
+                progress(s.done, s.total, &format!("Round {round}: the chair {}.", if *consensus { "found consensus" } else { "asked for another round" }));
+            }
+            Event::Verdict { text, .. } => {
+                s.verdict = Some(text.clone());
+                s.done += 1.0;
+                progress(s.done, s.total, "The chair wrote the verdict.");
+            }
+            _ => {}
+        }
+    };
+    let r = council::run(&opts, &k, &settings, &emit);
+    let id = record(&r, &opts, &c.source, &settings);
+    let s = seen.into_inner().unwrap();
+    Outcome::Run {
+        verdict: s.verdict.or(s.chair),
+        transcript: r.transcript.trim().to_string(),
+        answered: r.answered,
+        seats: s.seats.max(r.answered),
+        rounds: opts.rounds,
+        consensus: r.consensus,
+        history_id: id,
+    }
+}
+
+/// `mcp serve --http`: Streamable HTTP on 127.0.0.1 with the person's token.
+fn cmd_mcp_http(args: &[String], settings: &Settings) -> u8 {
+    use roundtable_engine::mcp_http;
+    let events = has(args, "--events");
+    let num = |name: &str, default: usize| flag_value(args, name).and_then(|v| v.parse().ok()).unwrap_or(default);
+    let token_from_env = std::env::var("ROUNDTABLE_MCP_TOKEN").ok().filter(|t| !t.trim().is_empty());
+    let token_from_file = flag_value(args, "--token-file").and_then(|p| std::fs::read_to_string(p).ok()).map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+    let given = token_from_env.or(token_from_file);
+    let made = given.is_none();
+    let d = mcp_http::Config::default();
+    let cfg = mcp_http::Config {
+        host: flag_value(args, "--host").map(str::to_string).unwrap_or(d.host),
+        port: num("--port", d.port as usize) as u16,
+        token: given.unwrap_or_else(mcp_http::new_token),
+        calls_per_minute: num("--calls-per-minute", d.calls_per_minute),
+        max_running: num("--max-running", d.max_running),
+        requests_per_minute: num("--requests-per-minute", d.requests_per_minute),
+        allowed_origins: args.iter().enumerate().filter(|(_, a)| *a == "--allow-origin").filter_map(|(i, _)| args.get(i + 1).cloned()).collect(),
+    };
+    let loopback = cfg.host == "127.0.0.1" || cfg.host == "localhost" || cfg.host == "::1";
+    let run = |c: &mcp::Call, p: &mcp::Progress| mcp_run(settings, c, p);
+    let server = mcp::Server::new(&run, true);
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let out = std::sync::Mutex::new(());
+    let say = |v: serde_json::Value| {
+        let _g = out.lock().unwrap();
+        if events {
+            println!("{v}");
+            let _ = std::io::stdout().flush();
+        }
+    };
+    let log_path = paths::data_dir().join("mcp-remote.log");
+    let log = |v: serde_json::Value| {
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+            let _ = writeln!(f, "{v}");
+        }
+        if !events {
+            let st = v.get("status").map(|s| s.to_string()).unwrap_or_default();
+            eprintln!("{} {} {} {}", v["type"].as_str().unwrap_or(""), v["method"].as_str().unwrap_or(""), st, v["question"].as_str().unwrap_or(v["note"].as_str().unwrap_or("")));
+        }
+        say(v);
+    };
+    let ready = |a: std::net::SocketAddr| {
+        let url = format!("http://{a}/mcp");
+        if events {
+            say(json!({"type": "listening", "url": url, "port": a.port(), "log": log_path.display().to_string()}));
+        } else {
+            eprintln!("Roundtable MCP (Streamable HTTP) is listening on {url}");
+            if made {
+                eprintln!("Token (new for this run; set ROUNDTABLE_MCP_TOKEN to choose one): {}", cfg.token);
+            }
+            eprintln!("Send it as \"Authorization: Bearer <token>\", or use the URL {url}/<token>.");
+            if !loopback {
+                eprintln!("WARNING: {} is not this computer only. Anyone who can reach it and has the token can run roundtables on your AIs.", cfg.host);
+            }
+            eprintln!("Calls are logged to {}. Press Ctrl+C to stop.", log_path.display());
+        }
+    };
+    match mcp_http::serve(&server, &cfg, &stop, &ready, &log) {
+        Ok(()) => 0,
+        Err(e) => {
+            if events {
+                say(json!({"type": "error", "message": e}));
+            } else {
+                eprintln!("ERROR: {e}");
+            }
+            1
+        }
+    }
+}
+
 fn cmd_mcp(args: &[String]) -> u8 {
     match args.first().map(String::as_str).unwrap_or("") {
         "serve" => {
             let settings = Settings::load();
-            let store = keys::default_store();
-            let run = |c: &mcp::Call| -> (String, bool) {
-                let settings = match decision::with_override(settings.clone(), c.decision.as_deref()) {
-                    Ok(s) => s,
-                    Err(e) => return (e, true),
-                };
-                let k = Keys::load(store.as_ref());
-                custom::use_configs(&settings.providers);
-                let wanted = match (c.heads.as_deref(), c.seats.as_deref()) {
-                    (Some(h), Some(s)) => Some(format!("{h},{s}")),
-                    (h, s) => h.or(s).map(str::to_string),
-                };
-                let hs = match wanted.as_deref() {
-                    Some(csv) => council::parse_heads(csv).0,
-                    None => council::default_heads(&settings, &k),
-                };
-                if hs.is_empty() {
-                    return ("No valid heads selected.".into(), true);
-                }
-                let depth = match Mode::parse(c.mode.as_deref().unwrap_or("")) {
-                    Ok(m) => m,
-                    Err(e) => return (e, true),
-                };
-                // The coach: questions first, unless the caller brings the answers. Deep Think always coaches.
-                let mut brief = None;
-                if c.coach || depth.coach() {
-                    match coach::ask_questions(&c.question, &k, &settings, coach::CHAIR_WAIT) {
-                        Ok(qs) if !qs.is_empty() && c.coach_answers.is_empty() => return (mcp::coach_reply(&qs), false),
-                        Ok(qs) => {
-                            let qa: Vec<(String, String)> = qs.iter().cloned().zip(c.coach_answers.iter().cloned().chain(std::iter::repeat(String::new()))).collect();
-                            brief = coach::make_brief(&c.question, &qa, &k, &settings, coach::CHAIR_WAIT).ok().map(|b| b.to_markdown());
-                        }
-                        Err(_) => {}
-                    }
-                }
-                let attachments = if c.attach.is_empty() {
-                    None
-                } else {
-                    match attach::prepare(&c.attach, &k, &settings, coach::CHAIR_WAIT) {
-                        Ok(list) => Some(attach::block(&list)),
-                        Err(e) => return (e, true),
-                    }
-                };
-                let lib = personas::Library::load(&settings);
-                let mut spec = c.personas.clone().unwrap_or_default();
-                if spec.trim().eq_ignore_ascii_case("auto") {
-                    spec = coach::suggest(brief.as_deref().unwrap_or(&c.question), &lib, &k, &settings, coach::CHAIR_WAIT).personas.join(",");
-                }
-                let seats = match personas::resolve(&spec, &hs, &lib) {
-                    Ok(s) => s,
-                    Err(e) => return (e, true),
-                };
-                let verdict = match roundtable_engine::verdict::choose(c.verdict.as_deref(), if seats.is_empty() { hs.len() } else { seats.len() }) {
-                    Ok(v) => v,
-                    Err(e) => return (e, true),
-                };
-                let opts = AskOptions {
-                    question: c.question.clone(),
-                    heads: hs,
-                    seats,
-                    rounds: c.rounds.unwrap_or(depth.default_rounds()).clamp(1, council::MAX_ROUNDS),
-                    mode: depth,
-                    research: c.research,
-                    timeout: council::default_timeout(c.research, &settings),
-                    brief,
-                    attachments,
-                    verdict,
-                    open_first_round: c.blind == Some(false),
-                    clarify: true,
-                    ..Default::default()
-                };
-                let r = council::run(&opts, &k, &settings, &|_| {});
-                record(&r, &opts, "claude", &settings);
-                (r.transcript.trim().to_string(), false)
-            };
+            if has(args, "--http") {
+                return cmd_mcp_http(args, &settings);
+            }
+            let run = |c: &mcp::Call, p: &mcp::Progress| mcp_run(&settings, c, p);
+            let server = mcp::Server::new(&run, false);
             let stdin = std::io::stdin();
-            match mcp::serve(stdin.lock(), std::io::stdout(), &run) {
+            match mcp::serve(stdin.lock(), std::io::stdout(), &server) {
                 Ok(()) => 0,
                 Err(_) => 0,
             }
@@ -780,11 +932,28 @@ fn cmd_mcp(args: &[String]) -> u8 {
         }
         "config" => {
             let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "roundtable".into());
-            println!("{}", serde_json::to_string_pretty(&json!({"mcpServers": {"roundtable": {"command": exe, "args": ["mcp", "serve"]}}})).unwrap());
+            let client = flag_value(args, "--client").unwrap_or_default().to_string();
+            match mcp::config_snippet(&client, &exe) {
+                Some(s) => {
+                    println!("{}", s.trim_end());
+                    0
+                }
+                None => {
+                    eprintln!("Unknown client '{client}'. Use one of: claude, claude-code, codex, cursor, vscode, windsurf, generic.");
+                    2
+                }
+            }
+        }
+        "token" => {
+            println!("{}", roundtable_engine::mcp_http::new_token());
+            0
+        }
+        "help" | "-h" | "--help" => {
+            println!("{MCP_USAGE}");
             0
         }
         _ => {
-            eprintln!("usage: roundtable mcp {{serve|selftest|config}}");
+            eprintln!("{MCP_USAGE}");
             2
         }
     }

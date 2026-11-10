@@ -558,6 +558,80 @@ export class App {
     await this.refreshClaude();
   }
 
+  // ---- Other AI apps and Share with ChatGPT ----
+
+  async refreshClients() {
+    try {
+      const st = await this.api.clientsStatus();
+      this.state.clients = { ...this.state.clients, ...st, loading: false, error: undefined };
+    } catch (e) {
+      this.state.clients = { ...this.state.clients, loading: false, error: errorText(e) };
+    }
+    this.render();
+  }
+
+  async connectClient(id: string) {
+    this.state.clients = { ...this.state.clients, busy: id, error: undefined };
+    this.render();
+    try {
+      const r = await this.api.clientConnect(id);
+      this.state.clients = { ...this.state.clients, busy: undefined, [`${id}_connected`]: true, messages: { ...this.state.clients.messages, [id]: r.message ?? "Done." } };
+    } catch (e) {
+      this.state.clients = { ...this.state.clients, busy: undefined, error: errorText(e) };
+    }
+    this.render();
+  }
+
+  async disconnectClient(id: string) {
+    try {
+      await this.api.clientDisconnect(id);
+      this.showToast("Disconnected.");
+    } catch (e) {
+      this.showToast(errorText(e));
+    }
+    const messages = { ...this.state.clients.messages };
+    delete messages[id];
+    this.state.clients = { ...this.state.clients, messages };
+    await this.refreshClients();
+  }
+
+  private sharePoll: ReturnType<typeof setInterval> | null = null;
+
+  async refreshShare() {
+    try {
+      this.state.share = { ...this.state.share, status: await this.api.shareStatus() };
+    } catch (e) {
+      this.state.share = { ...this.state.share, error: errorText(e) };
+    }
+    this.pollShare();
+    this.render();
+  }
+
+  /** While sharing is on, the call log refreshes every 3 seconds. */
+  private pollShare() {
+    const on = !!this.state.share.status?.running;
+    if (on && !this.sharePoll) this.sharePoll = setInterval(() => void this.refreshShare(), 3000);
+    if (!on && this.sharePoll) {
+      clearInterval(this.sharePoll);
+      this.sharePoll = null;
+    }
+  }
+
+  /** The Share with ChatGPT switch. Never on unless the person turns it on. */
+  async setShare(on: boolean) {
+    this.state.share = { ...this.state.share, busy: true, error: undefined };
+    this.render();
+    try {
+      const status = on ? await this.api.shareStart() : await this.api.shareStop();
+      this.state.share = { status, busy: false };
+      if (!on) this.showToast("Sharing stopped. That link no longer works.");
+    } catch (e) {
+      this.state.share = { ...this.state.share, busy: false, error: errorText(e) };
+    }
+    this.pollShare();
+    this.render();
+  }
+
   // ---- Asking ----
 
   /** Start a roundtable. Used by screen 5 and the main screen. `rounds` is 1 to 4
@@ -1095,7 +1169,7 @@ export class App {
 
   async openSettings() {
     this.set({ view: "settings" });
-    await Promise.all([this.refreshKeys(), this.refreshClaude(), this.refreshClis(), this.refreshPersonas(), this.refreshProviders()]);
+    await Promise.all([this.refreshKeys(), this.refreshClaude(), this.refreshClients(), this.refreshShare(), this.refreshClis(), this.refreshPersonas(), this.refreshProviders()]);
     this.render();
   }
 

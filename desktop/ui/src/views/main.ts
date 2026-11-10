@@ -39,6 +39,9 @@ import { attachmentLabel, attachmentNote, confidenceOf, formatVerdictBody, seatN
 import { glyph, headLogo, lockup } from "../brand";
 import { mainFooter, withCredit } from "../credits";
 
+/** History rows started from another app: Claude, another MCP app, or a remote connection. */
+const SOURCE_BADGE: Record<string, string> = { claude: "Claude", mcp: "MCP", remote: "Remote" };
+
 export function renderMain(app: App): HTMLElement {
   return h("div", { class: "shell" }, sidebar(app), h("main", { class: "centre" }, topbar(app), centre(app), mainFooter(app)));
 }
@@ -236,7 +239,7 @@ function historyRow(app: App, e: HistoryEntry): HTMLElement {
           on: { change: () => app.clickHistory(e.id, { metaKey: true }) },
         })
       : null,
-    h("span", { class: "row-text" }, h("span", { class: "q", text: q }), h("span", { class: "meta" }, e.source === "claude" ? h("span", { class: "badge", text: "Claude" }) : null, h("span", { text: shortDate(e.ts) }))),
+    h("span", { class: "row-text" }, h("span", { class: "q", text: q }), h("span", { class: "meta" }, SOURCE_BADGE[e.source ?? ""] ? h("span", { class: "badge", text: SOURCE_BADGE[e.source ?? ""] }) : null, h("span", { text: shortDate(e.ts) }))),
     s.selecting
       ? null
       : h(

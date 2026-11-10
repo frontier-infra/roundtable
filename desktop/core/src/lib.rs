@@ -1,10 +1,12 @@
 //! Roundtable desktop app: Tauri 2 shell around the Rust engine.
 
 pub mod claude;
+pub mod clients;
 pub mod commands;
 pub mod engine_install;
 pub mod jebadiah;
 pub mod menu;
+pub mod share;
 pub mod update;
 
 use tauri::Manager;
@@ -44,6 +46,12 @@ pub fn run() {
             commands::claude_connect_code,
             commands::claude_disable_plugin,
             commands::claude_disconnect,
+            commands::clients_status,
+            commands::client_connect,
+            commands::client_disconnect,
+            commands::share_status,
+            commands::share_start,
+            commands::share_stop,
             commands::coach_questions,
             commands::coach_brief,
             commands::suggest_panel,
@@ -79,6 +87,8 @@ pub fn run() {
         .expect("error while running Roundtable")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
+                // Sharing never outlives the app.
+                commands::share().stop();
                 update::install_on_exit(&app.state::<update::Updates>());
             }
         });

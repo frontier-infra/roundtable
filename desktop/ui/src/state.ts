@@ -2,7 +2,7 @@
 
 import type { UpdateStatus, UpdateView, WhatsNew } from "./updates";
 import type { Attachment, Brief, LocalProvider, ModelsResult, PanelSuggestion, ProviderPreset, ProviderRow, VerdictShape } from "./api";
-import type { ClaudeStatus, CliDetection, EngineEvent, Fix, HeadId, HeadTest, HistoryEntry, KeySaveResult, KeysStatus, Persona, PersonaLibrary, Preset, SeatInfo, Settings } from "./api";
+import type { ClaudeStatus, ClientsStatus, ShareStatus, CliDetection, EngineEvent, Fix, HeadId, HeadTest, HistoryEntry, KeySaveResult, KeysStatus, Persona, PersonaLibrary, Preset, SeatInfo, Settings } from "./api";
 import { defaultDecision, type DecisionEvent } from "./decision";
 import { family, HEAD_ORDER, isProviderSeat, LOCAL_NOTE, PROVIDERS, providerName, splitSeat } from "./providers";
 
@@ -139,6 +139,19 @@ export interface ClaudeView extends Partial<ClaudeStatus> {
   error?: string;
 }
 
+export interface ClientsView extends Partial<ClientsStatus> {
+  loading: boolean;
+  busy?: string;
+  messages: Record<string, string>;
+  error?: string;
+}
+
+export interface ShareView {
+  status: ShareStatus | null;
+  busy: boolean;
+  error?: string;
+}
+
 export interface CliView {
   /** Detection finished at least once. */
   loaded: boolean;
@@ -190,6 +203,8 @@ export interface State {
   /** The "Or use an API key" section. null: open only when no tool was found. */
   keysOpen: boolean | null;
   claude: ClaudeView;
+  clients: ClientsView;
+  share: ShareView;
   firstQuestion: string;
   run: RunView | null;
   ask: AskBox;
@@ -335,6 +350,8 @@ export function initialState(): State {
     clis: { loaded: false, loading: false, list: [], signingIn: [] },
     keysOpen: null,
     claude: { loading: true },
+    clients: { loading: true, messages: {} },
+    share: { status: null, busy: false },
     firstQuestion: FIRST_QUESTION,
     run: null,
     ask: { question: "", depth: "quick", rounds: DEFAULT_ROUNDS, research: false, contextPath: null, contextText: null, contextName: null, seats: "", seatList: [], coach: true, verdict: "decision", attachments: [], attaching: false, link: "" },
