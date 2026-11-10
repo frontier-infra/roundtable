@@ -31,8 +31,8 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npx vitest run
-      # The release build runs this too; a broken stylesheet (rc7 to rc8 merge) failed only there.
-      - name: The UI builds
+      # The release runs vite build; a CSS error must fail the PR, not the tag.
+      - name: vite build
         run: npx vite build
       - name: Every clickable link is alive
         run: node ../scripts/check-links.mjs
