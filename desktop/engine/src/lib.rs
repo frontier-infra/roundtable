@@ -7,6 +7,7 @@ pub mod attach;
 pub mod clis;
 pub mod coach;
 pub mod council;
+pub mod decision;
 pub mod history;
 pub mod http;
 pub mod keys;

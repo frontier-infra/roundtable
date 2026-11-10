@@ -9,6 +9,7 @@ import { select, withGlyph } from "./main";
 import { VERDICT_SHAPES } from "../session";
 import { lockup } from "../brand";
 import { personasSection } from "./personas";
+import { decisionSection } from "../decision";
 
 function section(title: string, ...body: (HTMLElement | null)[]): HTMLElement {
   return h("section", { class: "setting" }, h("h2", { text: title }), h("div", { class: "setting-body" }, body));
@@ -98,6 +99,7 @@ export function renderSettings(app: App): HTMLElement {
         ),
       ),
       section("Personas", ...personasSection(app)),
+      decisionSection(app),
       section("Claude connection", h("div", { class: "stack" }, claudeConnect(app, true))),
       section(
         "History",

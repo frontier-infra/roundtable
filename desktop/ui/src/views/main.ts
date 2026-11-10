@@ -1,6 +1,7 @@
 // The main screen: past roundtables on the left, the ask box or results in the centre.
 
 import type { App } from "../app";
+import { decisionPanel } from "../decision";
 import { button, h, toggle } from "../dom";
 import { renderMarkdown } from "../markdown";
 import { providerName } from "../providers";
@@ -447,6 +448,7 @@ function results(app: App, run: RunView): HTMLElement {
     run.done && !run.stopped && allFailed(run) ? h("p", { class: "status bad", role: "alert", text: firstFailure(run) }) : null,
     run.verdict ? finalVerdict(app, run) : null,
     chairCard,
+    decisionPanel(run.decision),
     h("div", { class: "answers grid" }, run.heads.map((k) => answerCard(run.cards[k] ?? { head: k, seat: k, status: "waiting", text: "", round: 1 }, app, run))),
     run.rounds > 1 && run.steps.length ? roundSteps(run) : null,
     h("p", { class: "small muted", text: `At the table: ${run.heads.map((k) => seatName(run, k)).join(", ")}.${run.openFirstRound ? " Round 1 was open: each seat read the seats before it." : ""}` }),
