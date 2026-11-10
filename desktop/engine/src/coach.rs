@@ -106,6 +106,28 @@ pub fn parse_questions(reply: &str) -> Vec<String> {
     out
 }
 
+/// The prompt that checks a question for missing key facts before the table answers.
+/// Same text as `clarify_prompt` in `lib/coach.py`.
+pub fn clarify_prompt(question: &str) -> String {
+    format!(
+        "You are the CHAIR of an AI council. Before the council answers, check the question for missing key facts.\n\nTHEIR QUESTION:\n{}\n\n--- YOUR JOB ---\nDoes the right pick flip on facts the person did not give, such as their workload, size, budget, deadline, or the rules they must follow? Ask only when it does: most questions have a sound pick under stated assumptions, and for those reply with exactly \"NONE\". When it does, ask the two or three questions whose answers would change the pick most, one per line, each starting with \"Q: \", each one sentence of at most 20 words.\n",
+        question.trim()
+    )
+}
+
+/// Fewest questions that count as "key facts are missing".
+pub const MIN_CLARIFY: usize = 2;
+
+/// The chair's open questions when the question lacks key facts: two or three, or none.
+pub fn clarify_questions(reply: &str) -> Vec<String> {
+    let qs = parse_questions(reply);
+    if qs.len() >= MIN_CLARIFY {
+        qs
+    } else {
+        Vec::new()
+    }
+}
+
 /// The prompt that turns the question and the answers into a brief.
 pub fn brief_prompt(question: &str, qa: &[(String, String)]) -> String {
     let mut p = format!("You are the CHAIR of an AI council. Rewrite the person's question into a brief the council will read.\n\nTHEIR QUESTION:\n{}\n", question.trim());
@@ -290,6 +312,12 @@ pub fn ask_questions(question: &str, keys: &Keys, settings: &Settings, timeout: 
     Ok(parse_questions(&reply))
 }
 
+/// Clarify first: the chair's open questions when the question lacks key facts.
+/// Empty when it has them, or when the chair did not answer.
+pub fn clarify(question: &str, keys: &Keys, settings: &Settings, timeout: Duration) -> Vec<String> {
+    clarify_questions(&crate::council::chair(keys, settings, &clarify_prompt(question), timeout))
+}
+
 /// The brief. Err when the chair's seat did not answer.
 pub fn make_brief(question: &str, qa: &[(String, String)], keys: &Keys, settings: &Settings, timeout: Duration) -> Result<Brief, String> {
     let reply = crate::council::chair(keys, settings, &brief_prompt(question, qa), timeout);
@@ -323,6 +351,16 @@ mod tests {
         assert_eq!(parse_questions(r), vec!["What is the budget?", "Who decides?", "By when?"]);
         assert!(parse_questions("NONE").is_empty());
         assert_eq!(parse_questions("Sure.\n1) How big is the team?"), vec!["How big is the team?"]);
+    }
+
+    #[test]
+    fn clarify_needs_two_questions() {
+        assert_eq!(clarify_questions("Q: What is the workload?\nQ: How many users?"), vec!["What is the workload?", "How many users?"]);
+        assert!(clarify_questions("Q: Only one?").is_empty(), "one question is not enough to hold the pick");
+        assert!(clarify_questions("NONE").is_empty());
+        assert!(clarify_questions("").is_empty());
+        let p = clarify_prompt(" Postgres or Mongo? ");
+        assert!(p.contains("THEIR QUESTION:\nPostgres or Mongo?\n") && p.contains("\"NONE\"") && !p.contains('\u{2014}'));
     }
 
     #[test]

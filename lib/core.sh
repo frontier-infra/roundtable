@@ -29,7 +29,11 @@
 #   core.sh -q "..." --out /tmp/rt.md                # also save the transcript
 #   core.sh -q "..." --personas pricing              # seat a panel of roles on the AIs
 #   core.sh -q "..." --coach                         # the coach asks up to 3 questions, then writes a brief
-#   core.sh -q "..." --verdict decision              # final verdict: decision|pros-cons|plan|vote (+ minority view)
+#   core.sh -q "..." --verdict decision              # final verdict: decision|pros-cons|plan|vote|none (+ minority view)
+#                                                    # a table of 2+ seats gets a decision by default; it leads the
+#                                                    # transcript (pick, confidence, what would change it, 3 next steps)
+#   core.sh -q "..." --no-clarify                    # skip the check for missing key facts (no brief: the chair
+#                                                    # opens with 2 or 3 questions when the pick depends on them)
 #   core.sh -q "..." --no-blind                      # round 1 open: each seat reads the seats before it
 #   core.sh -q "..." --attach notes.pdf --attach URL # material every seat reads (long ones summarized once)
 #   core.sh -q "..." --follow-up last.md             # a follow-up: the earlier transcript comes first
@@ -57,6 +61,8 @@ declare -a COACH_ANSWERS ATTACH_SRCS
 COACH_ANSWERS=(); ATTACH_SRCS=()
 BRIEF_FILE=""
 VERDICT=""
+VERDICT_GIVEN=0
+CLARIFY=1
 OPEN_FIRST=0
 FOLLOW_UP=""
 ATTACHED_FILE=""
@@ -75,7 +81,8 @@ while [[ $# -gt 0 ]]; do
     --coach-answer) COACH=1; COACH_ANSWERS+=("$2"); shift 2 ;;
     --coach-questions) COACH_QUESTIONS=1; shift ;;
     --brief)       BRIEF_FILE="$2"; shift 2 ;;
-    --verdict)     VERDICT="$2"; shift 2 ;;
+    --verdict)     VERDICT="$2"; VERDICT_GIVEN=1; shift 2 ;;
+    --no-clarify)  CLARIFY=0; shift ;;
     --no-blind|--open-first-round) OPEN_FIRST=1; shift ;;
     --blind)       OPEN_FIRST=0; shift ;;
     --follow-up)   FOLLOW_UP="$2"; shift 2 ;;
@@ -159,6 +166,32 @@ label_for() {
   esac
 }
 
+# ── SEAT ISOLATION (same rules as desktop/engine/src/clis.rs) ──
+# A CLI seat answers from what it knows, never from this computer: a fresh empty folder,
+# no tools, web off (unless --research), no MCP servers, and the tool's own instructions
+# and memory off where it has a switch. A failed run is asked once more, unless it failed
+# on sign-in or a usage limit.
+seat_rule() {
+  if [[ "$RESEARCH" -eq 1 ]]; then
+    printf '%s' "You are one seat on an advisory council. Your only tools are web search and web fetch: do not read, open or look up any file, skill or command on this computer. Answer in plain Markdown, in this one reply. Earlier rules that ask you to read a file or use another tool do not apply here."
+  else
+    printf '%s' "You are one seat on an advisory council. You have no tools: do not read, open or look up any file, skill or command, and do not search the web. Answer from what you know, in plain Markdown, in this one reply. Earlier rules that ask you to read a file or use a tool do not apply here."
+  fi
+}
+GROK_NO_TOOLS="todo_write,search_tool,use_tool,CallMcpTool"
+GROK_ENV=(GROK_MEMORY=0 GROK_WORKFLOWS=0 GROK_DISABLE_AUTOUPDATER=1 GROK_CLAUDE_AGENTS_ENABLED=0 GROK_CLAUDE_RULES_ENABLED=0
+  GROK_CLAUDE_SKILLS_ENABLED=0 GROK_CLAUDE_MCPS_ENABLED=0 GROK_CLAUDE_HOOKS_ENABLED=0 GROK_CURSOR_AGENTS_ENABLED=0
+  GROK_CURSOR_RULES_ENABLED=0 GROK_CURSOR_SKILLS_ENABLED=0 GROK_CURSOR_MCPS_ENABLED=0 GROK_CURSOR_HOOKS_ENABLED=0)
+CODEX_OFF=(shell_tool code_mode_host memories apps plugins hooks browser_use computer_use in_app_browser multi_agent multi_agent_v2 skill_search tool_suggest sleep_tool)
+# seat_dir: a fresh empty folder for one CLI run (printed).
+seat_dir() { local d; d="$(mktemp -d "$WORK/seat.XXXXXX")"; printf '%s' "$d"; }
+# seat_retryable <rc> <errfile>: true when one more try may help.
+seat_retryable() {
+  local t; t="$(tr '[:upper:]' '[:lower:]' < "$2" 2>/dev/null | tail -c 2000)"
+  case "$t" in *"not logged in"*|*"not signed in"*|*"login required"*|*"unauthorized"*|*"401"*|*"usage limit"*|*"rate limit"*|*"quota"*|*"unknown option"*|*"unexpected argument"*) return 1;; esac
+  return 0
+}
+
 run_grok() {
   local out="$WORK/grok.out" err="$WORK/grok.err" body="$WORK/grok.body" resp="$WORK/grok.resp"
   load_keys
@@ -196,26 +229,51 @@ try:
 except Exception: pass" 2>/dev/null)"
     [[ -n "$got" ]] && { printf '%s' "$got" >"$out"; return; }
   fi
-  # Fallback: grok CLI (coding-plan composer).
+  # Fallback: grok CLI (coding-plan composer), isolated like every CLI seat (see SEAT ISOLATION).
   command -v grok >/dev/null 2>&1 || { echo "__MISSING__ (no XAI_API_KEY / OAuth token / grok CLI)" >"$out"; return; }
   local p; p="$(cat "$PFILE")"
   local gm=(); [[ -n "$GROK_CLI_MODEL" ]] && gm=(-m "$GROK_CLI_MODEL")
-  if [[ "$RESEARCH" -eq 1 ]]; then run_to "$TIMEOUT" grok -p "$p" ${gm[@]+"${gm[@]}"} --max-turns 8 --no-subagents </dev/null >"$out" 2>"$err"
-  else run_to "$TIMEOUT" grok -p "$p" ${gm[@]+"${gm[@]}"} --max-turns 6 --no-subagents --disable-web-search </dev/null >"$out" 2>"$err"; fi
-  local rc=$?
-  [[ $rc -eq 124 ]] && echo "__TIMEOUT__ (${TIMEOUT}s)" >"$out"
-  [[ ! -s "$out" ]] && echo "__EMPTY__ (rc=$rc) $(tail -c 200 "$err" 2>/dev/null)" >"$out"
+  local ga
+  if [[ "$RESEARCH" -eq 1 ]]; then ga=(--max-turns 16 --tools web_search,web_fetch --no-subagents --rules "$(seat_rule)")
+  else ga=(--tools todo_write --disallowed-tools "$GROK_NO_TOOLS" --no-subagents --disable-web-search --rules "$(seat_rule)"); fi
+  local rc try
+  for try in 1 2; do
+    ( cd "$(seat_dir)" && env "${GROK_ENV[@]}" "$(command -v grok)" -p "$p" ${gm[@]+"${gm[@]}"} "${ga[@]}" </dev/null >"$out" 2>"$err" )
+    rc=$?
+    [[ $rc -eq 0 && -s "$out" ]] && return
+    seat_retryable "$rc" "$err" || break
+  done
+  [[ $rc -eq 124 ]] && { echo "__TIMEOUT__ (${TIMEOUT}s)" >"$out"; return; }
+  [[ ! -s "$out" || $rc -ne 0 ]] && echo "__EMPTY__ (rc=$rc) $(tail -c 200 "$err" 2>/dev/null)" >"$out"
 }
 
 run_codex() {
   local out="$WORK/codex.out" err="$WORK/codex.err" last="$WORK/codex.last"
   command -v codex >/dev/null 2>&1 || { echo "__MISSING__" >"$out"; return; }
   local p; p="$(cat "$PFILE")"
-  if [[ "$RESEARCH" -eq 1 ]]; then run_to "$TIMEOUT" codex exec --skip-git-repo-check -s read-only -o "$last" "$p" >"$err" 2>&1
-  else run_to "$TIMEOUT" codex exec --skip-git-repo-check -s read-only -c tools.web_search=false -o "$last" "$p" >"$err" 2>&1; fi
-  local rc=$?
+  local ca=(exec --skip-git-repo-check --ephemeral --ignore-rules -s read-only -c project_doc_max_bytes=0) f
+  for f in "${CODEX_OFF[@]}"; do ca+=(-c "features.$f=false"); done
+  [[ "$RESEARCH" -eq 1 ]] || ca+=(-c tools.web_search=false -c 'web_search="disabled"')
+  # A clean CODEX_HOME: the sign-in file linked, the settings filtered to the model and provider.
+  local src="${CODEX_HOME:-$HOME/.codex}" ch="$WORK/codex-home" envs=()
+  if [[ -f "$src/auth.json" ]]; then
+    mkdir -p "$ch" && chmod 700 "$ch" && ln -sf "$src/auth.json" "$ch/auth.json"
+    ( umask 077; python3 "$COACH_PY" codex-config "$src/config.toml" > "$ch/config.toml" )
+    envs=(CODEX_HOME="$ch")
+  else
+    ca=(exec --ignore-user-config "${ca[@]:1}")
+  fi
+  local rc try
+  for try in 1 2; do
+    rm -f "$last"
+    ( cd "$(seat_dir)" && env ${envs[@]+"${envs[@]}"} "$(command -v codex)" "${ca[@]}" -o "$last" "$p" >"$err" 2>&1 )
+    rc=$?
+    [[ -s "$last" ]] && { cp "$last" "$out"; rm -rf "$ch"; return; }
+    seat_retryable "$rc" "$err" || break
+  done
+  rm -rf "$ch"
   [[ $rc -eq 124 ]] && { echo "__TIMEOUT__ (${TIMEOUT}s)" >"$out"; return; }
-  if [[ -s "$last" ]]; then cp "$last" "$out"; else echo "__EMPTY__ (rc=$rc) $(tail -c 200 "$err" 2>/dev/null)" >"$out"; fi
+  echo "__EMPTY__ (rc=$rc) $(tail -c 200 "$err" 2>/dev/null)" >"$out"
 }
 
 run_openai() {
@@ -416,7 +474,6 @@ _part "EARLIER IN THIS SESSION" "$PRIOR"
 _part "CONTEXT" "$_ctx"
 _part "ATTACHMENTS" "$ATTACHMENTS"
 _part "BRIEF" "$BRIEF"
-if [[ -n "$BASE_PROMPT" ]]; then BASE_PROMPT+=$'\n\n'"## QUESTION"$'\n'"$QUESTION"; else BASE_PROMPT="$QUESTION"; fi
 
 declare -a HARR ACTIVE
 IFS=',' read -ra HARR <<< "$HEADS"
@@ -498,28 +555,42 @@ run_open_seats() {
 }
 first_round() { if [[ "$OPEN_FIRST" -eq 1 ]]; then run_open_seats; else run_all_seats; fi; }
 
-# say_verdict <file suffix>: the chair's final verdict in the --verdict shape, with the minority view.
-say_verdict() {
-  [[ -z "$VERDICT" ]] && return
-  local i f job title text
+# A table of two seats or more gets a decision verdict unless --verdict says otherwise.
+[[ "$VERDICT_GIVEN" -eq 0 && "$NSEATS" -ge 2 ]] && VERDICT="decision"
+
+# Clarify first: with no brief and no earlier turns, the chair checks the question for missing
+# key facts. When the pick flips on them, the seats and the verdict open with its questions.
+: > "$WORK/open.q"
+if [[ "$CLARIFY" -eq 1 && "$NSEATS" -ge 2 && -z "${BRIEF//[[:space:]]/}" && -z "${PRIOR//[[:space:]]/}" ]]; then
+  python3 "$COACH_PY" clarify-prompt "$QUESTION" > "$WORK/clarify.prompt"
+  _t="$TIMEOUT"; [[ "$TIMEOUT" -gt 180 ]] && TIMEOUT=180
+  anthropic_call "$CHAIR_MODEL" "$WORK/clarify.prompt" | python3 "$COACH_PY" clarify-questions > "$WORK/open.q"
+  TIMEOUT="$_t"
+fi
+_part "OPEN QUESTIONS" "$(python3 "$COACH_PY" open-section "$WORK/open.q")"
+if [[ -n "$BASE_PROMPT" ]]; then BASE_PROMPT+=$'\n\n'"## QUESTION"$'\n'"$QUESTION"; else BASE_PROMPT="$QUESTION"; fi
+
+# positions <suffix>: every seat's answer as "### label\nbody\n\n" blocks (suffix "/" = this round's .out).
+positions() {
+  local i f
+  for ((i=0; i<NSEATS; i++)); do
+    f="$WORK/s$i$1"; [[ "$1" == "/" ]] && f="$WORK/s$i/${SEAT_HEAD[$i]}.out"
+    printf '### %s\n%s\n\n' "$(seat_label "$i")" "$(body_of_file "$f")"
+  done
+}
+
+# verdict_text <file suffix>: the chair's final verdict in the --verdict shape, into $WORK/verdict.md.
+verdict_text() {
+  local title text
   case "$VERDICT" in
-    decision)  title="decision"; job='Shape: DECISION. Line 1: "DECISION: <the answer in one sentence>". Line 2: "CONFIDENCE: <high, medium or low> (<0 to 100>%)". Then **WHY** (at most four bullets).' ;;
-    pros-cons) title="pros and cons"; job='Shape: PROS AND CONS. Line 1: "OPTION: <the leading option>". Then **PROS** (bullets) and **CONS** (bullets), then "RECOMMENDATION: <one sentence>".' ;;
-    plan)      title="action plan"; job='Shape: ACTION PLAN. Line 1: "GOAL: <one sentence>". Then **STEPS** as a numbered list, each step with who and by when, then "FIRST STEP TODAY: <one sentence>".' ;;
-    vote)      title="vote"; job='Shape: VOTE. Give **VOTES**: one bullet per seat, "<seat name>: <the option it backs>". Then "RESULT: <option> wins <n> to <m>", or "RESULT: tie".' ;;
+    decision) title="decision" ;; pros-cons) title="pros and cons" ;; plan) title="action plan" ;; vote) title="vote" ;;
   esac
-  { printf 'You are the neutral CHAIR of an AI council. Write the final verdict on this question:\n\n%s\n\n' "$QUESTION"
-    [[ -n "$BRIEF" ]] && printf 'THE BRIEF:\n%s\n\n' "$BRIEF"
-    printf -- '--- FINAL POSITIONS ---\n\n'
-    for ((i=0; i<NSEATS; i++)); do
-      f="$WORK/s$i$1"; [[ "$1" == "/" ]] && f="$WORK/s$i/${SEAT_HEAD[$i]}.out"
-      printf '### %s\n%s\n\n' "$(seat_label "$i")" "$(body_of_file "$f")"
-    done
-    printf -- '--- YOUR JOB ---\n%s\nThen end with exactly these two lines:\nMINORITY VIEW: <the strongest view that differs from the verdict, in one sentence, or "None">\nHELD BY: <the seats that held it, by their names above, or "Nobody">\n' "$job"
-  } > "$WORK/verdict.prompt"
+  positions "$1" > "$WORK/final.pos"
+  printf '%s' "$BRIEF" > "$WORK/brief.md"
+  python3 "$COACH_PY" verdict-prompt "$VERDICT" "$QUESTION" "$WORK/brief.md" "$WORK/open.q" "$WORK/final.pos" > "$WORK/verdict.prompt"
   text="$(anthropic_call "$CHAIR_MODEL" "$WORK/verdict.prompt")"
   [[ -z "${text//[[:space:]]/}" ]] && text="_(verdict unavailable: the chair did not answer)_"
-  say "---"; say "## 🪑 Verdict ($title)"; say ""; say "$text"; say ""
+  printf '## 🪑 Verdict (%s)\n\n%s\n' "$title" "$text" > "$WORK/verdict.md"
 }
 
 body_of_file() {
@@ -535,57 +606,70 @@ body_of_file() {
 }
 
 OUT="$WORK/transcript.md"
-say() { printf '%s\n' "$*" >>"$OUT"; }
+HEAD_MD="$WORK/head.md"; BODY_MD="$WORK/body.md"
+: > "$HEAD_MD"; : > "$BODY_MD"
+say() { printf '%s\n' "$*" >>"$BODY_MD"; }
 # seat_body <i> <file>: the answer, with the lab label first on a lab seat.
 seat_body() {
   if [[ -n "${SEAT_DISC[$1]}" ]]; then printf '_%s_\n\n' "${SEAT_DISC[$1]}"; fi
   body_of_file "$2"
 }
 
-say "# 🪑 Round Table — $NSEATS $([[ $PERSONA_SEATS -eq 1 ]] && echo seats || echo heads) — $([[ $ROUNDS -le 1 ]] && echo 'advisory' || echo "deliberation (≤$ROUNDS rounds)")"
-say ""
-say "_Question:_ ${QUESTION}"
-say ""
-if [[ -n "$BRIEF" ]]; then say "## Brief"; say ""; say "$BRIEF"; say ""; fi
+{ echo "# 🪑 Round Table — $NSEATS $([[ $PERSONA_SEATS -eq 1 ]] && echo seats || echo heads) — $([[ $ROUNDS -le 1 ]] && echo 'advisory' || echo "deliberation (≤$ROUNDS rounds)")"
+  echo ""
+  echo "_Question:_ ${QUESTION}"
+  echo ""
+  if [[ -n "$BRIEF" ]]; then echo "## Brief"; echo ""; echo "$BRIEF"; echo ""; fi
+} > "$HEAD_MD"
 
+ROUNDS_RUN=1
 if [[ "$ROUNDS" -le 1 ]]; then
   printf '%s' "$BASE_PROMPT" > "$PFILE"
   first_round
   for ((i=0; i<NSEATS; i++)); do say "---"; say "## $(seat_label "$i")"; say ""; say "$(seat_body "$i" "$WORK/s$i/${SEAT_HEAD[$i]}.out")"; say ""; done
-  say_verdict "/"
-  say "---"
-  say "_Advisory mode — independent answers, no cross-talk. Use \`--rounds N\` for deliberation-to-consensus._"
+  [[ -n "$VERDICT" ]] && verdict_text "/"
+  FOOTER="_Advisory mode — independent answers, no cross-talk. Use \`--rounds N\` for deliberation-to-consensus._"
 else
   CONS=0
+  : > "$WORK/chair.last"
   for ((r=1; r<=ROUNDS; r++)); do
+    ROUNDS_RUN=$r
     if [[ $r -eq 1 ]]; then
       printf '%s' "$BASE_PROMPT" > "$PFILE"
     else
-      { printf '%s\n\n---\n## COUNCIL DELIBERATION — every councilor'\''s position from round %d:\n\n' "$BASE_PROMPT" "$((r-1))"
-        for ((i=0; i<NSEATS; i++)); do printf '### %s\n%s\n\n' "$(seat_label "$i")" "$(body_of_file "$WORK/s$i.r$((r-1)).out")"; done
-        printf '## YOUR TASK (round %d)\nYou are ONE councilor. You have now read everyone. Update your position. State explicitly: (a) where a peer changed your mind — name them; (b) where you still disagree and why; (c) your sharpened current answer. Begin your reply with "POSITION:".\n' "$r"
-      } > "$PFILE"
+      printf '%s' "$BASE_PROMPT" > "$WORK/base.md"
+      positions ".r$((r-1)).out" > "$WORK/prev.pos"
+      python3 "$COACH_PY" deliberation-prompt "$WORK/base.md" "$((r-1))" "$WORK/prev.pos" "$r" "$WORK/chair.last" > "$PFILE"
     fi
     if [[ $r -eq 1 ]]; then first_round; else run_all_seats; fi
     LAST_R=$r
     for ((i=0; i<NSEATS; i++)); do cp "$WORK/s$i/${SEAT_HEAD[$i]}.out" "$WORK/s$i.r$r.out" 2>/dev/null; done
     say "## ─────── Round $r ───────"; say ""
     for ((i=0; i<NSEATS; i++)); do say "### $(seat_label "$i")"; say ""; say "$(seat_body "$i" "$WORK/s$i.r$r.out")"; say ""; done
-    { printf 'You are the neutral CHAIR of an AI design council. The councilors submitted these round %d positions to this question:\n\n%s\n\n--- POSITIONS ---\n\n' "$r" "$QUESTION"
-      for ((i=0; i<NSEATS; i++)); do printf '### %s\n%s\n\n' "$(seat_label "$i")" "$(body_of_file "$WORK/s$i.r$r.out")"; done
-      printf -- '--- YOUR JOB ---\nLine 1 must be EXACTLY one of: "VERDICT: CONSENSUS" (the councilors substantively agree on the core recommendation) or "VERDICT: CONTINUE" (material disagreement remains). Then give: **AGREED** (bullets) and **REMAINING DISAGREEMENTS** (bullets — name who holds what). Be strict: consensus means real convergence on the answer, not mere overlap.\n'
-    } > "$WORK/chair.prompt"
+    positions ".r$r.out" > "$WORK/round.pos"
+    python3 "$COACH_PY" chair-prompt "$QUESTION" "$r" "$WORK/round.pos" > "$WORK/chair.prompt"
     CHAIR_OUT="$(anthropic_call "$CHAIR_MODEL" "$WORK/chair.prompt")"
+    printf '%s' "$CHAIR_OUT" > "$WORK/chair.last"
     [[ -z "$CHAIR_OUT" ]] && CHAIR_OUT="VERDICT: CONTINUE"$'\n'"_(chair unavailable — ANTHROPIC_API_KEY missing/error)_"
     say "### 🪑 Chair verdict — round $r"; say ""; say "$CHAIR_OUT"; say ""
-    if printf '%s' "$CHAIR_OUT" | head -1 | grep -qi "VERDICT: *CONSENSUS"; then
+    # Early stop only on true agreement: the same pick, numbers, thresholds and first step.
+    if printf '%s' "$CHAIR_OUT" | python3 "$COACH_PY" agreed; then
       CONS=1; say "**→ Consensus reached at round $r.**"; say ""; break
     fi
   done
-  say_verdict ".r$LAST_R.out"
-  say "---"
-  if [[ $CONS -eq 1 ]]; then say "_Deliberation converged. The chair's final verdict above is the council consensus._"
-  else say "_Reached the round cap ($ROUNDS) without full consensus — the chair's last verdict lists the remaining disagreements._"; fi
+  [[ -n "$VERDICT" ]] && verdict_text ".r$LAST_R.out"
+  if [[ $CONS -eq 1 ]]; then FOOTER="_Deliberation converged. The chair's final verdict above is the council consensus._"
+  else FOOTER="_Reached the round cap ($ROUNDS) without full consensus — the chair's last verdict lists the remaining disagreements._"; fi
+fi
+
+# The verdict first; the seat answers folded under it.
+if [[ -n "$VERDICT" ]]; then
+  if [[ "$NSEATS" -eq 1 ]]; then _seats="1 seat"; else _seats="$NSEATS seats"; fi
+  if [[ "$ROUNDS_RUN" -le 1 ]]; then _sum="<details><summary>The seat answers ($_seats)</summary>"
+  else _sum="<details><summary>The seat answers and the rounds ($_seats, $ROUNDS_RUN rounds)</summary>"; fi
+  { cat "$HEAD_MD"; echo "---"; cat "$WORK/verdict.md"; echo ""; echo "---"; echo "$_sum"; echo ""; cat "$BODY_MD"; echo "</details>"; echo ""; echo "---"; echo "$FOOTER"; } > "$OUT"
+else
+  { cat "$HEAD_MD"; cat "$BODY_MD"; echo "---"; echo "$FOOTER"; } > "$OUT"
 fi
 
 [[ -n "$OUT_FILE" ]] && cp "$OUT" "$OUT_FILE"

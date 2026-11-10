@@ -30,6 +30,9 @@ pub struct AskOptions {
     pub open_first_round: bool,
     /// The chair's last word, in this shape. None: no verdict (the old transcript).
     pub verdict: Option<Shape>,
+    /// Clarify first: with no brief, the chair checks the question for missing key facts
+    /// and, when the pick flips on them, the table and the verdict open with its questions.
+    pub clarify: bool,
     pub heads: Vec<&'static Head>,
     /// Who sits where. Empty means one Generic seat per head (the old table).
     pub seats: Vec<Seat>,
@@ -153,6 +156,8 @@ pub enum Event {
         via: Option<String>,
     },
     RoundDone { round: u32 },
+    /// The chair's open questions: the question lacks key facts the pick depends on.
+    Clarify { questions: Vec<String> },
     ChairVerdict { round: u32, consensus: bool, text: String },
     /// The final verdict in the chosen shape, with the minority view and who held it.
     Verdict {
@@ -241,8 +246,13 @@ pub fn base_prompt(question: &str, context: Option<&str>) -> String {
 /// The shared prompt: earlier turns, background, attachments and the brief, then the question.
 /// With none of them it is the question alone, as before.
 pub fn prompt_with(question: &str, prior: Option<&str>, context: Option<&str>, attachments: Option<&str>, brief: Option<&str>) -> String {
+    prompt_with_open(question, prior, context, attachments, brief, None)
+}
+
+/// Same, with the chair's open questions after the brief.
+pub fn prompt_with_open(question: &str, prior: Option<&str>, context: Option<&str>, attachments: Option<&str>, brief: Option<&str>, open: Option<&str>) -> String {
     let mut parts: Vec<String> = Vec::new();
-    for (title, v) in [("EARLIER IN THIS SESSION", prior), ("CONTEXT", context), ("ATTACHMENTS", attachments), ("BRIEF", brief)] {
+    for (title, v) in [("EARLIER IN THIS SESSION", prior), ("CONTEXT", context), ("ATTACHMENTS", attachments), ("BRIEF", brief), ("OPEN QUESTIONS", open)] {
         if let Some(v) = v.filter(|v| !v.trim().is_empty()) {
             parts.push(format!("## {title}\n{}", v.trim_end_matches('\n')));
         }
@@ -266,25 +276,42 @@ pub fn open_round_prompt(base: &str, before: &[(String, String)]) -> String {
     p
 }
 
-fn deliberation_prompt(base: &str, prev: u32, table: &[(String, String)], round: u32) -> String {
+/// The chair's open questions as a prompt section the seats read before the question.
+pub fn open_questions_section(questions: &[String]) -> Option<String> {
+    if questions.is_empty() {
+        return None;
+    }
+    let mut t = String::from("The chair would ask the person these first. They are not answered yet, so say how each answer would change your pick.\n");
+    for q in questions {
+        t.push_str(&format!("- {q}\n"));
+    }
+    Some(t.trim_end().to_string())
+}
+
+/// Round 2 and later: everyone's last position, the chair's reading of it, then the task:
+/// argue against the leading pick first, settle every difference, then revise.
+pub fn deliberation_prompt(base: &str, prev: u32, table: &[(String, String)], round: u32, chair: Option<&str>) -> String {
     let mut p = format!("{base}\n\n---\n## COUNCIL DELIBERATION: every councilor's position from round {prev}:\n\n");
     for (label, body) in table {
         p.push_str(&format!("### {label}\n{body}\n\n"));
     }
+    if let Some(c) = chair.filter(|c| !c.trim().is_empty()) {
+        p.push_str(&format!("## THE CHAIR'S READING OF ROUND {prev}\n{}\n\n", c.trim()));
+    }
     p.push_str(&format!(
-        "## YOUR TASK (round {round})\nYou are ONE councilor. You have now read everyone. Update your position. State explicitly: (a) where a peer changed your mind; name them; (b) where you still disagree and why; (c) your sharpened current answer. Begin your reply with \"POSITION:\".\n"
+        "## YOUR TASK (round {round})\nYou are ONE councilor. You have now read everyone. First argue against the leading pick: under \"CASE AGAINST:\", give the strongest case that it is wrong for this person, in at most three bullets, even if you back it. Then settle every difference in numbers, thresholds or first steps: give your figure or step and why. Then update your position. State explicitly: (a) where a peer changed your mind; name them; (b) where you still disagree and why; (c) your sharpened current answer, under \"POSITION:\". Begin your reply with \"CASE AGAINST:\".\n"
     ));
     p
 }
 
-fn chair_prompt(question: &str, round: u32, table: &[(String, String)]) -> String {
+pub fn chair_prompt(question: &str, round: u32, table: &[(String, String)]) -> String {
     let mut p = format!(
         "You are the neutral CHAIR of an AI design council. The councilors submitted these round {round} positions to this question:\n\n{question}\n\n--- POSITIONS ---\n\n"
     );
     for (label, body) in table {
         p.push_str(&format!("### {label}\n{body}\n\n"));
     }
-    p.push_str("--- YOUR JOB ---\nLine 1 must be EXACTLY one of: \"VERDICT: CONSENSUS\" (the councilors substantively agree on the core recommendation) or \"VERDICT: CONTINUE\" (material disagreement remains). Then give: **AGREED** (bullets) and **REMAINING DISAGREEMENTS** (bullets; name who holds what). Be strict: consensus means real convergence on the answer, not mere overlap.\n");
+    p.push_str("--- YOUR JOB ---\nLine 1 must be EXACTLY one of: \"VERDICT: CONSENSUS\" or \"VERDICT: CONTINUE\". Line 2: \"LEADING PICK: <the option most seats back, in one sentence>\". Then give: **AGREED** (bullets) and **REMAINING DISAGREEMENTS** (bullets; name who holds what). Then **DIFFERENCES**: one bullet for each place the seats give a different number (a price, cost, size, date or percentage), a different threshold or decision rule, or a different first step, naming who said what; write \"- none\" when there are none. CONSENSUS only on true agreement: the same pick, the same numbers and thresholds (within rounding), and the same first step. Any bullet under DIFFERENCES means CONTINUE.\n");
     p
 }
 
@@ -295,6 +322,47 @@ pub fn is_consensus(chair: &str) -> bool {
         Some(i) => first[i + "verdict:".len()..].trim_start().starts_with("consensus"),
         None => false,
     }
+}
+
+/// The bullets under the chair's DIFFERENCES heading, without "none".
+pub fn differences(chair: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut inside = false;
+    for line in chair.lines() {
+        let t = line.trim().replace("**", "");
+        let t = t.trim();
+        let up = t.to_ascii_uppercase();
+        if up.starts_with("DIFFERENCES") {
+            inside = true;
+            let rest = t["DIFFERENCES".len()..].trim_start_matches(':').trim();
+            if !rest.is_empty() && !is_none(rest) {
+                out.push(rest.to_string());
+            }
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        if let Some(b) = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")) {
+            if !is_none(b) {
+                out.push(b.trim().to_string());
+            }
+        } else if !t.is_empty() {
+            inside = false;
+        }
+    }
+    out
+}
+
+fn is_none(s: &str) -> bool {
+    let s = s.trim().trim_matches(['.', '"', '(', ')', '_', '*']).to_ascii_lowercase();
+    s == "none" || s == "no differences" || s == "nothing"
+}
+
+/// True agreement: the chair says CONSENSUS and lists no difference in numbers,
+/// thresholds or first steps. Anything less runs another round.
+pub fn agreed(chair: &str) -> bool {
+    is_consensus(chair) && differences(chair).is_empty()
 }
 
 /// Look for an executable on PATH and in the usual per-user folders.
@@ -518,21 +586,27 @@ fn seat_body(seat: &Seat, body: &str) -> String {
     }
 }
 
-/// The verdict section, when the run asked for one. Returns the verdict text.
-fn say_verdict(say: &mut dyn FnMut(&str), opts: &AskOptions, keys: &Keys, settings: &Settings, finals: &[(String, String)], emit: &(dyn Fn(&Event) + Sync)) -> Option<String> {
+/// The verdict, when the run asks for one: the heading and the chair's text.
+fn verdict_section(opts: &AskOptions, keys: &Keys, settings: &Settings, open: &[String], finals: &[(String, String)], emit: &(dyn Fn(&Event) + Sync)) -> Option<(String, String)> {
     let shape = opts.verdict?;
-    let text = chair(keys, settings, &verdict::prompt(shape, &opts.question, opts.brief.as_deref(), finals), opts.timeout);
+    let text = chair(keys, settings, &verdict::prompt(shape, &opts.question, opts.brief.as_deref(), open, finals), opts.timeout);
     let text = if text.trim().is_empty() { verdict::UNAVAILABLE.to_string() } else { text.trim().to_string() };
     emit(&Event::Verdict { shape, parts: verdict::parts(&text), text: text.clone() });
-    say("---");
-    say(&format!("## \u{1fa91} Verdict ({})", shape.title().to_ascii_lowercase()));
-    say("");
-    say(&text);
-    say("");
-    Some(text)
+    Some((format!("## \u{1fa91} Verdict ({})\n\n{text}\n", shape.title().to_ascii_lowercase()), text))
+}
+
+/// The summary line of the folded seat answers.
+pub fn fold_summary(n: usize, rounds_run: u32) -> String {
+    let seats = if n == 1 { "1 seat".to_string() } else { format!("{n} seats") };
+    if rounds_run <= 1 {
+        format!("<details><summary>The seat answers ({seats})</summary>")
+    } else {
+        format!("<details><summary>The seat answers and the rounds ({seats}, {rounds_run} rounds)</summary>")
+    }
 }
 
 /// Run the council. `emit` gets every event as it happens; the transcript comes back.
+/// With a verdict, the transcript leads with it and the seat answers sit folded under it.
 pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&Event) + Sync)) -> RunResult {
     let seats = opts.table();
     let seat_keys = personas::seat_keys(&seats);
@@ -562,25 +636,27 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
             .collect(),
     });
 
+    let mut head = String::new();
+    let unit = if seats.iter().any(|s| s.persona.is_some()) { "seats" } else { "heads" };
+    let mode = if advisory { "advisory".to_string() } else { format!("deliberation (\u{2264}{rounds} rounds)") };
+    head.push_str(&format!("# \u{1fa91} Round Table - {n} {unit} - {mode}\n\n_Question:_ {}\n\n", opts.question));
+    let brief = opts.brief.as_deref().filter(|b| !b.trim().is_empty());
+    if let Some(b) = brief {
+        head.push_str(&format!("## Brief\n\n{}\n\n", b.trim()));
+    }
+    // Clarify first: only on a table, only with no brief and no earlier turns to lean on.
+    let fresh = brief.is_none() && opts.prior.as_deref().is_none_or(|p| p.trim().is_empty());
+    let open: Vec<String> = if opts.clarify && n >= 2 && fresh { crate::coach::clarify(&opts.question, keys, settings, opts.timeout.min(crate::coach::CHAIR_WAIT)) } else { Vec::new() };
+    if !open.is_empty() {
+        emit(&Event::Clarify { questions: open.clone() });
+    }
+    let base = prompt_with_open(&opts.question, opts.prior.as_deref(), opts.context.as_deref(), opts.attachments.as_deref(), opts.brief.as_deref(), open_questions_section(&open).as_deref());
+
     let mut out = String::new();
     let mut say = |s: &str| {
         out.push_str(s);
         out.push('\n');
     };
-    let unit = if seats.iter().any(|s| s.persona.is_some()) { "seats" } else { "heads" };
-    let mode = if advisory { "advisory".to_string() } else { format!("deliberation (\u{2264}{rounds} rounds)") };
-    say(&format!("# \u{1fa91} Round Table - {n} {unit} - {mode}"));
-    say("");
-    say(&format!("_Question:_ {}", opts.question));
-    say("");
-
-    if let Some(b) = opts.brief.as_deref().filter(|b| !b.trim().is_empty()) {
-        say("## Brief");
-        say("");
-        say(b.trim());
-        say("");
-    }
-    let base = prompt_with(&opts.question, opts.prior.as_deref(), opts.context.as_deref(), opts.attachments.as_deref(), opts.brief.as_deref());
     let first_round = |prompt: &str| {
         if opts.open_first_round {
             run_open_round(prompt, &seats, &seat_keys, opts, keys, settings, emit)
@@ -592,9 +668,11 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
     let mut finals: Vec<(String, String)> = Vec::new();
     let mut answered = 0usize;
     let mut consensus = None;
+    let mut rounds_run = 1;
     let labels_of = |res: &[HeadRun]| -> Vec<String> { seats.iter().zip(res).map(|(s, r)| personas::seat_label(s, &label_for(s.head, settings, r))).collect() };
     // The chair's last word (final verdict, else last round's), for the decision model hook.
     let mut final_chair: Option<String> = None;
+    let footer: String;
 
     if advisory {
         let res = first_round(&base);
@@ -612,15 +690,15 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
             say(&seat_body(seat, &o.body()));
             say("");
         }
-        final_chair = say_verdict(&mut say, opts, keys, settings, &finals, emit);
-        say("---");
-        say("_Advisory mode: independent answers, no cross-talk. Use `--rounds N` for deliberation to consensus._");
+        footer = "_Advisory mode: independent answers, no cross-talk. Use `--rounds N` for deliberation to consensus._".into();
     } else {
         let mut labels: Vec<String> = Vec::new();
         let mut prev: Vec<(String, String)> = Vec::new();
+        let mut last_chair: Option<String> = None;
         let mut cons = false;
         for r in 1..=rounds {
-            let prompt = if r == 1 { base.clone() } else { deliberation_prompt(&base, r - 1, &prev, r) };
+            rounds_run = r;
+            let prompt = if r == 1 { base.clone() } else { deliberation_prompt(&base, r - 1, &prev, r, last_chair.as_deref()) };
             let res = if r == 1 { first_round(&prompt) } else { run_round(&prompt, r, &seats, &seat_keys, opts, keys, settings, emit) };
             emit(&Event::RoundDone { round: r });
             if r == 1 {
@@ -638,13 +716,11 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
                 say(&seat_body(seat, body));
                 say("");
             }
-            let chair = chair(keys, settings, &chair_prompt(&opts.question, r, &prev), opts.timeout);
-            let chair = if chair.is_empty() {
-                "VERDICT: CONTINUE\n_(chair unavailable: ANTHROPIC_API_KEY missing or error)_".to_string()
-            } else {
-                chair
-            };
-            let c = is_consensus(&chair);
+            let reply = chair(keys, settings, &chair_prompt(&opts.question, r, &prev), opts.timeout);
+            last_chair = Some(reply.clone()).filter(|c| !c.trim().is_empty());
+            let chair = if reply.is_empty() { "VERDICT: CONTINUE\n_(chair unavailable: ANTHROPIC_API_KEY missing or error)_".to_string() } else { reply };
+            // Early stop only on true agreement: the same pick, numbers, thresholds and first step.
+            let c = agreed(&chair);
             final_chair = Some(chair.clone());
             emit(&Event::ChairVerdict { round: r, consensus: c, text: chair.clone() });
             say(&format!("### \u{1fa91} Chair verdict - round {r}"));
@@ -658,17 +734,22 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
                 break;
             }
         }
-        if let Some(v) = say_verdict(&mut say, opts, keys, settings, &finals, emit) {
-            final_chair = Some(v);
-        }
-        say("---");
-        if cons {
-            say("_Deliberation converged. The chair's final verdict above is the council consensus._");
+        footer = if cons {
+            "_Deliberation converged. The chair's final verdict above is the council consensus._".into()
         } else {
-            say(&format!("_Reached the round cap ({rounds}) without full consensus. The chair's last verdict lists the remaining disagreements._"));
-        }
+            format!("_Reached the round cap ({rounds}) without full consensus. The chair's last verdict lists the remaining disagreements._")
+        };
         consensus = Some(cons);
     }
+    let transcript = match verdict_section(opts, keys, settings, &open, &finals, emit) {
+        // The verdict first; the seat answers folded under it.
+        Some((v, text)) => {
+            final_chair = Some(text);
+            format!("{head}---\n{v}\n---\n{}\n\n{out}</details>\n\n---\n{footer}\n", fold_summary(n, rounds_run))
+        }
+        None => format!("{head}{out}---\n{footer}\n"),
+    };
+    let mut transcript = transcript;
     // Decision model hook (decision/HOOK.md): rates the verdict after the final round and the final verdict.
     let decision = crate::decision::after_verdict(
         &crate::decision::Verdict { question: &opts.question, context: opts.context.as_deref(), positions: &finals, chair: final_chair.as_deref(), consensus },
@@ -677,11 +758,11 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
         opts.timeout,
     );
     if let Some(d) = &decision {
-        out.push('\n');
-        out.push_str(&d.markdown());
+        transcript.push('\n');
+        transcript.push_str(&d.markdown());
         emit(&Event::Decision(d.clone()));
     }
-    RunResult { transcript: out, answered, consensus, decision }
+    RunResult { transcript, answered, consensus, decision }
 }
 
 #[cfg(test)]
@@ -974,6 +1055,135 @@ mod tests {
         assert!(!r2.transcript.contains("saw=true"));
         assert!(!r2.transcript.contains("Verdict"));
         assert!(!r2.transcript.contains("## Brief"));
+    }
+
+    #[test]
+    fn early_stop_only_on_true_agreement() {
+        let c = "VERDICT: CONSENSUS\nLEADING PICK: Postgres.\n**AGREED**\n- Postgres\n\n**DIFFERENCES**\n- none\n";
+        assert!(agreed(c));
+        let c = "VERDICT: CONSENSUS\nLEADING PICK: Raise prices.\n**AGREED**\n- raise\n**DIFFERENCES**\n- Claude says 10%, Codex says 15%.\n- First step: Grok emails clients, Claude audits invoices.\n";
+        assert!(is_consensus(c) && !agreed(c), "same pick, different numbers: another round");
+        assert_eq!(differences(c).len(), 2);
+        assert!(differences("VERDICT: CONTINUE\nDIFFERENCES: none").is_empty());
+        assert_eq!(differences("**DIFFERENCES:** Price differs.\n- Start date differs.\n\nThen more text"), ["Price differs.", "Start date differs."]);
+        assert!(agreed("VERDICT: CONSENSUS\n**AGREED**\n- x"), "no DIFFERENCES heading at all is no listed difference");
+        let p = chair_prompt("Q", 1, &[("A".into(), "x".into())]);
+        assert!(p.contains("LEADING PICK:") && p.contains("**DIFFERENCES**") && p.contains("Any bullet under DIFFERENCES means CONTINUE."));
+        assert!(!p.contains('\u{2014}'));
+    }
+
+    #[test]
+    fn round_two_argues_against_the_leading_pick() {
+        let t = [("A".to_string(), "x".to_string())];
+        let p = deliberation_prompt("Q", 1, &t, 2, Some("VERDICT: CONTINUE\nLEADING PICK: P."));
+        assert!(p.starts_with("Q\n\n---\n## COUNCIL DELIBERATION: every councilor's position from round 1:\n\n### A\nx\n\n## THE CHAIR'S READING OF ROUND 1\nVERDICT: CONTINUE\nLEADING PICK: P.\n\n## YOUR TASK (round 2)\n"), "{p}");
+        assert!(p.contains("argue against the leading pick") && p.contains("Begin your reply with \"CASE AGAINST:\""));
+        assert!(!deliberation_prompt("Q", 1, &t, 2, None).contains("CHAIR'S READING"));
+        assert!(!p.contains('\u{2014}'));
+    }
+
+    /// A chair that asks two questions, keeps finding a difference, and gives a decision verdict.
+    fn clarifying_server() -> String {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for stream in l.incoming().flatten() {
+                let mut r = BufReader::new(stream.try_clone().unwrap());
+                let mut len = 0usize;
+                let mut path = String::new();
+                loop {
+                    let mut line = String::new();
+                    if r.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                        break;
+                    }
+                    if path.is_empty() {
+                        path = line.clone();
+                    }
+                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        len = v.trim().parse().unwrap_or(0);
+                    }
+                }
+                let mut buf = vec![0; len];
+                let _ = r.read_exact(&mut buf);
+                let v: serde_json::Value = serde_json::from_slice(&buf).unwrap_or_default();
+                let prompt = v["messages"][0]["content"].as_str().unwrap_or("").to_string();
+                let body = if path.contains("/v1/messages") {
+                    let t = if prompt.contains("check the question for missing key facts") {
+                        "Q: What is the workload?\nQ: How many users?".to_string()
+                    } else if prompt.contains("Write the final verdict") {
+                        let open = prompt.contains("OPEN QUESTIONS:\n- What is the workload?") && prompt.contains("QUESTIONS FIRST:");
+                        format!("QUESTIONS FIRST:\n1. What is the workload?\n2. How many users?\nDECISION: If reads dominate, Postgres. open={open}\nCONFIDENCE: medium (60%)\nWOULD CHANGE IT: Heavy writes.\nNEXT STEPS:\n1. Count queries.\n2. Price hosts.\n3. Pick.\n**WHY**\n- x\nMINORITY VIEW: Mongo.\nHELD BY: B")
+                    } else {
+                        "VERDICT: CONSENSUS\nLEADING PICK: Postgres.\n**DIFFERENCES**\n- A says 2 GB, B says 8 GB.".to_string()
+                    };
+                    serde_json::json!({"content": [{"type": "text", "text": t}]})
+                } else {
+                    let open = prompt.contains("## OPEN QUESTIONS\nThe chair would ask the person these first.");
+                    let reading = prompt.contains("## THE CHAIR'S READING OF ROUND 1\nVERDICT: CONSENSUS");
+                    serde_json::json!({"choices": [{"message": {"content": format!("open={open} reading={reading}")}}]})
+                }
+                .to_string();
+                let mut s = stream;
+                let _ = write!(s, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    #[test]
+    fn verdict_first_clarify_first_and_a_forced_second_round() {
+        let _env = crate::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        no_tools();
+        let base = clarifying_server();
+        std::env::set_var("ROUNDTABLE_OPENAI_URL", format!("{base}/v1/chat/completions"));
+        std::env::set_var("ROUNDTABLE_GLM_URL", format!("{base}/v1/chat/completions"));
+        std::env::set_var("ROUNDTABLE_ANTHROPIC_URL", format!("{base}/v1/messages"));
+        let store = MemoryStore::default();
+        let k = Keys {
+            store: &store,
+            env: [("OPENAI_API_KEY".to_string(), "t".to_string()), ("ZAI_API_KEY".to_string(), "t".to_string()), ("ANTHROPIC_API_KEY".to_string(), "t".to_string())].into(),
+            file: BTreeMap::new(),
+        };
+        let opts = AskOptions {
+            question: "Which database?".into(),
+            heads: parse_heads("openai,glm").0,
+            rounds: 2,
+            timeout: Duration::from_secs(10),
+            verdict: Some(Shape::Decision),
+            clarify: true,
+            ..Default::default()
+        };
+        let events = Mutex::new(Vec::new());
+        let r = run(&opts, &k, &Settings::default(), &|e| events.lock().unwrap().push(serde_json::to_value(e).unwrap()));
+        std::env::remove_var("ROUNDTABLE_OPENAI_URL");
+        std::env::remove_var("ROUNDTABLE_GLM_URL");
+        std::env::remove_var("ROUNDTABLE_ANTHROPIC_URL");
+        let t = &r.transcript;
+        // The verdict leads; the seat answers sit folded under it.
+        let v = t.find("## \u{1fa91} Verdict (decision)\n\nQUESTIONS FIRST:\n1. What is the workload?").expect(t);
+        let fold = t.find("<details><summary>The seat answers and the rounds (2 seats, 2 rounds)</summary>").expect(t);
+        let r1 = t.find("Round 1").expect(t);
+        assert!(v < fold && fold < r1, "{t}");
+        assert!(t.contains("open=true") && t.contains("DECISION: If reads dominate, Postgres. open=true"), "seats and the verdict read the open questions: {t}");
+        // The chair said CONSENSUS but listed a difference: round 2 ran, and read the chair.
+        assert!(t.contains("Round 2") && t.contains("open=true reading=true"), "{t}");
+        assert_eq!(r.consensus, Some(false));
+        assert!(t.trim_end().ends_with("without full consensus. The chair's last verdict lists the remaining disagreements._"));
+        assert!(t.contains("</details>\n\n---\n_Reached the round cap"));
+        let ev = events.lock().unwrap();
+        let c = ev.iter().find(|e| e["event"] == "clarify").expect("clarify event");
+        assert_eq!(c["questions"][1], "How many users?");
+        let v = ev.iter().find(|e| e["event"] == "verdict").unwrap();
+        assert_eq!(v["next_steps"].as_array().unwrap().len(), 3);
+        assert_eq!(v["would_change"], "Heavy writes.");
+        assert_eq!(v["questions"].as_array().unwrap().len(), 2);
+        assert!(ev.iter().filter(|e| e["event"] == "chair_verdict").all(|e| e["consensus"] == false));
+        // One AI on its own: no gate, no verdict, the old transcript.
+        let solo = AskOptions { heads: parse_heads("openai").0, rounds: 1, verdict: None, ..opts.clone() };
+        std::env::set_var("ROUNDTABLE_OPENAI_URL", format!("{base}/v1/chat/completions"));
+        let r = run(&solo, &k, &Settings::default(), &|_| {});
+        std::env::remove_var("ROUNDTABLE_OPENAI_URL");
+        assert!(r.transcript.contains("open=false") && !r.transcript.contains("<details>") && !r.transcript.contains("Verdict"), "{}", r.transcript);
     }
 
     #[test]

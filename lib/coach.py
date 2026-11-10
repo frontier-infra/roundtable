@@ -13,6 +13,14 @@ Standard library only. core.sh makes the chair calls; this file builds and reads
   coach.py summary-prompt NAME TEXTFILE         the prompt that summarizes one long source
   coach.py attach-share OUTDIR [SUMMARYFILE]    decide full, summary or start; OUTDIR/{shared,out}
   coach.py block DIR...                         the ATTACHMENTS block every seat reads
+  coach.py clarify-prompt QUESTION              the prompt that checks for missing key facts
+  coach.py clarify-questions < REPLY            the open questions (two or three), or nothing
+  coach.py open-section QFILE                   the OPEN QUESTIONS text every seat reads
+  coach.py chair-prompt QUESTION ROUND POSFILE  the chair's prompt after a round
+  coach.py deliberation-prompt BASEFILE PREV POSFILE ROUND CHAIRFILE   a round 2+ prompt
+  coach.py agreed < CHAIR                       exit 0 on true agreement (no listed differences)
+  coach.py verdict-prompt SHAPE QUESTION BRIEFFILE QFILE POSFILE       the verdict prompt
+  coach.py codex-config CONFIG.TOML             the part of a Codex config a seat keeps
 """
 import os, re, subprocess, sys, urllib.request
 
@@ -67,6 +75,139 @@ def parse_questions(reply):
         if len(out) == MAX_QUESTIONS:
             break
     return out
+
+
+MIN_CLARIFY = 2
+
+
+def clarify_prompt(q):
+    """Same text as coach::clarify_prompt in the Rust engine."""
+    return ("You are the CHAIR of an AI council. Before the council answers, check the question for missing key facts.\n\n"
+            "THEIR QUESTION:\n%s\n\n--- YOUR JOB ---\nDoes the right pick flip on facts the person did not give, such as their workload, size, "
+            "budget, deadline, or the rules they must follow? Ask only when it does: most questions have a sound pick under stated assumptions, "
+            "and for those reply with exactly \"NONE\". When it does, ask the two or three questions whose answers would change the pick most, "
+            "one per line, each starting with \"Q: \", each one sentence of at most 20 words.\n" % q.strip())
+
+
+def clarify_questions(reply):
+    qs = parse_questions(reply)
+    return qs if len(qs) >= MIN_CLARIFY else []
+
+
+# ---- Deliberation and the verdict (same text as council.rs and verdict.rs) ----
+
+def chair_prompt(question, rnd, positions):
+    return ("You are the neutral CHAIR of an AI design council. The councilors submitted these round %d positions to this question:\n\n%s\n\n--- POSITIONS ---\n\n%s"
+            "--- YOUR JOB ---\nLine 1 must be EXACTLY one of: \"VERDICT: CONSENSUS\" or \"VERDICT: CONTINUE\". Line 2: \"LEADING PICK: <the option most seats back, in one sentence>\". "
+            "Then give: **AGREED** (bullets) and **REMAINING DISAGREEMENTS** (bullets; name who holds what). Then **DIFFERENCES**: one bullet for each place the seats give "
+            "a different number (a price, cost, size, date or percentage), a different threshold or decision rule, or a different first step, naming who said what; "
+            "write \"- none\" when there are none. CONSENSUS only on true agreement: the same pick, the same numbers and thresholds (within rounding), and the same "
+            "first step. Any bullet under DIFFERENCES means CONTINUE.\n" % (rnd, question, positions))
+
+
+def deliberation_prompt(base, prev, positions, rnd, chair):
+    p = "%s\n\n---\n## COUNCIL DELIBERATION: every councilor's position from round %d:\n\n%s" % (base, prev, positions)
+    if chair.strip():
+        p += "## THE CHAIR'S READING OF ROUND %d\n%s\n\n" % (prev, chair.strip())
+    p += ("## YOUR TASK (round %d)\nYou are ONE councilor. You have now read everyone. First argue against the leading pick: under \"CASE AGAINST:\", "
+          "give the strongest case that it is wrong for this person, in at most three bullets, even if you back it. Then settle every difference in numbers, "
+          "thresholds or first steps: give your figure or step and why. Then update your position. State explicitly: (a) where a peer changed your mind; name them; "
+          "(b) where you still disagree and why; (c) your sharpened current answer, under \"POSITION:\". Begin your reply with \"CASE AGAINST:\".\n" % rnd)
+    return p
+
+
+def is_consensus(chair):
+    first = (chair.splitlines() or [""])[0].lower()
+    i = first.find("verdict:")
+    return i >= 0 and first[i + len("verdict:"):].lstrip().startswith("consensus")
+
+
+def _is_none(s):
+    s = s.strip().strip('."()_*').lower()
+    return s in ("none", "no differences", "nothing")
+
+
+def differences(chair):
+    out, inside = [], False
+    for line in chair.splitlines():
+        t = line.strip().replace("**", "").strip()
+        if t.upper().startswith("DIFFERENCES"):
+            inside = True
+            rest = t[len("DIFFERENCES"):].lstrip(":").strip()
+            if rest and not _is_none(rest):
+                out.append(rest)
+            continue
+        if not inside:
+            continue
+        if t.startswith("- ") or t.startswith("* "):
+            if not _is_none(t[2:]):
+                out.append(t[2:].strip())
+        elif t:
+            inside = False
+    return out
+
+
+def agreed(chair):
+    return is_consensus(chair) and not differences(chair)
+
+
+SHAPE_JOB = {
+    "decision": "Then **WHY** (at most four bullets) and **RISKS** (at most three bullets: what could hurt this person).",
+    "pros-cons": "Then **PROS** (bullets) and **CONS** (bullets) of the pick.",
+    "plan": "Then **PLAN**: the rest of the steps as a numbered list, each step with who and by when.",
+    "vote": "Then **VOTES**: one bullet per seat, \"<seat name>: <the option it backs>\". Then \"RESULT: <option> wins <n> to <m>\", or \"RESULT: tie\".",
+}
+VERDICT_CORE = ("Lead with one decision. Start with exactly these lines:\nDECISION: <the pick, in one sentence>\nCONFIDENCE: <high, medium or low> (<0 to 100>%)\n"
+                "WOULD CHANGE IT: <the fact or event that would change the pick, in one sentence>\nNEXT STEPS:\n1. <the first concrete step, one the person can start today>\n"
+                "2. <the second step>\n3. <the third step>\n")
+VERDICT_CLARIFY = ("Key facts are missing (the OPEN QUESTIONS above), so open with the questions, not the pick. Start with exactly this line, then two or three "
+                   "numbered questions (sharpen the open questions if that helps):\nQUESTIONS FIRST:\n1. <question>\n2. <question>\nThen give the decision lines below. "
+                   "DECISION names the pick that holds under the most likely answers and says how the answers would change it (\"If ..., then ...\").\n")
+
+
+def verdict_prompt(shape, question, brief, open_qs, positions):
+    p = "You are the neutral CHAIR of an AI council. Write the final verdict on this question:\n\n%s\n\n" % question.strip()
+    if brief.strip():
+        p += "THE BRIEF:\n%s\n\n" % brief.strip()
+    if open_qs:
+        p += "OPEN QUESTIONS:\n" + "".join("- %s\n" % q for q in open_qs) + "\n"
+    p += "--- FINAL POSITIONS ---\n\n" + positions + "--- YOUR JOB ---\n"
+    if open_qs:
+        p += VERDICT_CLARIFY
+    p += (VERDICT_CORE + SHAPE_JOB[shape] + "\nUse the seats' own numbers and add no new facts. Keep it short: the person reads this first, and the seat answers sit folded under it.\n"
+          "Then end with exactly these two lines:\nMINORITY VIEW: <the strongest view that differs from the verdict, in one sentence, or \"None\">\n"
+          "HELD BY: <the seats that held it, by their names above, or \"Nobody\">\n")
+    return p
+
+
+def open_questions_section(qs):
+    return "The chair would ask the person these first. They are not answered yet, so say how each answer would change your pick.\n" + "\n".join("- " + q for q in qs)
+
+
+# ---- Seat isolation: the part of a Codex config.toml a seat keeps (same rule as clis.rs) ----
+
+CODEX_KEEP = ("model", "model_provider", "model_reasoning_effort", "model_reasoning_summary", "model_verbosity", "preferred_auth_method",
+              "forced_login_method", "forced_chatgpt_workspace_id", "cli_auth_credentials_store", "openai_base_url", "chatgpt_base_url")
+
+
+def filter_codex_config(text):
+    out, table = [], None
+    for line in text.splitlines():
+        t = line.strip()
+        if t.startswith("["):
+            name = t.lstrip("[").split("]")[0].strip()
+            keep = name == "model_providers" or name.startswith("model_providers.")
+            if keep:
+                out.append(line)
+            table = name if keep else ""
+            continue
+        if table is None:
+            key = t.split("=")[0].strip()
+            if "=" in t and key in CODEX_KEEP:
+                out.append(line)
+        elif table:
+            out.append(line)
+    return "\n".join(out) + "\n"
 
 
 def brief_prompt(q, qa):
@@ -323,6 +464,27 @@ def main(argv):
     elif cmd == "parse-questions":
         qs = parse_questions(sys.stdin.read())
         print("\n".join("Q: " + q for q in qs) if qs else "NONE")
+    elif cmd == "clarify-prompt":
+        sys.stdout.write(clarify_prompt(argv[1]))
+    elif cmd == "clarify-questions":
+        qs = clarify_questions(sys.stdin.read())
+        if qs:
+            print("\n".join(qs))
+    elif cmd == "open-section":
+        qs = [l for l in read(argv[1]).splitlines() if l.strip()]
+        if qs:
+            sys.stdout.write(open_questions_section(qs))
+    elif cmd == "chair-prompt":
+        sys.stdout.write(chair_prompt(argv[1], int(argv[2]), read(argv[3])))
+    elif cmd == "deliberation-prompt":
+        sys.stdout.write(deliberation_prompt(read(argv[1]), int(argv[2]), read(argv[3]), int(argv[4]), read(argv[5]) if os.path.exists(argv[5]) else ""))
+    elif cmd == "agreed":
+        return 0 if agreed(sys.stdin.read()) else 1
+    elif cmd == "verdict-prompt":
+        qs = [l for l in read(argv[4]).splitlines() if l.strip()] if os.path.exists(argv[4]) else []
+        sys.stdout.write(verdict_prompt(argv[1], argv[2], read(argv[3]) if os.path.exists(argv[3]) else "", qs, read(argv[5])))
+    elif cmd == "codex-config":
+        sys.stdout.write(filter_codex_config(read(argv[1]) if os.path.exists(argv[1]) else ""))
     elif cmd == "brief-prompt":
         qa = []
         if len(argv) > 2 and os.path.exists(argv[2]):

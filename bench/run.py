@@ -62,10 +62,11 @@ def ask(rt, question, heads, rounds, timeout):
            "--timeout", str(timeout), "--events", "--no-history"]
     t0 = time.time()
     p = subprocess.run(cmd, capture_output=True, text=True,
-                       timeout=timeout * (rounds * 2 + 2) + 60)
+                       timeout=timeout * (rounds * 3 + 4) + 60)
     out = {"cmd": cmd[:2] + ["-q", "<question>"] + cmd[4:], "exit": p.returncode,
            "secs": round(time.time() - t0, 1), "heads": {}, "chair": {},
-           "transcript": "", "consensus": None, "stderr_tail": p.stderr[-400:]}
+           "transcript": "", "consensus": None, "verdict": "", "clarify": [],
+           "stderr_tail": p.stderr[-400:]}
     for line in p.stdout.splitlines():
         line = line.strip()
         if not line.startswith("{"):
@@ -86,6 +87,10 @@ def ask(rt, question, heads, rounds, timeout):
                 "via": body.get("via"), "message": body.get("message")}
         elif kind == "chairverdict":
             out["chair"][str(body.get("round"))] = body.get("text", "")
+        elif kind == "verdict":
+            out["verdict"] = body.get("text", "")
+        elif kind == "clarify":
+            out["clarify"] = body.get("questions", [])
         elif kind == "rundone":
             out["transcript"] = body.get("transcript", "")
             out["consensus"] = body.get("consensus")
@@ -100,11 +105,17 @@ def answered(rec, rnd):
 
 
 def table_answer(rec):
-    """What a person reads at the end of a Roundtable run: the last round's
-    positions and the chair's last ruling."""
+    """What a person reads at the end of a Roundtable run. With a verdict (every
+    table since rc8): the verdict first, then the last round's seat answers, which
+    the app shows folded under it. Without one: the last round's positions and the
+    chair's last ruling."""
     if not rec["heads"]:
         return rec["transcript"].strip()
     last = max(rec["heads"], key=int)
+    if rec.get("verdict", "").strip():
+        seats = "\n\n".join(f"### Seat: {h}\n{txt.strip()}" for h, txt in answered(rec, last).items())
+        return (f"## Verdict (shown first)\n{rec['verdict'].strip()}\n\n"
+                f"## Seat answers (folded under the verdict; opened only to dig deeper)\n\n{seats}")
     parts = []
     for h, txt in answered(rec, last).items():
         parts.append(f"### Councilor: {h}\n{txt.strip()}")
@@ -237,6 +248,8 @@ def summarize(s, rec):
     last = max(t["heads"], key=int) if t["heads"] else "1"
     row["rounds_used"] = len(t["heads"])
     row["consensus"] = t.get("consensus")
+    row["clarify"] = len(t.get("clarify") or [])
+    row["verdict"] = bool((t.get("verdict") or "").strip())
     row["seated"] = {r: sorted(answered(t, r)) for r in t["heads"]}
     row["failed"] = {r: {h: (v.get("message") or v.get("status")) for h, v in hs.items()
                          if h not in answered(t, r)} for r, hs in t["heads"].items()}
@@ -296,6 +309,32 @@ def report(args, scen, rows, date):
     ws = mean([r["words"]["single"] for r in rows])
     L.append("")
     L.append(f"Mean time: Roundtable {fmt(secs_t)} s, single {fmt(secs_s)} s. Mean words judged: Roundtable {fmt(wt)}, single {fmt(ws)}.")
+    base = getattr(args, "baseline_rows", None)
+    if base:
+        L.append("")
+        L.append(f"## Against the baseline ({args.baseline})")
+        L.append("")
+        bp = {k: sum(r["pref"] == k for r in base) for k in ("table", "single", "tie")}
+        L.append(f"Pairwise preference then: Roundtable {bp['table']}, single AI {bp['single']}, tie {bp['tie']}. Now: Roundtable {w}, single AI {l}, tie {t}.")
+        L.append("")
+        L.append("| Rubric line | Roundtable before | Roundtable now | Change | Single before | Single now |")
+        L.append("|---|---|---|---|---|---|")
+        for k, name, _ in RUBRIC + [("total", "**Total (of 35)**", "")]:
+            a0 = mean([r["rt"][k] for r in base])
+            a1 = mean([r["rt"][k] for r in rows])
+            b0 = mean([r["single"][k] for r in base])
+            b1 = mean([r["single"][k] for r in rows])
+            ch = None if a0 is None or a1 is None else round(a1 - a0, 2)
+            L.append(f"| {name} | {fmt(a0)} | {fmt(a1)} | {fmt(ch)} | {fmt(b0)} | {fmt(b1)} |")
+        L.append("")
+        L.append("| Scenario | Roundtable before | Roundtable now | Single before | Single now | Pick before | Pick now |")
+        L.append("|---|---|---|---|---|---|---|")
+        bb = {r["id"]: r for r in base}
+        for r in rows:
+            o = bb.get(r["id"])
+            if not o:
+                continue
+            L.append(f"| {r['id']} | {fmt(o['rt']['total'])} | {fmt(r['rt']['total'])} | {fmt(o['single']['total'])} | {fmt(r['single']['total'])} | {o['pref']} | {r['pref']} |")
     L.append("")
     L.append("## Per scenario")
     L.append("")
@@ -316,7 +355,8 @@ def report(args, scen, rows, date):
         seated = ", ".join(f"r{k}: {'/'.join(v) or 'none'}" for k, v in sorted(r["seated"].items()))
         failed = "; ".join(f"r{k} {h}: {m}" for k, hs in sorted(r["failed"].items()) for h, m in hs.items())
         cons = {True: "consensus", False: "no consensus", None: "no chair ruling"}[r["consensus"]]
-        L.append(f"- **{r['id']}**: {r['rounds_used']} round(s), {cons}; seated {seated}"
+        clar = f"; opened with {r['clarify']} questions" if r.get("clarify") else ""
+        L.append(f"- **{r['id']}**: {r['rounds_used']} round(s), {cons}{clar}; seated {seated}"
                  + (f"; failed {failed}" if failed else "")
                  + f"; {fmt(r['secs']['table'])} s vs {fmt(r['secs']['single'])} s; votes {', '.join(r['votes']) or 'none'}.")
         for y in r["why"]:
@@ -356,6 +396,8 @@ def main():
     ap.add_argument("--resume", action="store_true", help="reuse saved scenario results for this date")
     ap.add_argument("--report-only", action="store_true", help="rebuild the .md from saved results")
     ap.add_argument("--validate", action="store_true", help="check scenarios.json and the judge prompt, call nothing")
+    ap.add_argument("--baseline", default="", help="a past date whose summary.json the report compares against")
+    ap.add_argument("--tag", default="", help="a suffix for this run's results name (2026-11-10b)")
     args = ap.parse_args()
 
     scen = load_scenarios(args.scenarios)
@@ -372,7 +414,12 @@ def main():
     if args.judge in args.seats.split(","):
         sys.exit("the judge must run on a model that is not one of the seats")
 
-    outdir = os.path.join(HERE, "results", args.date)
+    name = args.date + args.tag
+    outdir = os.path.join(HERE, "results", name)
+    args.baseline_rows = None
+    if args.baseline:
+        with open(os.path.join(HERE, "results", args.baseline, "summary.json")) as f:
+            args.baseline_rows = json.load(f)
     os.makedirs(outdir, exist_ok=True)
     args.build = git_build(args.rt)
     if args.report_only:
@@ -392,8 +439,8 @@ def main():
                 except Exception as e:  # noqa: BLE001
                     log(f"{futs[fu]}: FAILED {e}")
     rows = [summarize(s, recs[s["id"]]) for s in scen if s["id"] in recs]
-    md = report(args, scen, rows, args.date)
-    with open(os.path.join(HERE, "results", f"{args.date}.md"), "w") as f:
+    md = report(args, scen, rows, name)
+    with open(os.path.join(HERE, "results", f"{name}.md"), "w") as f:
         f.write(md)
     with open(os.path.join(outdir, "summary.json"), "w") as f:
         json.dump(rows, f, indent=1)

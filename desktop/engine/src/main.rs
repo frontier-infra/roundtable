@@ -4,7 +4,6 @@
 use roundtable_engine::council::{self, AskOptions, Event, RunResult};
 use roundtable_engine::keys::{self, KeyStore, Keys};
 use roundtable_engine::settings::Settings;
-use roundtable_engine::verdict::Shape;
 use roundtable_engine::{attach, clis, coach, decision, history, mcp, paths, personas, providers, verify, CREDIT_LINE, VERSION};
 use std::io::IsTerminal;
 use serde_json::json;
@@ -52,8 +51,12 @@ Ask flags:
       --coach-answer A  An answer to the coach's next question (repeat, in order)
       --coach-questions Print the coach's questions (Q: lines) and stop
       --brief FILE      A brief the table reads in front of the question
-      --verdict SHAPE   The chair's final verdict: decision, pros-cons, plan or vote.
-                        It always names the minority view and who held it
+      --verdict SHAPE   The chair's final verdict: decision (the default on a table of
+                        two or more), pros-cons, plan, vote, or none. It leads with the
+                        pick, its confidence, what would change it and three next steps,
+                        and names the minority view and who held it
+      --no-clarify      Skip the check for missing key facts (without a brief, the chair
+                        opens with two or three questions when the pick depends on them)
       --no-blind        Round 1 is open: each seat reads the seats before it
       --follow-up X     A follow-up: X is a past run's history id or a transcript file
       --attach SRC      A text file, PDF or link every seat reads (repeat). Long ones
@@ -127,6 +130,7 @@ struct AskArgs {
     coach_questions: bool,
     brief: Option<String>,
     verdict: Option<String>,
+    clarify: bool,
     open_first_round: bool,
     follow_up: Option<String>,
     attach: Vec<String>,
@@ -152,6 +156,7 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
         coach_questions: false,
         brief: None,
         verdict: None,
+        clarify: true,
         open_first_round: false,
         follow_up: None,
         attach: Vec::new(),
@@ -184,6 +189,7 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
             "--coach-questions" => a.coach_questions = true,
             "--brief" => a.brief = Some(val(&mut i)?),
             "--verdict" => a.verdict = Some(val(&mut i)?),
+            "--no-clarify" => a.clarify = false,
             "--no-blind" | "--open-first-round" => a.open_first_round = true,
             "--blind" => a.open_first_round = false,
             "--follow-up" => a.follow_up = Some(val(&mut i)?),
@@ -332,13 +338,6 @@ fn cmd_ask(args: &[String]) -> u8 {
         }
     }
     let attachments = Some(shared.join("\n\n")).filter(|t| !t.trim().is_empty());
-    let verdict = match Shape::parse(a.verdict.as_deref().unwrap_or("")) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("ERROR: {e}");
-            return 2;
-        }
-    };
     let mut spec = a.personas.clone().or_else(|| k.env.get("ROUNDTABLE_PERSONAS").cloned()).unwrap_or_default();
     let lib = personas::Library::load(&settings);
     if spec.trim().eq_ignore_ascii_case("auto") {
@@ -356,6 +355,14 @@ fn cmd_ask(args: &[String]) -> u8 {
             return 2;
         }
     };
+    let table = if seats.is_empty() { heads.len() } else { seats.len() };
+    let verdict = match roundtable_engine::verdict::choose(a.verdict.as_deref(), table) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("ERROR: {e}");
+            return 2;
+        }
+    };
     if a.rounds > council::MAX_ROUNDS {
         eprintln!("NOTE: --rounds is at most {}. Running {}.", council::MAX_ROUNDS, council::MAX_ROUNDS);
     }
@@ -367,6 +374,7 @@ fn cmd_ask(args: &[String]) -> u8 {
         brief,
         open_first_round: a.open_first_round,
         verdict,
+        clarify: a.clarify,
         heads,
         seats,
         rounds: a.rounds.clamp(1, council::MAX_ROUNDS),
@@ -592,10 +600,6 @@ fn cmd_mcp(args: &[String]) -> u8 {
                 if hs.is_empty() {
                     return ("No valid heads selected.".into(), true);
                 }
-                let verdict = match Shape::parse(c.verdict.as_deref().unwrap_or("")) {
-                    Ok(v) => v,
-                    Err(e) => return (e, true),
-                };
                 // The coach: questions first, unless the caller brings the answers.
                 let mut brief = None;
                 if c.coach {
@@ -625,6 +629,10 @@ fn cmd_mcp(args: &[String]) -> u8 {
                     Ok(s) => s,
                     Err(e) => return (e, true),
                 };
+                let verdict = match roundtable_engine::verdict::choose(c.verdict.as_deref(), if seats.is_empty() { hs.len() } else { seats.len() }) {
+                    Ok(v) => v,
+                    Err(e) => return (e, true),
+                };
                 let opts = AskOptions {
                     question: c.question.clone(),
                     heads: hs,
@@ -636,6 +644,7 @@ fn cmd_mcp(args: &[String]) -> u8 {
                     attachments,
                     verdict,
                     open_first_round: c.blind == Some(false),
+                    clarify: true,
                     ..Default::default()
                 };
                 let r = council::run(&opts, &k, &settings, &|_| {});
