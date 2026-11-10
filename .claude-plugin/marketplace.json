@@ -1,14 +1,16 @@
 {
-  "name": "roundtable",
+  "name": "frontier-infra",
   "owner": {
-    "name": "Frontier Infra"
+    "name": "Frontier Infra",
+    "url": "https://frontierinfra.org"
   },
-  "description": "Roundtable — convene a council of frontier AI models for the decisions that matter.",
+  "description": "Frontier Infra plugins for Claude Code.",
   "plugins": [
     {
       "name": "roundtable",
-      "source": "./plugins/roundtable",
-      "description": "Convene a round table of frontier AI models — Grok, Codex/OpenAI, GLM, MiniMax, Claude, and Gemini — for independent perspectives and chaired deliberation to consensus. Drives the globally-installed `roundtable` CLI.",
+      "source": "./",
+      "description": "Ask a council of AI models one question and get one decision back. Bundles the roundtable command, a skill, and an MCP tool.",
+      "version": "0.1.1",
       "homepage": "https://roundtable.sh",
       "license": "MIT",
       "keywords": ["roundtable", "council", "consensus", "multi-model", "deliberation", "ai"]

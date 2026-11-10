@@ -1,0 +1,52 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  install-docs:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v4
+      - name: No bare "pip install roundtable", no brew tap
+        run: scripts/check-install-docs.sh
+
+  build:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Build wheel and sdist, twine check, install and run
+        run: tests/test-build.sh python
+
+  plugin:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v4
+      - name: Plugin manifests parse and point at real files
+        run: |
+          python3 - <<'PY'
+          import json, os
+          m = json.load(open(".claude-plugin/marketplace.json"))
+          p = json.load(open(".claude-plugin/plugin.json"))
+          assert m["name"] == "frontier-infra", m["name"]
+          assert [x["name"] for x in m["plugins"]] == ["roundtable"]
+          assert p["name"] == "roundtable"
+          for f in ["bin/roundtable", "lib/mcp.py", "skills/roundtable/SKILL.md",
+                    "commands/ask.md", "commands/setup.md"]:
+              assert os.path.exists(f), f
+          print("plugin manifests ok")
+          PY
+      - name: MCP server self-test
+        run: bin/roundtable mcp --selftest

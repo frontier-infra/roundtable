@@ -32,7 +32,7 @@ import subprocess
 import sys
 
 SERVER_NAME = "roundtable"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.1.1"
 
 # Latest protocol revision we author against. We echo the client's requested version
 # when it is one we recognize (per spec version-negotiation), else advertise this one.

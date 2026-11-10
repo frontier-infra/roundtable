@@ -88,6 +88,9 @@ case "$cmd" in
   ""|-h|--help|help)
     usage; exit 0 ;;
 
+  -V|--version)
+    exec bash "$LIBDIR/config.sh" version ;;
+
   auth|models|heads|doctor|config|version|update)
     if [ ! -f "$LIBDIR/config.sh" ]; then
       echo "roundtable: $LIBDIR/config.sh is missing" >&2; exit 1
