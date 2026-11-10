@@ -385,6 +385,78 @@ pub async fn claude_disconnect() -> Result<Value, String> {
     .await?
 }
 
+// ---- The question coach, suggested seats, files and links ----
+
+/// The coach's clarifying questions (at most three). Runs the chair's seat once.
+#[tauri::command]
+pub async fn coach_questions(question: String) -> Result<Value, String> {
+    blocking(move || engine_json(&["coach", "questions", "--json", "-q", &question])).await?
+}
+
+/// The brief from the question and the answers. `qa` is `[{q, a}]`.
+#[tauri::command]
+pub async fn coach_brief(question: String, qa: Vec<Value>) -> Result<Value, String> {
+    blocking(move || {
+        let mut c = engine_cmd(&["coach", "brief", "--json"])?;
+        c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+        let mut child = c.spawn().map_err(|e| e.to_string())?;
+        if let Some(mut i) = child.stdin.take() {
+            let _ = i.write_all(json!({"question": question, "qa": qa}).to_string().as_bytes());
+        }
+        let o = child.wait_with_output().map_err(|e| e.to_string())?;
+        serde_json::from_slice::<Value>(&o.stdout).map_err(|_| "The engine gave an unexpected answer.".to_string())
+    })
+    .await?
+}
+
+/// Seats suggested for a question and its brief, placed on these AIs.
+#[tauri::command]
+pub async fn suggest_panel(question: String, brief: Option<String>, heads: Vec<String>) -> Result<Value, String> {
+    blocking(move || {
+        let csv = heads.join(",");
+        let mut args: Vec<&str> = vec!["suggest", "--json", "-q", &question];
+        if !csv.is_empty() {
+            args.extend(["--heads", &csv]);
+        }
+        let bf = match brief.filter(|b| !b.trim().is_empty()) {
+            Some(b) => Some(tmp_file("suggest-brief.md", &b)?),
+            None => None,
+        };
+        if let Some(p) = bf.as_deref() {
+            args.extend(["--brief", p]);
+        }
+        engine_json(&args)
+    })
+    .await?
+}
+
+/// Read a file or link once, as every seat will read it: whole, or summarized once.
+#[tauri::command]
+pub async fn attach_prepare(source: String) -> Result<Value, String> {
+    blocking(move || engine_json(&["attach", "--json", &source])).await?
+}
+
+/// Write text the engine reads for one run into the app's tmp folder.
+fn tmp_file(name: &str, text: &str) -> Result<String, String> {
+    let dir = paths::data_dir().join("tmp");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let p = dir.join(name);
+    std::fs::write(&p, text).map_err(|e| e.to_string())?;
+    Ok(p.to_string_lossy().into_owned())
+}
+
+/// The run's extra text, as engine flags: the brief, earlier turns and shared material.
+fn extra_args(prefix: &str, brief: Option<String>, prior: Option<String>, attached: Option<String>) -> Result<Vec<String>, String> {
+    let mut v = Vec::new();
+    for (flag, name, text) in [("--brief", "brief", brief), ("--follow-up", "prior", prior), ("--attached", "attached", attached)] {
+        if let Some(t) = text.filter(|t| !t.trim().is_empty()) {
+            v.push(flag.to_string());
+            v.push(tmp_file(&format!("{prefix}{name}.md"), &t)?);
+        }
+    }
+    Ok(v)
+}
+
 // ---- Asking ----
 
 #[derive(Clone, Serialize)]
@@ -406,6 +478,11 @@ pub fn ask_start(
     context_path: Option<String>,
     context_text: Option<String>,
     personas: Option<String>,
+    brief: Option<String>,
+    verdict: Option<String>,
+    open_first_round: Option<bool>,
+    prior: Option<String>,
+    attached: Option<String>,
 ) -> Result<u64, String> {
     if question.trim().is_empty() {
         return Err("Type a question first.".into());
@@ -427,6 +504,15 @@ pub fn ask_start(
     if research {
         args.push("--research");
     }
+    let shape = verdict.unwrap_or_default();
+    if !shape.trim().is_empty() {
+        args.extend(["--verdict", &shape]);
+    }
+    if open_first_round == Some(true) {
+        args.push("--no-blind");
+    }
+    let extra = extra_args("", brief, prior, attached)?;
+    args.extend(extra.iter().map(String::as_str));
     // A follow-up passes the last transcript as text; the engine reads background from a file.
     let followup = match context_text.filter(|t| !t.trim().is_empty()) {
         Some(t) => {
@@ -478,6 +564,9 @@ pub fn ask_retry(
     context_path: Option<String>,
     seat: Option<String>,
     persona: Option<String>,
+    brief: Option<String>,
+    prior: Option<String>,
+    attached: Option<String>,
 ) -> Result<(), String> {
     if question.trim().is_empty() {
         return Err("Type a question first.".into());
@@ -498,6 +587,8 @@ pub fn ask_retry(
     if let Some(c) = ctx.as_deref() {
         args.extend(["-c", c]);
     }
+    let extra = extra_args(&format!("retry-{run}-{}-", seat.replace(['@', '#', '/', '\\'], "_")), brief, prior, attached)?;
+    args.extend(extra.iter().map(String::as_str));
     args.extend(["-q", &question]);
     let mut cmd = engine_cmd(&args)?;
     cmd.stdout(Stdio::piped()).stderr(Stdio::null()).stdin(Stdio::null());

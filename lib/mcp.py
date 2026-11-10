@@ -94,6 +94,37 @@ TOOL = {
                     "support it (longer per-head timeout). Defaults to false."
                 ),
             },
+            "coach": {
+                "type": "boolean",
+                "description": (
+                    "Optional. The question coach: one AI (the chair's seat) asks at most three clarifying questions, then writes a brief (goal, context, constraints, what a good answer looks like) that the table reads. Without coach_answers, the tool returns the questions; ask the person, then call again with the same question, coach true, and coach_answers."
+                ),
+            },
+            "coach_answers": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional. The answers to the coach's questions, in order.",
+            },
+            "verdict": {
+                "type": "string",
+                "enum": ["decision", "pros-cons", "plan", "vote"],
+                "description": (
+                    "Optional. The chair's final verdict shape: a decision with confidence, pros and cons, an action plan, or a vote. Every verdict names the minority view and who held it."
+                ),
+            },
+            "blind": {
+                "type": "boolean",
+                "description": (
+                    "Optional. Round 1 is blind (true, the default): seats answer without seeing each other. false lets each seat in round 1 read the seats before it."
+                ),
+            },
+            "attach": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Optional. Paths of text or PDF files, or http(s) links, that every seat reads. Each is read once; a long one is summarized once and the summary shared."
+                ),
+            },
         },
         "required": ["question"],
         "additionalProperties": False,
@@ -135,12 +166,58 @@ def _engine_timeout(rounds, research):
     return per_round * max(1, int(rounds or 1)) + 120
 
 
-def run_engine(question, heads=None, rounds=None, research=False, personas=None):
+def _strings(v):
+    if isinstance(v, list):
+        return [str(x).strip() for x in v if isinstance(x, str)]
+    if isinstance(v, str) and v.strip():
+        return [v.strip()]
+    return []
+
+
+def coach_reply(questions):
+    s = ("The coach has questions before the table meets. Ask the person (or answer from what you already know), "
+         "then call roundtable again with the same question, coach: true, and coach_answers in this order:\n")
+    for i, q in enumerate(questions):
+        s += "\n%d. %s" % (i + 1, q)
+    return s
+
+
+def coach_questions(question):
+    """The coach's questions, [] when it has none, or None when it did not answer."""
+    try:
+        proc = subprocess.run(["bash", CORE_SH, "--coach-questions", "-q", question], stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True, timeout=240)
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    return [l[3:].strip() for l in (proc.stdout or "").splitlines() if l.startswith("Q: ")]
+
+
+def run_engine(question, heads=None, rounds=None, research=False, personas=None,
+               coach=False, coach_answers=None, verdict=None, blind=None, attach=None):
     """Subprocess core.sh and return (transcript_text, is_error)."""
     if not os.path.exists(CORE_SH):
         return ("Roundtable engine not found at %s — is the install complete?" % CORE_SH, True)
 
     cmd = ["bash", CORE_SH, "-q", question]
+    if coach:
+        answers = [a for a in (coach_answers or [])]
+        if answers:
+            for a in answers:
+                cmd += ["--coach-answer", a]
+        else:
+            qs = coach_questions(question)
+            if qs:
+                return (coach_reply(qs), False)
+            if qs is not None:
+                cmd += ["--coach"]
+    if verdict:
+        cmd += ["--verdict", str(verdict)]
+    if blind is False:
+        cmd += ["--no-blind"]
+    for a in attach or []:
+        cmd += ["--attach", a]
     if heads:
         cmd += ["--heads", str(heads)]
     if rounds is not None:
@@ -156,7 +233,7 @@ def run_engine(question, heads=None, rounds=None, research=False, personas=None)
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
-            timeout=_engine_timeout(rounds, research),
+            timeout=_engine_timeout(rounds, research) + (600 if coach or attach else 0) + (240 if verdict else 0),
         )
     except subprocess.TimeoutExpired:
         return ("Roundtable timed out while convening the council.", True)
@@ -220,6 +297,11 @@ def handle_tools_call(req_id, params):
         rounds=rounds,
         research=bool(args.get("research", False)),
         personas=args.get("personas") or None,
+        coach=bool(args.get("coach", False)),
+        coach_answers=_strings(args.get("coach_answers")),
+        verdict=args.get("verdict") or None,
+        blind=args.get("blind") if isinstance(args.get("blind"), bool) else None,
+        attach=_strings(args.get("attach")),
     )
     _result(req_id, {"content": [{"type": "text", "text": text}], "isError": is_error})
 

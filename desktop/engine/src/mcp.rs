@@ -18,7 +18,12 @@ pub fn tool() -> Value {
                 "heads": {"type": "string", "description": "Optional comma-separated subset of heads to convene (any of: grok,codex,openai,glm,minimax,claude,gemini). Defaults to all configured heads."},
                 "rounds": {"type": "integer", "description": "Optional number of rounds, 1 to 4. 1 (default) = advisory (blind, independent answers); 2 to 4 = the seats read each other and revise toward consensus, and a Claude chair gives the verdict, stopping early when they agree.", "minimum": 1, "maximum": 4},
                 "personas": {"type": "string", "description": "Optional seat roles. A preset (security-review, go-to-market, hiring-decision, pricing, architecture-review, exec-team, board-review, frontier-four), a pack (business-roles, frontier-labs), or a comma list of persona ids or names, each optionally ending in @<head> (cfo,ceo@claude). 'generic' or empty = plain seats. Lab seats are simulated perspectives drawn from public positions, not affiliated with or endorsed by the lab."},
-                "research": {"type": "boolean", "description": "Optional. Enable web research / deeper reasoning for heads that support it (longer per-head timeout). Defaults to false."}
+                "research": {"type": "boolean", "description": "Optional. Enable web research / deeper reasoning for heads that support it (longer per-head timeout). Defaults to false."},
+                "coach": {"type": "boolean", "description": "Optional. The question coach: one AI (the chair's seat) asks at most three clarifying questions, then writes a brief (goal, context, constraints, what a good answer looks like) that the table reads. Without coach_answers, the tool returns the questions; ask the person, then call again with the same question, coach true, and coach_answers."},
+                "coach_answers": {"type": "array", "items": {"type": "string"}, "description": "Optional. The answers to the coach's questions, in order."},
+                "verdict": {"type": "string", "enum": ["decision", "pros-cons", "plan", "vote"], "description": "Optional. The chair's final verdict shape: a decision with confidence, pros and cons, an action plan, or a vote. Every verdict names the minority view and who held it."},
+                "blind": {"type": "boolean", "description": "Optional. Round 1 is blind (true, the default): seats answer without seeing each other. false lets each seat in round 1 read the seats before it."},
+                "attach": {"type": "array", "items": {"type": "string"}, "description": "Optional. Paths of text or PDF files, or http(s) links, that every seat reads. Each is read once; a long one is summarized once and the summary shared."}
             },
             "required": ["question"],
             "additionalProperties": false
@@ -26,8 +31,41 @@ pub fn tool() -> Value {
     })
 }
 
-/// One tool call: (question, heads, rounds, research, personas) -> (text, is_error).
-pub type Runner<'a> = dyn Fn(&str, Option<&str>, Option<u32>, bool, Option<&str>) -> (String, bool) + 'a;
+/// One tool call's arguments.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Call {
+    pub question: String,
+    pub heads: Option<String>,
+    pub rounds: Option<u32>,
+    pub research: bool,
+    pub personas: Option<String>,
+    pub coach: bool,
+    pub coach_answers: Vec<String>,
+    pub verdict: Option<String>,
+    /// None: the default (blind).
+    pub blind: Option<bool>,
+    pub attach: Vec<String>,
+}
+
+/// One tool call -> (text, is_error).
+pub type Runner<'a> = dyn Fn(&Call) -> (String, bool) + 'a;
+
+/// What the tool returns when the coach has questions and no answers came with the call.
+pub fn coach_reply(questions: &[String]) -> String {
+    let mut s = String::from("The coach has questions before the table meets. Ask the person (or answer from what you already know), then call roundtable again with the same question, coach: true, and coach_answers in this order:\n");
+    for (i, q) in questions.iter().enumerate() {
+        s.push_str(&format!("\n{}. {q}", i + 1));
+    }
+    s
+}
+
+fn strings(v: Option<&Value>) -> Vec<String> {
+    match v {
+        Some(Value::Array(a)) => a.iter().filter_map(|x| x.as_str()).map(|x| x.trim().to_string()).collect(),
+        Some(Value::String(s)) if !s.trim().is_empty() => vec![s.trim().to_string()],
+        _ => Vec::new(),
+    }
+}
 
 fn ok(id: &Value, result: Value) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "result": result})
@@ -79,10 +117,20 @@ pub fn dispatch(msg: &Value, run: &Runner) -> Option<Value> {
                     None => return Some(err(&id, -32602, "'rounds' must be an integer")),
                 },
             };
-            let heads = args.get("heads").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
-            let research = args.get("research").and_then(|v| v.as_bool()).unwrap_or(false);
-            let personas = args.get("personas").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
-            let (text, is_error) = run(&q, heads, rounds, research, personas);
+            let text_arg = |k: &str| args.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+            let call = Call {
+                question: q,
+                heads: text_arg("heads"),
+                rounds,
+                research: args.get("research").and_then(|v| v.as_bool()).unwrap_or(false),
+                personas: text_arg("personas"),
+                coach: args.get("coach").and_then(|v| v.as_bool()).unwrap_or(false),
+                coach_answers: strings(args.get("coach_answers")),
+                verdict: text_arg("verdict"),
+                blind: args.get("blind").and_then(|v| v.as_bool()),
+                attach: strings(args.get("attach")),
+            };
+            let (text, is_error) = run(&call);
             ok(&id, json!({"content": [{"type": "text", "text": text}], "isError": is_error}))
         }
         other => err(&id, -32601, &format!("Method not found: {other}")),
@@ -143,7 +191,8 @@ pub fn selftest_check(stdout: &str) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    fn fake(q: &str, h: Option<&str>, r: Option<u32>, res: bool, p: Option<&str>) -> (String, bool) {
+    fn fake(c: &Call) -> (String, bool) {
+        let (q, h, r, res, p) = (&c.question, c.heads.as_deref(), c.rounds, c.research, c.personas.as_deref());
         (format!("q={q} h={h:?} r={r:?} res={res} p={p:?}"), false)
     }
 
@@ -159,7 +208,7 @@ mod tests {
         let t = tool();
         assert_eq!(t["inputSchema"]["required"], json!(["question"]));
         let props: Vec<_> = t["inputSchema"]["properties"].as_object().unwrap().keys().cloned().collect();
-        assert_eq!(props, vec!["question", "heads", "rounds", "personas", "research"]);
+        assert_eq!(props, vec!["question", "heads", "rounds", "personas", "research", "coach", "coach_answers", "verdict", "blind", "attach"]);
     }
 
     #[test]
@@ -170,6 +219,24 @@ mod tests {
         let m = json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"roundtable","arguments":{"question":"Hi","rounds":9}}});
         assert!(dispatch(&m, &fake).unwrap()["result"]["content"][0]["text"].as_str().unwrap().contains("r=Some(4)"));
         assert_eq!(r["result"]["isError"], false);
+    }
+
+    #[test]
+    fn call_passes_the_new_arguments() {
+        let got = std::sync::Mutex::new(Call::default());
+        let run = |c: &Call| {
+            *got.lock().unwrap() = c.clone();
+            (String::new(), false)
+        };
+        let m = json!({"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"roundtable","arguments":{"question":"Hi","coach":true,"coach_answers":["a1","a2"],"verdict":"vote","blind":false,"attach":"/tmp/x.md"}}});
+        dispatch(&m, &run).unwrap();
+        let c = got.lock().unwrap().clone();
+        assert!(c.coach);
+        assert_eq!(c.coach_answers, vec!["a1", "a2"]);
+        assert_eq!(c.verdict.as_deref(), Some("vote"));
+        assert_eq!(c.blind, Some(false));
+        assert_eq!(c.attach, vec!["/tmp/x.md"]);
+        assert!(coach_reply(&["Budget?".into()]).ends_with("\n\n1. Budget?"));
     }
 
     #[test]

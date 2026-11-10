@@ -106,13 +106,18 @@ roundtable "Should we use Postgres or SQLite for this service?"     # shorthand
 roundtable ask -q "..." --heads grok,claude,gemini                  # subset of heads
 roundtable ask -q "..." --rounds 3                                  # deliberate to consensus (1 to 4)
 roundtable ask -q "..." --personas pricing                          # seat roles: preset, pack or names
+roundtable ask -q "..." --coach --verdict decision                 # sharpen the question; a verdict with the minority view
+roundtable ask -q "..." --attach ./plan.pdf --attach https://...   # material every seat reads (summarized once if long)
+roundtable ask -q "..." --follow-up /tmp/rt.md                     # a follow-up that reads the earlier transcript
 roundtable ask -q "..." -c ./context.md                            # shared background for every head
 roundtable ask -q "..." --research                                 # web on
 roundtable ask -q "..." --out /tmp/rt.md                           # also save the transcript
 ```
 
 Flags: `-q/--question`, `-c/--context <file>`, `--heads ...`, `--rounds N` (1 to 4), `--personas SPEC`, `--research`,
-`--timeout <secs>`, `--out <file>`. Exit 0 if ≥1 head answered.
+`--timeout <secs>`, `--out <file>`, `--coach`, `--coach-answer A`, `--coach-questions`, `--brief FILE`,
+`--verdict decision|pros-cons|plan|vote`, `--no-blind`, `--attach SRC`, `--follow-up FILE`, `--personas auto`.
+Exit 0 if ≥1 head answered.
 
 **Output discipline:** always return the per-head results table **and** the judge's
 decision (chair verdict + your own moderator call). Never summarize without the table.
@@ -122,7 +127,7 @@ decision (chair verdict + your own moderator call). Never summarize without the 
 Roundtable ships an MCP server as a subcommand of the one binary:
 
 ```bash
-roundtable mcp serve     # stdio JSON-RPC; one tool: roundtable(question, heads?, rounds?, personas?, research?)
+roundtable mcp serve     # stdio JSON-RPC; one tool: roundtable(question, heads?, rounds?, personas?, research?, coach?, coach_answers?, verdict?, blind?, attach?)
 roundtable mcp config    # prints the server JSON block to paste manually
 ```
 

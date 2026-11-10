@@ -28,6 +28,15 @@
 #   core.sh -q "..." --research                      # web ON + multi-step (current/external facts)
 #   core.sh -q "..." --out /tmp/rt.md                # also save the transcript
 #   core.sh -q "..." --personas pricing              # seat a panel of roles on the AIs
+#   core.sh -q "..." --coach                         # the coach asks up to 3 questions, then writes a brief
+#   core.sh -q "..." --verdict decision              # final verdict: decision|pros-cons|plan|vote (+ minority view)
+#   core.sh -q "..." --no-blind                      # round 1 open: each seat reads the seats before it
+#   core.sh -q "..." --attach notes.pdf --attach URL # material every seat reads (long ones summarized once)
+#   core.sh -q "..." --follow-up last.md             # a follow-up: the earlier transcript comes first
+#
+# MORE FLAGS: --brief FILE (a ready brief) · --coach-answer A (repeat, in order) · --coach-questions
+#             (print the coach's questions and stop) · --attached FILE (material from `roundtable attach`) ·
+#             --personas auto (suggest seats from the question or brief)
 #
 # ENV OVERRIDES: ROUNDTABLE_{GROK,OPENAI,GLM,MINIMAX,GEMINI,CLAUDE,CHAIR}_MODEL ·
 #                ROUNDTABLE_{GROK_XAI,OPENAI,GLM,MINIMAX,GEMINI}_URL
@@ -42,6 +51,15 @@ CONTEXT_FILE=""
 OUT_FILE=""
 QUESTION=""
 PERSONAS="${ROUNDTABLE_PERSONAS:-}"
+COACH=0
+COACH_QUESTIONS=0
+declare -a COACH_ANSWERS ATTACH_SRCS
+COACH_ANSWERS=(); ATTACH_SRCS=()
+BRIEF_FILE=""
+VERDICT=""
+OPEN_FIRST=0
+FOLLOW_UP=""
+ATTACHED_FILE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -53,6 +71,16 @@ while [[ $# -gt 0 ]]; do
     --timeout)     TIMEOUT="$2"; shift 2 ;;
     --research)    RESEARCH=1; shift ;;
     --out)         OUT_FILE="$2"; shift 2 ;;
+    --coach)       COACH=1; shift ;;
+    --coach-answer) COACH=1; COACH_ANSWERS+=("$2"); shift 2 ;;
+    --coach-questions) COACH_QUESTIONS=1; shift ;;
+    --brief)       BRIEF_FILE="$2"; shift 2 ;;
+    --verdict)     VERDICT="$2"; shift 2 ;;
+    --no-blind|--open-first-round) OPEN_FIRST=1; shift ;;
+    --blind)       OPEN_FIRST=0; shift ;;
+    --follow-up)   FOLLOW_UP="$2"; shift 2 ;;
+    --attach)      ATTACH_SRCS+=("$2"); shift 2 ;;
+    --attached)    ATTACHED_FILE="$2"; shift 2 ;;
     -h|--help)     grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)             QUESTION="${QUESTION:+$QUESTION }$1"; shift ;;
   esac
@@ -63,11 +91,14 @@ done
 [[ "$ROUNDS" =~ ^[0-9]+$ ]] || { echo "ERROR: --rounds needs a number" >&2; exit 2; }
 [[ "$ROUNDS" -lt 1 ]] && ROUNDS=1
 [[ "$ROUNDS" -gt 4 ]] && { echo "NOTE: --rounds is at most 4. Running 4." >&2; ROUNDS=4; }
-
-BASE_PROMPT="$QUESTION"
-if [[ -n "$CONTEXT_FILE" && -f "$CONTEXT_FILE" ]]; then
-  BASE_PROMPT="$(printf '## CONTEXT\n%s\n\n## QUESTION\n%s' "$(cat "$CONTEXT_FILE")" "$QUESTION")"
-fi
+case "$(printf '%s' "$VERDICT" | tr '[:upper:]' '[:lower:]')" in
+  ""|none|off) VERDICT="" ;;
+  decision) VERDICT="decision" ;;
+  pros-cons|pros_cons|proscons|pros) VERDICT="pros-cons" ;;
+  plan|action-plan|action) VERDICT="plan" ;;
+  vote) VERDICT="vote" ;;
+  *) echo "ERROR: Unknown verdict '$VERDICT'. Use decision, pros-cons, plan or vote." >&2; exit 2 ;;
+esac
 
 TIMEOUT_BIN=""
 command -v gtimeout >/dev/null 2>&1 && TIMEOUT_BIN="gtimeout"
@@ -260,7 +291,7 @@ import os,sys,json
 p=open(sys.argv[1]).read()
 print(json.dumps({"model":os.environ["MODEL"],"max_tokens":8000,"messages":[{"role":"user","content":p}]}))
 PY
-  run_to "$TIMEOUT" curl -sS https://api.anthropic.com/v1/messages \
+  run_to "$TIMEOUT" curl -sS "${ROUNDTABLE_ANTHROPIC_URL:-https://api.anthropic.com/v1/messages}" \
     -H "x-api-key: $ak" -H "anthropic-version: 2023-06-01" -H "content-type: application/json" \
     --data @"$body" >"$resp" 2>/dev/null
   python3 -c "import sys,json
@@ -297,6 +328,96 @@ run_claude() {
   if [[ -n "$got" ]]; then printf '%s' "$got" >"$out"; else echo "__EMPTY__ (claude api — check ANTHROPIC_API_KEY)" >"$out"; fi
 }
 
+# ── COACH, FOLLOW-UP, ATTACHMENTS, BRIEF (lib/coach.py builds the text; the chair answers) ──
+COACH_PY="$(dirname "$0")/coach.py"
+# chair_say <promptfile>: the chair's answer, or nothing.
+chair_say() { local t; t="$TIMEOUT"; TIMEOUT=180; anthropic_call "$CHAIR_MODEL" "$1"; TIMEOUT="$t"; }
+
+if [[ "$COACH_QUESTIONS" -eq 1 ]]; then
+  python3 "$COACH_PY" questions-prompt "$QUESTION" > "$WORK/coach.prompt"
+  _r="$(chair_say "$WORK/coach.prompt")"
+  [[ -z "$_r" ]] && { echo "ERROR: The coach did not answer. Connect Claude, or skip the coach." >&2; exit 1; }
+  printf '%s' "$_r" | python3 "$COACH_PY" parse-questions
+  exit 0
+fi
+
+BRIEF=""
+if [[ -n "$BRIEF_FILE" ]]; then
+  [[ -f "$BRIEF_FILE" ]] || { echo "ERROR: could not read the brief file: $BRIEF_FILE" >&2; exit 2; }
+  BRIEF="$(python3 -c 'import sys; print(open(sys.argv[1], encoding="utf-8").read().strip(), end="")' "$BRIEF_FILE")"
+fi
+if [[ "$COACH" -eq 1 && -z "$BRIEF" ]]; then
+  python3 "$COACH_PY" questions-prompt "$QUESTION" > "$WORK/coach.prompt"
+  _r="$(chair_say "$WORK/coach.prompt")"
+  if [[ -z "$_r" ]]; then
+    echo "NOTE: The coach did not answer. Connect Claude, or skip the coach. Asking the question as typed." >&2
+  else
+    _tty=0; [[ -t 0 && -t 2 ]] && _tty=1
+    : > "$WORK/coach.qa"; _i=0
+    while IFS= read -r _q; do
+      [[ "$_q" == "NONE" || -z "$_q" ]] && continue
+      _q="${_q#Q: }"
+      if [[ $_i -lt ${#COACH_ANSWERS[@]} ]]; then _a="${COACH_ANSWERS[$_i]}"
+      elif [[ $_tty -eq 1 ]]; then printf 'Coach: %s\n> ' "$_q" >&2; IFS= read -r _a </dev/tty || _a=""
+      else _a=""; fi
+      printf '%s\t%s\n' "$_q" "$(printf '%s' "$_a" | tr '\t\n' '  ')" >> "$WORK/coach.qa"
+      _i=$((_i+1))
+    done < <(printf '%s' "$_r" | python3 "$COACH_PY" parse-questions)
+    python3 "$COACH_PY" brief-prompt "$QUESTION" "$WORK/coach.qa" > "$WORK/brief.prompt"
+    _r="$(chair_say "$WORK/brief.prompt")"
+    if [[ -z "$_r" ]]; then
+      echo "NOTE: The coach did not answer. Connect Claude, or skip the coach. Asking the question as typed." >&2
+    else
+      BRIEF="$(printf '%s' "$_r" | python3 "$COACH_PY" parse-brief "$QUESTION")"
+      if [[ $_tty -eq 1 ]]; then
+        printf '\nThe brief the table will read:\n%s\n\nPress Enter to use it, or type s and Enter to skip it: ' "$BRIEF" >&2
+        IFS= read -r _a </dev/tty || _a=""
+        [[ "$_a" == "s" || "$_a" == "S" ]] && BRIEF=""
+      fi
+    fi
+  fi
+fi
+
+PRIOR=""
+if [[ -n "$FOLLOW_UP" ]]; then
+  [[ -f "$FOLLOW_UP" ]] || { echo "ERROR: could not read the follow-up file: $FOLLOW_UP" >&2; exit 2; }
+  PRIOR="$(cat "$FOLLOW_UP")"
+fi
+
+ATTACHMENTS=""
+if [[ -n "$ATTACHED_FILE" ]]; then
+  [[ -f "$ATTACHED_FILE" ]] || { echo "ERROR: could not read the attached file: $ATTACHED_FILE" >&2; exit 2; }
+  ATTACHMENTS="$(python3 -c 'import sys; print(open(sys.argv[1], encoding="utf-8").read().strip(), end="")' "$ATTACHED_FILE")"
+fi
+if [[ ${#ATTACH_SRCS[@]} -gt 0 ]]; then
+  _dirs=(); _n=0
+  for _src in "${ATTACH_SRCS[@]}"; do
+    [[ -z "${_src// /}" ]] && continue
+    _d="$WORK/att$_n"; mkdir -p "$_d"; _n=$((_n+1))
+    _len="$(python3 "$COACH_PY" attach-read "$_src" "$_d")" || exit 2
+    if [[ "$_len" == "long" ]]; then
+      python3 "$COACH_PY" summary-prompt "$(cat "$_d/name")" "$_d/text" > "$_d/summary.prompt"
+      chair_say "$_d/summary.prompt" > "$_d/summary"
+    fi
+    python3 "$COACH_PY" attach-share "$_d" "$_d/summary" || exit 2
+    _dirs+=("$_d")
+  done
+  if [[ ${#_dirs[@]} -gt 0 ]]; then
+    _blk="$(python3 "$COACH_PY" block "${_dirs[@]}")"
+    if [[ -n "$ATTACHMENTS" ]]; then ATTACHMENTS="$ATTACHMENTS"$'\n\n'"$_blk"; else ATTACHMENTS="$_blk"; fi
+  fi
+fi
+
+# The shared prompt: earlier turns, background, attachments and the brief, then the question.
+_ctx=""; [[ -n "$CONTEXT_FILE" && -f "$CONTEXT_FILE" ]] && _ctx="$(cat "$CONTEXT_FILE")"
+BASE_PROMPT=""
+_part() { [[ -z "${2//[[:space:]]/}" ]] && return; [[ -n "$BASE_PROMPT" ]] && BASE_PROMPT+=$'\n\n'; BASE_PROMPT+="## $1"$'\n'"$2"; }
+_part "EARLIER IN THIS SESSION" "$PRIOR"
+_part "CONTEXT" "$_ctx"
+_part "ATTACHMENTS" "$ATTACHMENTS"
+_part "BRIEF" "$BRIEF"
+if [[ -n "$BASE_PROMPT" ]]; then BASE_PROMPT+=$'\n\n'"## QUESTION"$'\n'"$QUESTION"; else BASE_PROMPT="$QUESTION"; fi
+
 declare -a HARR ACTIVE
 IFS=',' read -ra HARR <<< "$HEADS"
 ACTIVE=()
@@ -312,6 +433,16 @@ declare -a SEAT_HEAD SEAT_NAME SEAT_DISC
 SEAT_HEAD=(); SEAT_NAME=(); SEAT_DISC=()
 PERSONA_SEATS=0
 _p="$(printf '%s' "$PERSONAS" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+if [[ "$_p" == "auto" ]]; then
+  _text="${BRIEF:-$QUESTION}"
+  _reply=""
+  if [[ "$(printf '%s' "${ROUNDTABLE_SUGGEST:-}" | tr '[:upper:]' '[:lower:]')" != "words" ]]; then
+    python3 "$COACH_PY" suggest-prompt "$_text" > "$WORK/suggest.prompt"
+    _reply="$(chair_say "$WORK/suggest.prompt")"
+  fi
+  PERSONAS="$(printf '%s' "$_reply" | python3 "$COACH_PY" suggest-pick "$_text")"
+  _p="$(printf '%s' "$PERSONAS" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+fi
 if [[ -n "$_p" && "$_p" != "generic" ]]; then
   _csv="$(IFS=','; echo "${ACTIVE[*]}")"
   python3 "$(dirname "$0")/personas.py" seats "$PERSONAS" "$_csv" "$WORK" || exit 2
@@ -344,6 +475,53 @@ run_all_seats() {
 }
 ROUND_PFILE="$PFILE"
 
+# answered <file>: true when the file holds a real answer (not a skip, timeout or empty sentinel).
+answered() { [[ -s "$1" ]] && ! grep -q '^__\(MISSING\|TIMEOUT\|EMPTY\)__' <(head -c 12 "$1"); }
+
+# --no-blind: round 1 runs seat by seat; each seat also reads the answers before it.
+run_open_seats() {
+  local i j
+  for ((i=0; i<NSEATS; i++)); do
+    mkdir -p "$WORK/s$i"
+    { [[ -f "$WORK/brief.$i" ]] && cat "$WORK/brief.$i"
+      cat "$ROUND_PFILE"
+      _seen=0
+      for ((j=0; j<i; j++)); do
+        answered "$WORK/s$j/${SEAT_HEAD[$j]}.out" || continue
+        if [[ $_seen -eq 0 ]]; then printf '\n\n---\n## ANSWERS SO FAR (round 1 is open): the seats that answered before you:\n\n'; _seen=1; fi
+        printf '### %s\n%s\n\n' "$(seat_label "$j")" "$(cat "$WORK/s$j/${SEAT_HEAD[$j]}.out")"
+      done
+      [[ $_seen -eq 1 ]] && printf '## YOUR TASK\nGive your own answer. You may build on these answers or disagree with them; say which.\n'
+    } > "$WORK/s$i/round.prompt"
+    ( WORK="$WORK/s$i"; PFILE="$WORK/round.prompt"; "run_${SEAT_HEAD[$i]}" )
+  done
+}
+first_round() { if [[ "$OPEN_FIRST" -eq 1 ]]; then run_open_seats; else run_all_seats; fi; }
+
+# say_verdict <file suffix>: the chair's final verdict in the --verdict shape, with the minority view.
+say_verdict() {
+  [[ -z "$VERDICT" ]] && return
+  local i f job title text
+  case "$VERDICT" in
+    decision)  title="decision"; job='Shape: DECISION. Line 1: "DECISION: <the answer in one sentence>". Line 2: "CONFIDENCE: <high, medium or low> (<0 to 100>%)". Then **WHY** (at most four bullets).' ;;
+    pros-cons) title="pros and cons"; job='Shape: PROS AND CONS. Line 1: "OPTION: <the leading option>". Then **PROS** (bullets) and **CONS** (bullets), then "RECOMMENDATION: <one sentence>".' ;;
+    plan)      title="action plan"; job='Shape: ACTION PLAN. Line 1: "GOAL: <one sentence>". Then **STEPS** as a numbered list, each step with who and by when, then "FIRST STEP TODAY: <one sentence>".' ;;
+    vote)      title="vote"; job='Shape: VOTE. Give **VOTES**: one bullet per seat, "<seat name>: <the option it backs>". Then "RESULT: <option> wins <n> to <m>", or "RESULT: tie".' ;;
+  esac
+  { printf 'You are the neutral CHAIR of an AI council. Write the final verdict on this question:\n\n%s\n\n' "$QUESTION"
+    [[ -n "$BRIEF" ]] && printf 'THE BRIEF:\n%s\n\n' "$BRIEF"
+    printf -- '--- FINAL POSITIONS ---\n\n'
+    for ((i=0; i<NSEATS; i++)); do
+      f="$WORK/s$i$1"; [[ "$1" == "/" ]] && f="$WORK/s$i/${SEAT_HEAD[$i]}.out"
+      printf '### %s\n%s\n\n' "$(seat_label "$i")" "$(body_of_file "$f")"
+    done
+    printf -- '--- YOUR JOB ---\n%s\nThen end with exactly these two lines:\nMINORITY VIEW: <the strongest view that differs from the verdict, in one sentence, or "None">\nHELD BY: <the seats that held it, by their names above, or "Nobody">\n' "$job"
+  } > "$WORK/verdict.prompt"
+  text="$(anthropic_call "$CHAIR_MODEL" "$WORK/verdict.prompt")"
+  [[ -z "${text//[[:space:]]/}" ]] && text="_(verdict unavailable: the chair did not answer)_"
+  say "---"; say "## 🪑 Verdict ($title)"; say ""; say "$text"; say ""
+}
+
 body_of_file() {
   local f="$1" b
   [[ -f "$f" ]] || { echo "_(no output)_"; return; }
@@ -368,11 +546,13 @@ say "# 🪑 Round Table — $NSEATS $([[ $PERSONA_SEATS -eq 1 ]] && echo seats |
 say ""
 say "_Question:_ ${QUESTION}"
 say ""
+if [[ -n "$BRIEF" ]]; then say "## Brief"; say ""; say "$BRIEF"; say ""; fi
 
 if [[ "$ROUNDS" -le 1 ]]; then
   printf '%s' "$BASE_PROMPT" > "$PFILE"
-  run_all_seats
+  first_round
   for ((i=0; i<NSEATS; i++)); do say "---"; say "## $(seat_label "$i")"; say ""; say "$(seat_body "$i" "$WORK/s$i/${SEAT_HEAD[$i]}.out")"; say ""; done
+  say_verdict "/"
   say "---"
   say "_Advisory mode — independent answers, no cross-talk. Use \`--rounds N\` for deliberation-to-consensus._"
 else
@@ -386,7 +566,8 @@ else
         printf '## YOUR TASK (round %d)\nYou are ONE councilor. You have now read everyone. Update your position. State explicitly: (a) where a peer changed your mind — name them; (b) where you still disagree and why; (c) your sharpened current answer. Begin your reply with "POSITION:".\n' "$r"
       } > "$PFILE"
     fi
-    run_all_seats
+    if [[ $r -eq 1 ]]; then first_round; else run_all_seats; fi
+    LAST_R=$r
     for ((i=0; i<NSEATS; i++)); do cp "$WORK/s$i/${SEAT_HEAD[$i]}.out" "$WORK/s$i.r$r.out" 2>/dev/null; done
     say "## ─────── Round $r ───────"; say ""
     for ((i=0; i<NSEATS; i++)); do say "### $(seat_label "$i")"; say ""; say "$(seat_body "$i" "$WORK/s$i.r$r.out")"; say ""; done
@@ -401,6 +582,7 @@ else
       CONS=1; say "**→ Consensus reached at round $r.**"; say ""; break
     fi
   done
+  say_verdict ".r$LAST_R.out"
   say "---"
   if [[ $CONS -eq 1 ]]; then say "_Deliberation converged. The chair's final verdict above is the council consensus._"
   else say "_Reached the round cap ($ROUNDS) without full consensus — the chair's last verdict lists the remaining disagreements._"; fi

@@ -21,6 +21,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 ureq = { version = "2", features = ["json"] }
 dirs = "5"
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
+pdf-extract = "0.9"
 
 [features]
 # The Frontier labs persona pack. Build with --no-default-features to leave it out.

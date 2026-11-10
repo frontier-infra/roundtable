@@ -27,6 +27,10 @@ export interface MockOptions {
   noLabPack?: boolean;
   /** The person's own personas to start with. */
   custom?: Persona[];
+  /** The coach's questions. Default: two. [] means the question is already clear. */
+  coachQuestions?: string[];
+  /** The coach (the chair's seat) does not answer. */
+  coachFails?: boolean;
 }
 
 function tool(id: string, head: string, name: string, version: string | null, signed_in: boolean | null, note: string, login: string): CliDetection {
@@ -159,6 +163,11 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
     },
     async askStart(req, onEvent) {
       calls.push(`askStart:${req.heads.join(",")}:${req.rounds}${req.personas ? `:${req.personas}` : ""}`);
+      if (req.brief) calls.push(`brief:${req.brief}`);
+      if (req.verdict) calls.push(`verdict:${req.verdict}`);
+      if (req.openFirstRound) calls.push("open-first-round");
+      if (req.prior) calls.push(`prior:${req.prior.length}`);
+      if (req.attached) calls.push(`attached:${req.attached}`);
       const lib = await library();
       const picks = req.personas
         ? req.personas.split(",").map((x) => {
@@ -218,6 +227,25 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
             if (consensus) break;
           }
         }
+        if (req.verdict) {
+          await wait();
+          const texts: Record<string, string> = {
+            decision: "DECISION: Start a small garden this Saturday.\nCONFIDENCE: Medium (65%)\n**WHY**\n- It pays off for months.\n- Bread fits a rainy day.",
+            "pros-cons": "OPTION: Start the garden.\n**PROS**\n- Pays off for months.\n**CONS**\n- Weather can spoil the day.\nRECOMMENDATION: Garden now, bread when it rains.",
+            plan: "GOAL: A raised bed by Sunday.\n**STEPS**\n1. You: buy soil and seeds, Saturday 9 am.\n2. You: build the bed, Saturday noon.\nFIRST STEP TODAY: Measure the sunny corner.",
+            vote: "**VOTES**\n- Claude: garden\n- Gemini: bread\n- ChatGPT: garden\nRESULT: garden wins 2 to 1",
+          };
+          const minority = seats.length > 1 ? "Bake bread first: a result the same day." : "None";
+          const heldBy = seats.length > 1 ? (seats[1].persona ? `${seats[1].persona} on ${seats[1].head}` : "Gemini") : "Nobody";
+          emit({
+            event: "verdict",
+            shape: req.verdict,
+            text: `${texts[req.verdict]}\nMINORITY VIEW: ${minority}\nHELD BY: ${heldBy}`,
+            minority: minority === "None" ? undefined : minority,
+            held_by: heldBy === "Nobody" ? undefined : heldBy,
+            confidence: req.verdict === "decision" ? "medium" : undefined,
+          });
+        }
         const id = `${Math.floor(Date.now() / 1000)}-abcd`;
         const transcript = `# Round Table\n\n_Question:_ ${req.question}\n`;
         if (settings.history) {
@@ -252,6 +280,53 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
       if (fail) return { head, name, ok: false, status: "failed", via: via === "key" ? "API key" : name, first_line: null, message: fail.message, fix: fail.fix, secs: 0.4, command: `${head} -p`, exit: 1 };
       return { head, name, ok: true, status: "answered", via: via === "key" ? "API key" : name, first_line: "Yes, water is wet.", message: null, fix: null, secs: 1.2, command: `${head} -p`, exit: 0 };
     },
+    async coachQuestions(question) {
+      calls.push(`coachQuestions:${question}`);
+      await wait();
+      if (o.coachFails) return { ok: false, questions: [], message: "The coach did not answer. Connect Claude, or skip the coach." };
+      return { ok: true, questions: o.coachQuestions ?? ["What matters more to you: a result today, or something that lasts?", "How much can you spend?"] };
+    },
+    async coachBrief(question, qa) {
+      calls.push(`coachBrief:${qa.map((x) => x.a).join("|")}`);
+      await wait();
+      if (o.coachFails) return { ok: false, brief: { goal: question, context: "", constraints: "", good_answer: "" }, markdown: `- **Goal:** ${question}`, message: "The coach did not answer. Connect Claude, or skip the coach." };
+      const said = qa.map((x) => x.a.trim()).filter(Boolean).join(" ");
+      const brief = {
+        goal: `Decide: ${question.replace(/\?$/, "")}.`,
+        context: said || "None given",
+        constraints: "None given",
+        good_answer: "One clear pick, the main risk, and the first step.",
+      };
+      return { ok: true, brief, markdown: "" };
+    },
+    async suggestPanel(_question, _brief, heads) {
+      calls.push(`suggestPanel:${heads.join(",")}`);
+      await wait();
+      const ids = ["cfo", "head-of-product", "customer-advocate"];
+      const lib = await library();
+      const placed = ids.map((id, i) => ({ id, head: heads[i % Math.max(1, heads.length)] ?? "claude" }));
+      return {
+        source: "chair",
+        personas: ids,
+        why: "Money, the product and the people who use it.",
+        seats: placed.map((p) => ({ seat: `${p.id}@${p.head}`, head: p.head, persona: p.id, name: findPersona(lib, p.id)?.name ?? p.id })),
+        spec: placed.map((p) => `${p.id}@${p.head}`).join(","),
+      };
+    },
+    async attachPrepare(source) {
+      calls.push(`attachPrepare:${source}`);
+      await wait();
+      if (source.includes("missing")) return { ok: false, message: "Could not find that file." };
+      const link = /^https?:/.test(source);
+      const name = link ? source : source.split(/[\\/]/).pop() ?? source;
+      const pdf = name.toLowerCase().endsWith(".pdf");
+      const long = pdf || name.includes("report");
+      return {
+        ok: true,
+        attachments: [{ name, kind: link ? "link" : pdf ? "pdf" : "text", chars: long ? 48210 : 1840, shared: long ? "summary" : "full", text: long ? "- Budget is 40 thousand.\n- Launch in March." : "Notes: budget 40 thousand, launch in March." }],
+      };
+    },
+    pickAttachment: async () => "/Users/someone/plan.pdf",
     personasList: library,
     async personaSave(p) {
       calls.push(`personaSave:${p.name}`);

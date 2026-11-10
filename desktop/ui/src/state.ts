@@ -1,5 +1,6 @@
 // Pure state for the walkthrough and the live roundtable. No DOM here, so it is easy to test.
 
+import type { Attachment, Brief, PanelSuggestion, VerdictShape } from "./api";
 import type { ClaudeStatus, CliDetection, EngineEvent, Fix, HeadId, HeadTest, HistoryEntry, KeySaveResult, KeysStatus, Persona, PersonaLibrary, Preset, SeatInfo, Settings } from "./api";
 import { HEAD_ORDER, PROVIDERS } from "./providers";
 
@@ -73,8 +74,31 @@ export interface Verdict {
   text: string;
 }
 
+/** The chair's final verdict, in the shape the person picked. */
+export interface FinalVerdict {
+  shape: VerdictShape;
+  text: string;
+  minority?: string;
+  held_by?: string;
+  confidence?: string;
+}
+
 export interface RunView {
   question: string;
+  /** The coach's brief this run read, as Markdown. */
+  brief?: string | null;
+  /** The verdict shape asked for. null: no verdict. */
+  verdictShape?: VerdictShape | null;
+  verdict?: FinalVerdict;
+  /** Round 1 was open (blind off). */
+  openFirstRound?: boolean;
+  /** Names of the files and links every seat read. */
+  attachments?: string[];
+  /** "table", or the seat key a follow-up went to. */
+  target?: string;
+  /** The text this run read, kept so a retry reads the same. */
+  prior?: string | null;
+  attached?: string | null;
   mode: "quick" | "talk";
   research?: boolean;
   /** Background for a retry: a file path, or "follow-up". */
@@ -115,8 +139,32 @@ export interface CliView {
 
 export type View = "onboarding" | "main" | "settings";
 
+/** The question coach, between the ask box and the table. */
+export interface CoachView {
+  stage: "questions" | "brief";
+  loading: boolean;
+  question: string;
+  questions: string[];
+  answers: string[];
+  brief: Brief;
+  /** Seats suggested from the brief, editable. null until the suggestion arrives. */
+  seats: SeatPick[] | null;
+  suggestion?: PanelSuggestion;
+  suggesting: boolean;
+  /** Use the suggested seats (true) or the ask box's Seats choice. */
+  useSuggested: boolean;
+  error?: string;
+}
+
 export interface State {
   view: View;
+  coach: CoachView | null;
+  /** Finished turns of this session, oldest first. The current turn is `run`. */
+  session: RunView[];
+  /** The follow-up box under a finished run. */
+  followUpText: string;
+  /** A past roundtable's transcript, when the next question follows up on it. */
+  priorFromHistory: string | null;
   step: Step;
   os: string;
   version: string;
@@ -165,6 +213,15 @@ export interface AskBox {
   seats: string;
   /** The seats when `seats` is "custom". */
   seatList: SeatPick[];
+  /** Run the question coach first. */
+  coach: boolean;
+  verdict: VerdictShape;
+  /** Files and links every seat reads, already read once. */
+  attachments: Attachment[];
+  /** An attachment being read. */
+  attaching: boolean;
+  /** The link box. */
+  link: string;
 }
 
 export const FIRST_QUESTION = "I have a free Saturday. Should I learn to bake bread or start a vegetable garden?";
@@ -182,6 +239,9 @@ export function defaultSettings(): Settings {
     clis_chosen: false,
     show_lab_pack: true,
     personas: "",
+    coach: true,
+    blind_first_round: true,
+    verdict_shape: "decision",
   };
 }
 
@@ -194,6 +254,10 @@ export function emptyKeys(): Record<HeadId, KeyCard> {
 export function initialState(): State {
   return {
     view: "onboarding",
+    coach: null,
+    session: [],
+    followUpText: "",
+    priorFromHistory: null,
     step: 1,
     os: "macos",
     version: "",
@@ -206,7 +270,7 @@ export function initialState(): State {
     claude: { loading: true },
     firstQuestion: FIRST_QUESTION,
     run: null,
-    ask: { question: "", rounds: DEFAULT_ROUNDS, research: false, contextPath: null, contextText: null, contextName: null, seats: "", seatList: [] },
+    ask: { question: "", rounds: DEFAULT_ROUNDS, research: false, contextPath: null, contextText: null, contextName: null, seats: "", seatList: [], coach: true, verdict: "decision", attachments: [], attaching: false, link: "" },
     personas: null,
     personaEdit: null,
     history: [],
@@ -594,6 +658,9 @@ export function applyEvent(run: RunView, e: EngineEvent): RunView {
       r.transcript = e.transcript;
       r.answered = e.answered;
       r.consensus = e.consensus;
+      break;
+    case "verdict":
+      r.verdict = { shape: e.shape, text: e.text, minority: e.minority, held_by: e.held_by, confidence: e.confidence };
       break;
     case "process_exit":
       r.done = true;

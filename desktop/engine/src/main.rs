@@ -4,7 +4,9 @@
 use roundtable_engine::council::{self, AskOptions, Event, RunResult};
 use roundtable_engine::keys::{self, KeyStore, Keys};
 use roundtable_engine::settings::Settings;
-use roundtable_engine::{clis, history, mcp, paths, personas, providers, verify, VERSION};
+use roundtable_engine::verdict::Shape;
+use roundtable_engine::{attach, clis, coach, history, mcp, paths, personas, providers, verify, VERSION};
+use std::io::IsTerminal;
 use serde_json::json;
 use std::io::{Read, Write};
 use std::process::ExitCode;
@@ -26,6 +28,9 @@ Commands:
                  --via auto|app|key (default auto: its app first, then the key),
                  --timeout S (default 90), --json for the app, --verbose adds stderr.
   personas       List the persona packs, presets and seats (--json for the app)
+  coach          questions -q Q | brief (JSON on stdin) --json: the question coach
+  suggest        -q Q [--brief FILE] [--heads CSV] [--json]: suggest seats for a question
+  attach         FILE|URL ... [--json]: read files and links once, as a run would share them
   mcp            serve | selftest | config
   version        Print the version
 
@@ -37,7 +42,21 @@ Ask flags:
       --rounds N        1 to 4. 1: each AI answers once (default). 2 to 4: they read
                         each other and revise toward consensus; Claude chairs
       --personas SPEC   Seat roles: a preset (pricing), a pack (business-roles),
-                        or persona names (cfo,ceo@claude). generic: plain seats
+                        or persona names (cfo,ceo@claude). generic: plain seats.
+                        auto: suggest seats from the question (or the brief)
+      --coach           The coach asks up to three clarifying questions first, then
+                        writes a brief the table reads (goal, context, constraints,
+                        what a good answer looks like)
+      --coach-answer A  An answer to the coach's next question (repeat, in order)
+      --coach-questions Print the coach's questions (Q: lines) and stop
+      --brief FILE      A brief the table reads in front of the question
+      --verdict SHAPE   The chair's final verdict: decision, pros-cons, plan or vote.
+                        It always names the minority view and who held it
+      --no-blind        Round 1 is open: each seat reads the seats before it
+      --follow-up X     A follow-up: X is a past run's history id or a transcript file
+      --attach SRC      A text file, PDF or link every seat reads (repeat). Long ones
+                        are summarized once and the summary shared
+      --attached FILE   Material already prepared by `roundtable attach`
       --timeout S       Seconds per AI
       --research        Let them search the web where supported
       --out FILE        Also save the transcript to FILE
@@ -63,6 +82,9 @@ fn main() -> ExitCode {
         "detect" => cmd_detect(rest),
         "test" => cmd_test(rest),
         "personas" => cmd_personas(rest),
+        "coach" => cmd_coach(rest),
+        "suggest" => cmd_suggest(rest),
+        "attach" => cmd_attach(rest),
         _ => cmd_ask(&args),
     };
     ExitCode::from(code)
@@ -93,6 +115,15 @@ struct AskArgs {
     events: bool,
     no_history: bool,
     source: String,
+    coach: bool,
+    coach_answers: Vec<String>,
+    coach_questions: bool,
+    brief: Option<String>,
+    verdict: Option<String>,
+    open_first_round: bool,
+    follow_up: Option<String>,
+    attach: Vec<String>,
+    attached: Option<String>,
 }
 
 fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
@@ -108,6 +139,15 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
         events: false,
         no_history: false,
         source: "terminal".into(),
+        coach: false,
+        coach_answers: Vec::new(),
+        coach_questions: false,
+        brief: None,
+        verdict: None,
+        open_first_round: false,
+        follow_up: None,
+        attach: Vec::new(),
+        attached: None,
     };
     let mut i = 0;
     let val = |i: &mut usize| -> Result<String, String> {
@@ -127,6 +167,19 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
             "--events" => a.events = true,
             "--no-history" => a.no_history = true,
             "--source" => a.source = val(&mut i)?,
+            "--coach" => a.coach = true,
+            "--coach-answer" => {
+                a.coach = true;
+                a.coach_answers.push(val(&mut i)?)
+            }
+            "--coach-questions" => a.coach_questions = true,
+            "--brief" => a.brief = Some(val(&mut i)?),
+            "--verdict" => a.verdict = Some(val(&mut i)?),
+            "--no-blind" | "--open-first-round" => a.open_first_round = true,
+            "--blind" => a.open_first_round = false,
+            "--follow-up" => a.follow_up = Some(val(&mut i)?),
+            "--attach" => a.attach.push(val(&mut i)?),
+            "--attached" => a.attached = Some(val(&mut i)?),
             other => {
                 if !a.question.is_empty() {
                     a.question.push(' ');
@@ -190,18 +243,98 @@ fn cmd_ask(args: &[String]) -> u8 {
         eprintln!("ERROR: no valid heads selected (after dropping unknown heads).");
         return 2;
     }
-    let context = match &a.context {
-        Some(p) => match std::fs::read_to_string(p) {
+    let read = |what: &str, p: &str| std::fs::read_to_string(p).map_err(|e| format!("could not read the {what} file: {e}"));
+    let context = match a.context.as_deref().map(|p| read("context", p)).transpose() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("ERROR: {e}");
+            return 2;
+        }
+    };
+    if a.coach_questions {
+        return match coach::ask_questions(&a.question, &k, &settings, coach::CHAIR_WAIT) {
+            Ok(qs) if qs.is_empty() => {
+                println!("NONE");
+                0
+            }
+            Ok(qs) => {
+                for q in qs {
+                    println!("Q: {q}");
+                }
+                0
+            }
+            Err(e) => {
+                eprintln!("ERROR: {e}");
+                1
+            }
+        };
+    }
+    let mut brief = match a.brief.as_deref().map(|p| read("brief", p)).transpose() {
+        Ok(b) => b.map(|b| b.trim().to_string()).filter(|b| !b.is_empty()),
+        Err(e) => {
+            eprintln!("ERROR: {e}");
+            return 2;
+        }
+    };
+    if a.coach && brief.is_none() {
+        brief = run_coach(&a.question, &a.coach_answers, &k, &settings, a.events);
+    }
+    let prior = match a.follow_up.as_deref() {
+        Some(x) => match history::read(&paths::history_dir(), x).map(Ok).unwrap_or_else(|| read("follow-up", x)) {
             Ok(t) => Some(t),
             Err(e) => {
-                eprintln!("ERROR: could not read the context file: {e}");
+                eprintln!("ERROR: {e}");
                 return 2;
             }
         },
         None => None,
     };
-    let spec = a.personas.clone().or_else(|| k.env.get("ROUNDTABLE_PERSONAS").cloned()).unwrap_or_default();
-    let seats = match personas::resolve(&spec, &heads, &personas::Library::load(&settings)) {
+    let mut shared: Vec<String> = Vec::new();
+    if let Some(p) = a.attached.as_deref() {
+        match read("attached", p) {
+            Ok(t) if !t.trim().is_empty() => shared.push(t.trim().to_string()),
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("ERROR: {e}");
+                return 2;
+            }
+        }
+    }
+    if !a.attach.is_empty() {
+        match attach::prepare(&a.attach, &k, &settings, coach::CHAIR_WAIT) {
+            Ok(list) => {
+                for x in &list {
+                    if !a.events {
+                        eprintln!("NOTE: attached {} ({} characters, shared {}).", x.name, x.chars, x.shared);
+                    }
+                }
+                shared.push(attach::block(&list));
+            }
+            Err(e) => {
+                eprintln!("ERROR: {e}");
+                return 2;
+            }
+        }
+    }
+    let attachments = Some(shared.join("\n\n")).filter(|t| !t.trim().is_empty());
+    let verdict = match Shape::parse(a.verdict.as_deref().unwrap_or("")) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("ERROR: {e}");
+            return 2;
+        }
+    };
+    let mut spec = a.personas.clone().or_else(|| k.env.get("ROUNDTABLE_PERSONAS").cloned()).unwrap_or_default();
+    let lib = personas::Library::load(&settings);
+    if spec.trim().eq_ignore_ascii_case("auto") {
+        let text = brief.clone().unwrap_or_else(|| a.question.clone());
+        let sug = coach::suggest(&text, &lib, &k, &settings, coach::CHAIR_WAIT);
+        if !a.events {
+            eprintln!("NOTE: suggested seats: {}. {}", if sug.personas.is_empty() { "generic".to_string() } else { sug.personas.join(", ") }, sug.why);
+        }
+        spec = sug.personas.join(",");
+    }
+    let seats = match personas::resolve(&spec, &heads, &lib) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("ERROR: {e}");
@@ -214,6 +347,11 @@ fn cmd_ask(args: &[String]) -> u8 {
     let opts = AskOptions {
         question: a.question.clone(),
         context,
+        prior,
+        attachments,
+        brief,
+        open_first_round: a.open_first_round,
+        verdict,
         heads,
         seats,
         rounds: a.rounds.clamp(1, council::MAX_ROUNDS),
@@ -247,32 +385,239 @@ fn cmd_ask(args: &[String]) -> u8 {
     }
 }
 
+/// `--coach`: the coach's questions, the person's answers (flags, else the terminal), then the brief.
+/// None when the coach did not answer, or the person skipped the brief.
+fn run_coach(question: &str, given: &[String], k: &Keys, settings: &Settings, quiet: bool) -> Option<String> {
+    let tty = !quiet && std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
+    let qs = match coach::ask_questions(question, k, settings, coach::CHAIR_WAIT) {
+        Ok(q) => q,
+        Err(e) => {
+            eprintln!("NOTE: {e} Asking the question as typed.");
+            return None;
+        }
+    };
+    let mut qa = Vec::new();
+    let stdin = std::io::stdin();
+    for (i, q) in qs.iter().enumerate() {
+        let a = match given.get(i) {
+            Some(a) => a.clone(),
+            None if tty => {
+                eprint!("Coach: {q}\n> ");
+                let mut line = String::new();
+                let _ = stdin.read_line(&mut line);
+                line.trim().to_string()
+            }
+            None => String::new(),
+        };
+        qa.push((q.clone(), a));
+    }
+    let brief = match coach::make_brief(question, &qa, k, settings, coach::CHAIR_WAIT) {
+        Ok(b) => b.to_markdown(),
+        Err(e) => {
+            eprintln!("NOTE: {e} Asking the question as typed.");
+            return None;
+        }
+    };
+    if tty {
+        eprintln!("\nThe brief the table will read:\n{brief}\n");
+        eprint!("Press Enter to use it, or type s and Enter to skip it: ");
+        let mut line = String::new();
+        let _ = stdin.read_line(&mut line);
+        if line.trim().eq_ignore_ascii_case("s") {
+            return None;
+        }
+    }
+    Some(brief)
+}
+
+/// `roundtable coach questions -q Q --json` and `roundtable coach brief --json` (JSON on stdin:
+/// `{"question": "...", "qa": [{"q": "...", "a": "..."}]}`).
+fn cmd_coach(args: &[String]) -> u8 {
+    let settings = Settings::load();
+    let store = keys::default_store();
+    let k = Keys::load(store.as_ref());
+    let json_out = has(args, "--json");
+    let reply = |v: serde_json::Value, text: String, code: u8| -> u8 {
+        if json_out {
+            println!("{v}");
+        } else {
+            println!("{text}");
+        }
+        code
+    };
+    match args.first().map(String::as_str).unwrap_or("") {
+        "questions" => {
+            let q = flag_value(args, "-q").or_else(|| flag_value(args, "--question")).unwrap_or("").to_string();
+            if q.trim().is_empty() {
+                eprintln!("usage: roundtable coach questions -q \"question\" [--json]");
+                return 2;
+            }
+            match coach::ask_questions(&q, &k, &settings, coach::CHAIR_WAIT) {
+                Ok(qs) => {
+                    let text = if qs.is_empty() { "NONE".to_string() } else { qs.iter().map(|q| format!("Q: {q}")).collect::<Vec<_>>().join("\n") };
+                    reply(json!({"ok": true, "questions": qs}), text, 0)
+                }
+                Err(e) => reply(json!({"ok": false, "questions": [], "message": e}), e.clone(), 1),
+            }
+        }
+        "brief" => {
+            let mut raw = String::new();
+            let _ = std::io::stdin().read_to_string(&mut raw);
+            let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or(json!({}));
+            let q = v["question"].as_str().unwrap_or("").to_string();
+            if q.trim().is_empty() {
+                return reply(json!({"ok": false, "message": "No question was given."}), "No question was given.".into(), 2);
+            }
+            let qa: Vec<(String, String)> = v["qa"]
+                .as_array()
+                .map(|a| a.iter().map(|x| (x["q"].as_str().unwrap_or("").to_string(), x["a"].as_str().unwrap_or("").to_string())).collect())
+                .unwrap_or_default();
+            match coach::make_brief(&q, &qa, &k, &settings, coach::CHAIR_WAIT) {
+                Ok(b) => reply(json!({"ok": true, "brief": b, "markdown": b.to_markdown()}), b.to_markdown(), 0),
+                Err(e) => {
+                    let b = coach::Brief { goal: q.trim().to_string(), ..Default::default() };
+                    reply(json!({"ok": false, "message": e, "brief": b, "markdown": b.to_markdown()}), e.clone(), 1)
+                }
+            }
+        }
+        _ => {
+            eprintln!("usage: roundtable coach {{questions -q Q|brief}} [--json]");
+            2
+        }
+    }
+}
+
+/// `roundtable suggest -q Q [--brief FILE] [--heads CSV] [--json]`: seats for a question.
+fn cmd_suggest(args: &[String]) -> u8 {
+    let settings = Settings::load();
+    let store = keys::default_store();
+    let k = Keys::load(store.as_ref());
+    let mut text = flag_value(args, "-q").or_else(|| flag_value(args, "--question")).unwrap_or("").to_string();
+    if let Some(p) = flag_value(args, "--brief") {
+        match std::fs::read_to_string(p) {
+            Ok(b) if !b.trim().is_empty() => text = format!("{}\n\n{}", text.trim(), b.trim()),
+            _ => {}
+        }
+    }
+    if text.trim().is_empty() {
+        eprintln!("usage: roundtable suggest -q \"question\" [--brief FILE] [--heads CSV] [--json]");
+        return 2;
+    }
+    let heads = match flag_value(args, "--heads") {
+        Some(csv) => council::parse_heads(csv).0,
+        None => council::default_heads(&settings, &k),
+    };
+    let lib = personas::Library::load(&settings);
+    let sug = coach::suggest(&text, &lib, &k, &settings, coach::CHAIR_WAIT);
+    let seats = personas::resolve(&sug.personas.join(","), &heads, &lib).unwrap_or_default();
+    let keys_of = personas::seat_keys(&seats);
+    let rows: Vec<_> = seats
+        .iter()
+        .zip(&keys_of)
+        .map(|(s, key)| json!({"seat": key, "head": s.head.id, "persona": s.persona.as_ref().map(|p| p.id.clone()), "name": s.persona.as_ref().map(|p| p.name.clone())}))
+        .collect();
+    let spec = if sug.personas.is_empty() { String::new() } else { personas::seats_spec(&seats) };
+    if has(args, "--json") {
+        println!("{}", json!({"source": sug.source, "personas": sug.personas, "why": sug.why, "seats": rows, "spec": spec}));
+    } else if sug.personas.is_empty() {
+        println!("Generic seats. {}", sug.why);
+    } else {
+        println!("--personas {spec}");
+        println!("{}", sug.why);
+    }
+    0
+}
+
+/// `roundtable attach SRC... [--json]`: read files and links once and share them as a run would.
+fn cmd_attach(args: &[String]) -> u8 {
+    let srcs: Vec<String> = args.iter().filter(|a| !a.starts_with("--")).cloned().collect();
+    if srcs.is_empty() {
+        eprintln!("usage: roundtable attach FILE|URL ... [--json]");
+        return 2;
+    }
+    let settings = Settings::load();
+    let store = keys::default_store();
+    let k = Keys::load(store.as_ref());
+    match attach::prepare(&srcs, &k, &settings, coach::CHAIR_WAIT) {
+        Ok(list) => {
+            let block = attach::block(&list);
+            if has(args, "--json") {
+                println!("{}", json!({"ok": true, "attachments": list, "block": block}));
+            } else {
+                println!("{block}");
+            }
+            0
+        }
+        Err(e) => {
+            if has(args, "--json") {
+                println!("{}", json!({"ok": false, "message": e}));
+            } else {
+                eprintln!("ERROR: {e}");
+            }
+            1
+        }
+    }
+}
+
 fn cmd_mcp(args: &[String]) -> u8 {
     match args.first().map(String::as_str).unwrap_or("") {
         "serve" => {
             let settings = Settings::load();
             let store = keys::default_store();
-            let run = |q: &str, heads: Option<&str>, rounds: Option<u32>, research: bool, spec: Option<&str>| -> (String, bool) {
+            let run = |c: &mcp::Call| -> (String, bool) {
                 let k = Keys::load(store.as_ref());
-                let hs = match heads {
+                let hs = match c.heads.as_deref() {
                     Some(csv) => council::parse_heads(csv).0,
                     None => council::default_heads(&settings, &k),
                 };
                 if hs.is_empty() {
                     return ("No valid heads selected.".into(), true);
                 }
-                let seats = match personas::resolve(spec.unwrap_or(""), &hs, &personas::Library::load(&settings)) {
+                let verdict = match Shape::parse(c.verdict.as_deref().unwrap_or("")) {
+                    Ok(v) => v,
+                    Err(e) => return (e, true),
+                };
+                // The coach: questions first, unless the caller brings the answers.
+                let mut brief = None;
+                if c.coach {
+                    match coach::ask_questions(&c.question, &k, &settings, coach::CHAIR_WAIT) {
+                        Ok(qs) if !qs.is_empty() && c.coach_answers.is_empty() => return (mcp::coach_reply(&qs), false),
+                        Ok(qs) => {
+                            let qa: Vec<(String, String)> = qs.iter().cloned().zip(c.coach_answers.iter().cloned().chain(std::iter::repeat(String::new()))).collect();
+                            brief = coach::make_brief(&c.question, &qa, &k, &settings, coach::CHAIR_WAIT).ok().map(|b| b.to_markdown());
+                        }
+                        Err(_) => {}
+                    }
+                }
+                let attachments = if c.attach.is_empty() {
+                    None
+                } else {
+                    match attach::prepare(&c.attach, &k, &settings, coach::CHAIR_WAIT) {
+                        Ok(list) => Some(attach::block(&list)),
+                        Err(e) => return (e, true),
+                    }
+                };
+                let lib = personas::Library::load(&settings);
+                let mut spec = c.personas.clone().unwrap_or_default();
+                if spec.trim().eq_ignore_ascii_case("auto") {
+                    spec = coach::suggest(brief.as_deref().unwrap_or(&c.question), &lib, &k, &settings, coach::CHAIR_WAIT).personas.join(",");
+                }
+                let seats = match personas::resolve(&spec, &hs, &lib) {
                     Ok(s) => s,
                     Err(e) => return (e, true),
                 };
                 let opts = AskOptions {
-                    question: q.into(),
-                    context: None,
+                    question: c.question.clone(),
                     heads: hs,
                     seats,
-                    rounds: rounds.unwrap_or(1).clamp(1, council::MAX_ROUNDS),
-                    research,
-                    timeout: council::default_timeout(research, &settings),
+                    rounds: c.rounds.unwrap_or(1).clamp(1, council::MAX_ROUNDS),
+                    research: c.research,
+                    timeout: council::default_timeout(c.research, &settings),
+                    brief,
+                    attachments,
+                    verdict,
+                    open_first_round: c.blind == Some(false),
+                    ..Default::default()
                 };
                 let r = council::run(&opts, &k, &settings, &|_| {});
                 record(&r, &opts, "claude", &settings);

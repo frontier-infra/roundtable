@@ -10,15 +10,26 @@ use crate::keys::Keys;
 use crate::personas::{self, Seat};
 use crate::providers::{self, Head, Kind, HEADS};
 use crate::settings::Settings;
+use crate::verdict::{self, Shape};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::time::Duration;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AskOptions {
     pub question: String,
     /// Background text every head reads first.
     pub context: Option<String>,
+    /// Earlier turns of this session (a follow-up). Read before everything else.
+    pub prior: Option<String>,
+    /// Files and links, read once and shared (`attach::block`).
+    pub attachments: Option<String>,
+    /// The coach's brief: goal, context, constraints, what a good answer looks like.
+    pub brief: Option<String>,
+    /// Round 1 is blind by default. True lets each seat in round 1 read the seats before it.
+    pub open_first_round: bool,
+    /// The chair's last word, in this shape. None: no verdict (the old transcript).
+    pub verdict: Option<Shape>,
     pub heads: Vec<&'static Head>,
     /// Who sits where. Empty means one Generic seat per head (the old table).
     pub seats: Vec<Seat>,
@@ -143,6 +154,13 @@ pub enum Event {
     },
     RoundDone { round: u32 },
     ChairVerdict { round: u32, consensus: bool, text: String },
+    /// The final verdict in the chosen shape, with the minority view and who held it.
+    Verdict {
+        shape: Shape,
+        text: String,
+        #[serde(flatten)]
+        parts: verdict::Parts,
+    },
     RunDone {
         transcript: String,
         answered: usize,
@@ -213,10 +231,35 @@ pub fn default_heads(settings: &Settings, keys: &Keys) -> Vec<&'static Head> {
 }
 
 pub fn base_prompt(question: &str, context: Option<&str>) -> String {
-    match context {
-        Some(c) => format!("## CONTEXT\n{}\n\n## QUESTION\n{}", c.trim_end_matches('\n'), question),
-        None => question.to_string(),
+    prompt_with(question, None, context, None, None)
+}
+
+/// The shared prompt: earlier turns, background, attachments and the brief, then the question.
+/// With none of them it is the question alone, as before.
+pub fn prompt_with(question: &str, prior: Option<&str>, context: Option<&str>, attachments: Option<&str>, brief: Option<&str>) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for (title, v) in [("EARLIER IN THIS SESSION", prior), ("CONTEXT", context), ("ATTACHMENTS", attachments), ("BRIEF", brief)] {
+        if let Some(v) = v.filter(|v| !v.trim().is_empty()) {
+            parts.push(format!("## {title}\n{}", v.trim_end_matches('\n')));
+        }
     }
+    if parts.is_empty() {
+        return question.to_string();
+    }
+    format!("{}\n\n## QUESTION\n{}", parts.join("\n\n"), question)
+}
+
+/// The prompt for one seat in an open first round: the answers of the seats before it.
+pub fn open_round_prompt(base: &str, before: &[(String, String)]) -> String {
+    if before.is_empty() {
+        return base.to_string();
+    }
+    let mut p = format!("{base}\n\n---\n## ANSWERS SO FAR (round 1 is open): the seats that answered before you:\n\n");
+    for (label, body) in before {
+        p.push_str(&format!("### {label}\n{body}\n\n"));
+    }
+    p.push_str("## YOUR TASK\nGive your own answer. You may build on these answers or disagree with them; say which.\n");
+    p
 }
 
 fn deliberation_prompt(base: &str, prev: u32, table: &[(String, String)], round: u32) -> String {
@@ -384,7 +427,7 @@ pub fn run_head(head: &Head, prompt: &str, opts: &AskOptions, keys: &Keys, setti
 }
 
 /// The chair: Claude by the same route as a head, with the chair's model on a key.
-fn chair(keys: &Keys, settings: &Settings, prompt: &str, timeout: Duration) -> String {
+pub fn chair(keys: &Keys, settings: &Settings, prompt: &str, timeout: Duration) -> String {
     let claude = providers::find("claude").unwrap();
     match ask_head(claude, prompt, false, timeout, keys, settings, Route::Auto, Some(&providers::chair_model(settings))).outcome {
         Outcome::Answered(t) => t,
@@ -414,6 +457,26 @@ fn run_round(prompt: &str, round: u32, seats: &[Seat], keys_of: &[String], opts:
             .map(|h| h.join().unwrap_or(HeadRun { outcome: Outcome::Empty("panic".into()), via: None, trial: None }))
             .collect()
     })
+}
+
+/// An open first round: seats answer one after another, each reading the ones before it.
+#[allow(clippy::too_many_arguments)]
+fn run_open_round(base: &str, seats: &[Seat], keys_of: &[String], opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&Event) + Sync)) -> Vec<HeadRun> {
+    for (seat, key) in seats.iter().zip(keys_of) {
+        emit(&Event::HeadStarted { head: seat.head.id.into(), round: 1, seat: key.clone() });
+    }
+    let mut out: Vec<HeadRun> = Vec::new();
+    let mut before: Vec<(String, String)> = Vec::new();
+    for (seat, key) in seats.iter().zip(keys_of) {
+        let p = personas::seat_prompt(seat, &open_round_prompt(base, &before));
+        let r = ask_head(seat.head, &p, opts.research, opts.timeout, keys, settings, Route::Auto, None);
+        emit(&head_done_at(seat.head, key, 1, &r));
+        if let Outcome::Answered(t) = &r.outcome {
+            before.push((personas::seat_label(seat, &label_for(seat.head, settings, &r)), t.clone()));
+        }
+        out.push(r);
+    }
+    out
 }
 
 /// The `head_done` event for one head's result.
@@ -449,6 +512,19 @@ fn seat_body(seat: &Seat, body: &str) -> String {
         Some(d) => format!("_{d}_\n\n{body}"),
         None => body.to_string(),
     }
+}
+
+/// The verdict section, when the run asked for one.
+fn say_verdict(say: &mut dyn FnMut(&str), opts: &AskOptions, keys: &Keys, settings: &Settings, finals: &[(String, String)], emit: &(dyn Fn(&Event) + Sync)) {
+    let Some(shape) = opts.verdict else { return };
+    let text = chair(keys, settings, &verdict::prompt(shape, &opts.question, opts.brief.as_deref(), finals), opts.timeout);
+    let text = if text.trim().is_empty() { verdict::UNAVAILABLE.to_string() } else { text.trim().to_string() };
+    emit(&Event::Verdict { shape, parts: verdict::parts(&text), text: text.clone() });
+    say("---");
+    say(&format!("## \u{1fa91} Verdict ({})", shape.title().to_ascii_lowercase()));
+    say("");
+    say(&text);
+    say("");
 }
 
 /// Run the council. `emit` gets every event as it happens; the transcript comes back.
@@ -493,15 +569,31 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
     say(&format!("_Question:_ {}", opts.question));
     say("");
 
-    let base = base_prompt(&opts.question, opts.context.as_deref());
+    if let Some(b) = opts.brief.as_deref().filter(|b| !b.trim().is_empty()) {
+        say("## Brief");
+        say("");
+        say(b.trim());
+        say("");
+    }
+    let base = prompt_with(&opts.question, opts.prior.as_deref(), opts.context.as_deref(), opts.attachments.as_deref(), opts.brief.as_deref());
+    let first_round = |prompt: &str| {
+        if opts.open_first_round {
+            run_open_round(prompt, &seats, &seat_keys, opts, keys, settings, emit)
+        } else {
+            run_round(prompt, 1, &seats, &seat_keys, opts, keys, settings, emit)
+        }
+    };
+    // (label, final answer) per seat, for the verdict.
+    let mut finals: Vec<(String, String)> = Vec::new();
     let mut answered = 0usize;
     let mut consensus = None;
     let labels_of = |res: &[HeadRun]| -> Vec<String> { seats.iter().zip(res).map(|(s, r)| personas::seat_label(s, &label_for(s.head, settings, r))).collect() };
 
     if advisory {
-        let res = run_round(&base, 1, &seats, &seat_keys, opts, keys, settings, emit);
+        let res = first_round(&base);
         emit(&Event::RoundDone { round: 1 });
         let labels = labels_of(&res);
+        finals = labels.iter().cloned().zip(res.iter().map(|r| r.outcome.body())).collect();
         let res: Vec<Outcome> = res.into_iter().map(|r| r.outcome).collect();
         for ((label, o), seat) in labels.iter().zip(&res).zip(&seats) {
             if matches!(o, Outcome::Answered(_)) {
@@ -513,6 +605,7 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
             say(&seat_body(seat, &o.body()));
             say("");
         }
+        say_verdict(&mut say, opts, keys, settings, &finals, emit);
         say("---");
         say("_Advisory mode: independent answers, no cross-talk. Use `--rounds N` for deliberation to consensus._");
     } else {
@@ -521,7 +614,7 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
         let mut cons = false;
         for r in 1..=rounds {
             let prompt = if r == 1 { base.clone() } else { deliberation_prompt(&base, r - 1, &prev, r) };
-            let res = run_round(&prompt, r, &seats, &seat_keys, opts, keys, settings, emit);
+            let res = if r == 1 { first_round(&prompt) } else { run_round(&prompt, r, &seats, &seat_keys, opts, keys, settings, emit) };
             emit(&Event::RoundDone { round: r });
             if r == 1 {
                 labels = labels_of(&res);
@@ -529,6 +622,7 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
             let res: Vec<Outcome> = res.into_iter().map(|x| x.outcome).collect();
             answered = answered.max(res.iter().filter(|o| matches!(o, Outcome::Answered(_))).count());
             prev = labels.iter().cloned().zip(res.iter().map(|o| o.body())).collect();
+            finals = prev.clone();
             say(&format!("## \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500} Round {r} \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}"));
             say("");
             for ((label, body), seat) in prev.iter().zip(&seats) {
@@ -556,6 +650,7 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
                 break;
             }
         }
+        say_verdict(&mut say, opts, keys, settings, &finals, emit);
         say("---");
         if cons {
             say("_Deliberation converged. The chair's final verdict above is the council consensus._");
@@ -675,6 +770,7 @@ mod tests {
             rounds: 1,
             research: false,
             timeout: Duration::from_secs(10),
+            ..Default::default()
         };
         let events = Mutex::new(Vec::new());
         let r = run(&opts, &k, &Settings::default(), &|e| events.lock().unwrap().push(serde_json::to_value(e).unwrap()));
@@ -706,6 +802,7 @@ mod tests {
             rounds: 2,
             research: false,
             timeout: Duration::from_secs(10),
+            ..Default::default()
         };
         let r = run(&opts, &k, &Settings::default(), &|_| {});
         std::env::remove_var("ROUNDTABLE_MINIMAX_URL");
@@ -735,6 +832,7 @@ mod tests {
             rounds: 9,
             research: false,
             timeout: Duration::from_secs(10),
+            ..Default::default()
         };
         let events = Mutex::new(Vec::new());
         let r = run(&opts, &k, &Settings::default(), &|e| events.lock().unwrap().push(serde_json::to_value(e).unwrap()));
@@ -755,5 +853,112 @@ mod tests {
         let done: Vec<_> = ev.iter().filter(|e| e["event"] == "head_done").collect();
         assert_eq!(done.len(), 8, "two seats, four rounds");
         assert!(done.iter().all(|e| e["seat"] != e["head"]));
+    }
+
+    /// A fake that reads the prompt: OpenAI-style seats say whether they saw earlier answers;
+    /// the Anthropic-style chair answers verdict prompts with a vote naming a minority.
+    fn reading_server() -> String {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for stream in l.incoming().flatten() {
+                let mut r = BufReader::new(stream.try_clone().unwrap());
+                let mut len = 0usize;
+                let mut path = String::new();
+                loop {
+                    let mut line = String::new();
+                    if r.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                        break;
+                    }
+                    if path.is_empty() {
+                        path = line.clone();
+                    }
+                    if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        len = v.trim().parse().unwrap_or(0);
+                    }
+                }
+                let mut buf = vec![0; len];
+                let _ = r.read_exact(&mut buf);
+                let v: serde_json::Value = serde_json::from_slice(&buf).unwrap_or_default();
+                let prompt = v["messages"][0]["content"].as_str().unwrap_or("").to_string();
+                let body = if path.contains("/v1/messages") {
+                    let t = if prompt.contains("Write the final verdict") {
+                        format!("VOTES:\n- a: garden\nRESULT: garden wins 1 to 0\nMINORITY VIEW: Bread first.\nHELD BY: {}", if prompt.contains("THE BRIEF:") { "the brief reader" } else { "Nobody" })
+                    } else {
+                        "VERDICT: CONSENSUS\n**AGREED**\n- garden".to_string()
+                    };
+                    serde_json::json!({"content": [{"type": "text", "text": t}]})
+                } else {
+                    let saw = prompt.contains("ANSWERS SO FAR");
+                    let brief = prompt.contains("## BRIEF\n- **Goal:** g");
+                    serde_json::json!({"choices": [{"message": {"content": format!("saw={saw} brief={brief}")}}]})
+                }
+                .to_string();
+                let mut s = stream;
+                let _ = write!(s, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    #[test]
+    fn open_round_brief_and_verdict() {
+        let _env = crate::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        no_tools();
+        let base = reading_server();
+        std::env::set_var("ROUNDTABLE_OPENAI_URL", format!("{base}/v1/chat/completions"));
+        std::env::set_var("ROUNDTABLE_ANTHROPIC_URL", format!("{base}/v1/messages"));
+        let store = MemoryStore::default();
+        let k = Keys {
+            store: &store,
+            env: [("OPENAI_API_KEY".to_string(), "t".to_string()), ("ANTHROPIC_API_KEY".to_string(), "t".to_string())].into(),
+            file: BTreeMap::new(),
+        };
+        let heads = parse_heads("openai").0;
+        let lib = personas::Library::from_packs(personas::builtin_packs(), true);
+        let opts = AskOptions {
+            question: "Bread or garden?".into(),
+            seats: personas::resolve("cfo,ceo", &heads, &lib).unwrap(),
+            heads,
+            rounds: 1,
+            timeout: Duration::from_secs(10),
+            brief: Some("- **Goal:** g".into()),
+            open_first_round: true,
+            verdict: Some(Shape::Vote),
+            ..Default::default()
+        };
+        let events = Mutex::new(Vec::new());
+        let r = run(&opts, &k, &Settings::default(), &|e| events.lock().unwrap().push(serde_json::to_value(e).unwrap()));
+        std::env::remove_var("ROUNDTABLE_OPENAI_URL");
+        std::env::remove_var("ROUNDTABLE_ANTHROPIC_URL");
+        let t = &r.transcript;
+        assert!(t.contains("_Question:_ Bread or garden?\n\n## Brief\n\n- **Goal:** g\n"), "{t}");
+        // The first seat answers blind; the second reads the first.
+        let a = t.find("saw=false brief=true").expect(t);
+        let b = t.find("saw=true brief=true").expect(t);
+        assert!(a < b);
+        assert!(t.contains("## \u{1fa91} Verdict (vote)\n\nVOTES:"), "{t}");
+        assert!(t.contains("HELD BY: the brief reader"));
+        let ev = events.lock().unwrap();
+        let v = ev.iter().find(|e| e["event"] == "verdict").expect("verdict event");
+        assert_eq!(v["shape"], "vote");
+        assert_eq!(v["minority"], "Bread first.");
+        assert_eq!(v["held_by"], "the brief reader");
+        // Blind (the default) and no verdict: the old transcript.
+        let blind = AskOptions { open_first_round: false, verdict: None, brief: None, ..opts.clone() };
+        std::env::set_var("ROUNDTABLE_OPENAI_URL", format!("{base}/v1/chat/completions"));
+        let r2 = run(&blind, &k, &Settings::default(), &|_| {});
+        std::env::remove_var("ROUNDTABLE_OPENAI_URL");
+        assert!(!r2.transcript.contains("saw=true"));
+        assert!(!r2.transcript.contains("Verdict"));
+        assert!(!r2.transcript.contains("## Brief"));
+    }
+
+    #[test]
+    fn prompt_sections_in_order() {
+        assert_eq!(prompt_with("Q", Some("p"), Some("c"), Some("a"), Some("b")), "## EARLIER IN THIS SESSION\np\n\n## CONTEXT\nc\n\n## ATTACHMENTS\na\n\n## BRIEF\nb\n\n## QUESTION\nQ");
+        assert_eq!(prompt_with("Q", None, None, None, Some("  ")), "Q");
+        assert_eq!(open_round_prompt("B", &[]), "B");
+        assert!(open_round_prompt("B", &[("L".into(), "x".into())]).starts_with("B\n\n---\n## ANSWERS SO FAR (round 1 is open)"));
     }
 }
