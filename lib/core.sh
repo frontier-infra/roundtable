@@ -518,6 +518,8 @@ say_verdict() {
   esac
   { printf 'You are the neutral CHAIR of an AI council. Write the final verdict on this question:\n\n%s\n\n' "$QUESTION"
     [[ -n "$BRIEF" ]] && printf 'THE BRIEF:\n%s\n\n' "$BRIEF"
+    # The chair reads the same files and links as every seat, or it doubts what they quote.
+    [[ -n "${ATTACHMENTS//[[:space:]]/}" ]] && printf 'THE MATERIAL EVERY SEAT READ:\n%s\n\n' "$(python3 -c 'import sys; print(sys.argv[1].strip(), end="")' "$ATTACHMENTS")"
     printf -- '--- FINAL POSITIONS ---\n\n'
     for ((i=0; i<NSEATS; i++)); do
       f="$WORK/s$i$1"; [[ "$1" == "/" ]] && f="$WORK/s$i/${SEAT_HEAD[$i]}.out"

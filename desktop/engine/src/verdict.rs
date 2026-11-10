@@ -56,10 +56,14 @@ impl Shape {
 }
 
 /// The chair's prompt for the verdict. `table` is (label, final answer) per seat.
-pub fn prompt(shape: Shape, question: &str, brief: Option<&str>, table: &[(String, String)]) -> String {
+pub fn prompt(shape: Shape, question: &str, brief: Option<&str>, attachments: Option<&str>, table: &[(String, String)]) -> String {
     let mut p = format!("You are the neutral CHAIR of an AI council. Write the final verdict on this question:\n\n{}\n\n", question.trim());
     if let Some(b) = brief.filter(|b| !b.trim().is_empty()) {
         p.push_str(&format!("THE BRIEF:\n{}\n\n", b.trim()));
+    }
+    // The chair reads the same files and links as every seat, or it doubts what they quote.
+    if let Some(m) = attachments.filter(|m| !m.trim().is_empty()) {
+        p.push_str(&format!("THE MATERIAL EVERY SEAT READ:\n{}\n\n", m.trim()));
     }
     p.push_str("--- FINAL POSITIONS ---\n\n");
     for (label, body) in table {
@@ -125,8 +129,11 @@ mod tests {
 
     #[test]
     fn prompt_names_the_minority_lines() {
-        let p = prompt(Shape::Vote, "Q", Some("- **Goal:** g"), &[("A".into(), "x".into())]);
+        let p = prompt(Shape::Vote, "Q", Some("- **Goal:** g"), None, &[("A".into(), "x".into())]);
         assert!(p.contains("THE BRIEF:\n- **Goal:** g"));
+        assert!(!p.contains("THE MATERIAL"));
+        let m = prompt(Shape::Decision, "Q", None, Some("### notes.txt\nCode word: HERON-42.\n"), &[("A".into(), "x".into())]);
+        assert!(m.contains("THE MATERIAL EVERY SEAT READ:\n### notes.txt\nCode word: HERON-42.\n\n--- FINAL POSITIONS ---"));
         assert!(p.contains("MINORITY VIEW:") && p.contains("HELD BY:"));
         assert!(!p.contains('\u{2014}'));
     }

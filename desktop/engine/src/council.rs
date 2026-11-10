@@ -521,7 +521,7 @@ fn seat_body(seat: &Seat, body: &str) -> String {
 /// The verdict section, when the run asked for one. Returns the verdict text.
 fn say_verdict(say: &mut dyn FnMut(&str), opts: &AskOptions, keys: &Keys, settings: &Settings, finals: &[(String, String)], emit: &(dyn Fn(&Event) + Sync)) -> Option<String> {
     let shape = opts.verdict?;
-    let text = chair(keys, settings, &verdict::prompt(shape, &opts.question, opts.brief.as_deref(), finals), opts.timeout);
+    let text = chair(keys, settings, &verdict::prompt(shape, &opts.question, opts.brief.as_deref(), opts.attachments.as_deref(), finals), opts.timeout);
     let text = if text.trim().is_empty() { verdict::UNAVAILABLE.to_string() } else { text.trim().to_string() };
     emit(&Event::Verdict { shape, parts: verdict::parts(&text), text: text.clone() });
     say("---");
