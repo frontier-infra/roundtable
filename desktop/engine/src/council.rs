@@ -4,7 +4,7 @@
 //! Deliberation (`rounds >= 2`): round 1 blind; later rounds see the whole table;
 //! a Claude chair says CONSENSUS or CONTINUE after each round and the run stops early on consensus.
 
-use crate::clis;
+use crate::clis::{self, Fix};
 use crate::http::{self, ErrorClass};
 use crate::keys::Keys;
 use crate::providers::{self, Head, Kind, HEADS};
@@ -27,11 +27,13 @@ pub struct AskOptions {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
     Answered(String),
-    /// No key or no local tool.
-    Missing(String),
+    /// No key and no local tool: what to do, in one line.
+    Missing(String, Fix),
     Timeout,
     Empty(String),
     Failed(ErrorClass, String),
+    /// The person's own tool ran and did not answer, with the reason in plain words.
+    ToolFailed(Fix, String),
 }
 
 impl Outcome {
@@ -39,19 +41,40 @@ impl Outcome {
     pub fn body(&self) -> String {
         match self {
             Outcome::Answered(t) => t.clone(),
-            Outcome::Missing(_) => "_(unavailable, skipped)_".into(),
+            Outcome::Missing(..) => "_(unavailable, skipped)_".into(),
             Outcome::Timeout => "_(timed out)_".into(),
             Outcome::Empty(_) => "_(no answer)_".into(),
             Outcome::Failed(c, _) => format!("_(no answer: {})_", c.message()),
+            Outcome::ToolFailed(_, m) => format!("_(no answer: {m})_"),
         }
     }
     pub fn status(&self) -> &'static str {
         match self {
             Outcome::Answered(_) => "answered",
-            Outcome::Missing(_) => "skipped",
+            Outcome::Missing(..) => "skipped",
             Outcome::Timeout => "timed_out",
             Outcome::Empty(_) => "failed",
             Outcome::Failed(..) => "failed",
+            Outcome::ToolFailed(..) => "failed",
+        }
+    }
+    /// One plain line for the card. None when it answered.
+    pub fn message(&self) -> Option<String> {
+        match self {
+            Outcome::Answered(_) => None,
+            Outcome::Missing(m, _) | Outcome::ToolFailed(_, m) => Some(m.clone()),
+            Outcome::Timeout => Some(ErrorClass::Timeout.message().into()),
+            Outcome::Empty(_) => Some("That AI sent an empty answer.".into()),
+            Outcome::Failed(c, _) => Some(c.message().into()),
+        }
+    }
+    /// The one thing to do about it.
+    pub fn fix(&self) -> Option<Fix> {
+        match self {
+            Outcome::Answered(_) => None,
+            Outcome::Missing(_, f) | Outcome::ToolFailed(f, _) => Some(*f),
+            Outcome::Failed(ErrorClass::BadKey, _) => Some(Fix::AddKey),
+            _ => Some(Fix::Retry),
         }
     }
     pub fn reason(&self) -> Option<ErrorClass> {
@@ -78,6 +101,12 @@ pub enum Event {
         reason: Option<ErrorClass>,
         #[serde(skip_serializing_if = "Option::is_none")]
         message: Option<String>,
+        /// sign_in, add_key, install or retry.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        fix: Option<Fix>,
+        /// How it was asked: the tool's name, or "API key".
+        #[serde(skip_serializing_if = "Option::is_none")]
+        via: Option<String>,
     },
     RoundDone { round: u32 },
     ChairVerdict { round: u32, consensus: bool, text: String },
@@ -231,64 +260,106 @@ pub fn anthropic(key: &str, model: &str, prompt: &str, timeout: Duration) -> Out
     }
 }
 
-/// Ask a head through the person's own tool (codex, grok, Claude Code, ...).
-fn via_cli(head: &Head, prompt: &str, research: bool, timeout: Duration) -> Outcome {
-    let Some(cli) = clis::for_head(head.id) else {
-        return Outcome::Missing(format!("no tool for {}", head.id));
-    };
-    match clis::ask(cli, prompt, research, timeout) {
-        clis::CliResult::Answered(t) => Outcome::Answered(t),
-        clis::CliResult::Missing => Outcome::Missing(format!("no {} CLI", cli.exes[0])),
-        clis::CliResult::Timeout => Outcome::Timeout,
-        clis::CliResult::Empty(m) => Outcome::Empty(m),
-    }
-}
-
 fn cli_found(head: &Head) -> bool {
     clis::for_head(head.id).is_some_and(|c| clis::find_cli(c).is_some())
 }
 
-/// Ask one head. A head the person set to use their own tool runs through it;
-/// otherwise the key, with the bash engine's grok CLI fallback.
-pub fn run_head(head: &Head, prompt: &str, opts: &AskOptions, keys: &Keys, settings: &Settings) -> Outcome {
-    if providers::uses_cli(head, settings) && (head.kind == Kind::Cli || cli_found(head) || keys.key(head).is_none()) {
-        return via_cli(head, prompt, opts.research, opts.timeout);
-    }
-    match head.kind {
-        Kind::Cli => via_cli(head, prompt, opts.research, opts.timeout),
-        Kind::Anthropic => match keys.key(head) {
-            Some(k) => anthropic(&k, &providers::model_for(head, settings), prompt, opts.timeout),
-            None => Outcome::Missing("no ANTHROPIC_API_KEY".into()),
-        },
-        Kind::OpenAiCompat => match keys.key(head) {
-            Some(k) => {
-                let o = openai_compat(head, &k, prompt, opts.research, settings, opts.timeout);
-                if head.id == "grok" && !matches!(o, Outcome::Answered(_)) && cli_found(head) {
-                    return via_cli(head, prompt, opts.research, opts.timeout);
-                }
-                o
-            }
-            None if head.id == "grok" => via_cli(head, prompt, opts.research, opts.timeout),
-            None => Outcome::Missing(format!("no {}", head.env_keys.join("/"))),
-        },
+/// Which way to ask a head.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    /// The person's own signed-in tool first, then the key.
+    Auto,
+    /// Only the tool (the Test button on an app card).
+    Tool,
+    /// Only the key (the Test button on a key card).
+    Key,
+}
+
+/// One head's answer, and how it was asked.
+#[derive(Debug, Clone)]
+pub struct HeadRun {
+    pub outcome: Outcome,
+    /// The tool's name, or "API key". None when nothing could ask.
+    pub via: Option<String>,
+    /// What the tool ran, when a tool ran.
+    pub trial: Option<clis::Trial>,
+}
+
+pub const VIA_KEY: &str = "API key";
+
+/// What to tell a person when a head has neither a tool nor a key.
+pub fn missing(head: &Head, route: Route) -> Outcome {
+    let tool = clis::for_head(head.id);
+    let keyed = head.kind != Kind::Cli;
+    match (route, tool) {
+        (Route::Tool, Some(c)) => Outcome::Missing(format!("{} is not on this computer.", c.name), Fix::Install),
+        (Route::Tool, None) => Outcome::Missing(format!("{} has no app to use. Add a key instead.", head.display), Fix::AddKey),
+        (Route::Key, _) | (Route::Auto, None) if keyed => Outcome::Missing(format!("Add a {} key.", head.display), Fix::AddKey),
+        // The tool is not installed (a signed-out tool runs and says so itself).
+        (Route::Auto, Some(c)) if keyed => Outcome::Missing(format!("Add a {} key or install {}.", head.display, c.name), Fix::AddKey),
+        (_, Some(c)) => Outcome::Missing(format!("Install {} to seat {}.", c.name, head.display), Fix::Install),
+        (_, None) => Outcome::Missing(format!("{} cannot be asked on this computer.", head.display), Fix::Install),
     }
 }
 
-/// The chair: the Anthropic key, else Claude Code when the person chose it.
+fn via_key(head: &Head, key: &str, prompt: &str, research: bool, settings: &Settings, timeout: Duration, model: Option<&str>) -> Outcome {
+    match head.kind {
+        Kind::Anthropic => anthropic(key, &model.map(str::to_string).unwrap_or_else(|| providers::model_for(head, settings)), prompt, timeout),
+        Kind::OpenAiCompat => openai_compat(head, key, prompt, research, settings, timeout),
+        Kind::Cli => missing(head, Route::Key),
+    }
+}
+
+/// Ask one head by the route that works: the person's own signed-in tool first,
+/// the API key second. Skipped only when it has neither.
+/// `key_model` overrides the key's model (the chair asks Claude with its own model).
+#[allow(clippy::too_many_arguments)]
+pub fn ask_head(head: &Head, prompt: &str, research: bool, timeout: Duration, keys: &Keys, settings: &Settings, route: Route, key_model: Option<&str>) -> HeadRun {
+    let tool = if route == Route::Key { None } else { clis::for_head(head.id).and_then(|c| clis::find_cli(c).map(|e| (c, e))) };
+    let key = if route == Route::Tool || head.kind == Kind::Cli { None } else { keys.key(head) };
+    let mut tried: Option<HeadRun> = None;
+    if let Some((c, exe)) = tool {
+        let (r, trial) = clis::ask_detailed(c, &exe, prompt, research, timeout);
+        let outcome = match r {
+            clis::CliResult::Answered(t) => Outcome::Answered(t),
+            clis::CliResult::Missing => missing(head, Route::Tool),
+            clis::CliResult::Timeout => Outcome::Timeout,
+            clis::CliResult::Failed(f) => Outcome::ToolFailed(f.fix, f.message),
+        };
+        let run = HeadRun { outcome, via: Some(c.name.to_string()), trial: Some(trial) };
+        if matches!(run.outcome, Outcome::Answered(_)) || key.is_none() {
+            return run;
+        }
+        tried = Some(run);
+    }
+    if let Some(k) = key {
+        let outcome = via_key(head, &k, prompt, research, settings, timeout, key_model);
+        // Both failed: the tool's reason is usually the one to act on, unless the key was refused.
+        if let (Some(t), false) = (&tried, matches!(outcome, Outcome::Answered(_))) {
+            if !matches!(outcome, Outcome::Failed(ErrorClass::BadKey, _)) {
+                return t.clone();
+            }
+        }
+        return HeadRun { outcome, via: Some(VIA_KEY.into()), trial: tried.and_then(|t| t.trial) };
+    }
+    HeadRun { outcome: missing(head, route), via: None, trial: None }
+}
+
+/// Ask one head with the run's options.
+pub fn run_head(head: &Head, prompt: &str, opts: &AskOptions, keys: &Keys, settings: &Settings) -> Outcome {
+    ask_head(head, prompt, opts.research, opts.timeout, keys, settings, Route::Auto, None).outcome
+}
+
+/// The chair: Claude by the same route as a head, with the chair's model on a key.
 fn chair(keys: &Keys, settings: &Settings, prompt: &str, timeout: Duration) -> String {
     let claude = providers::find("claude").unwrap();
-    let out = match keys.key(claude) {
-        Some(k) => anthropic(&k, &providers::chair_model(settings), prompt, timeout),
-        None if providers::uses_cli(claude, settings) => via_cli(claude, prompt, false, timeout),
-        None => return String::new(),
-    };
-    match out {
+    match ask_head(claude, prompt, false, timeout, keys, settings, Route::Auto, Some(&providers::chair_model(settings))).outcome {
         Outcome::Answered(t) => t,
         _ => String::new(),
     }
 }
 
-fn run_round(prompt: &str, round: u32, opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&Event) + Sync)) -> Vec<Outcome> {
+fn run_round(prompt: &str, round: u32, opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&Event) + Sync)) -> Vec<HeadRun> {
     std::thread::scope(|s| {
         let handles: Vec<_> = opts
             .heads
@@ -296,27 +367,44 @@ fn run_round(prompt: &str, round: u32, opts: &AskOptions, keys: &Keys, settings:
             .map(|h| {
                 emit(&Event::HeadStarted { head: h.id.into(), round });
                 s.spawn(move || {
-                    let o = run_head(h, prompt, opts, keys, settings);
-                    emit(&Event::HeadDone {
-                        head: h.id.into(),
-                        round,
-                        status: o.status().into(),
-                        text: if let Outcome::Answered(t) = &o { t.clone() } else { String::new() },
-                        reason: o.reason(),
-                        message: o.reason().map(|r| r.message().to_string()),
-                    });
-                    o
+                    let r = ask_head(h, prompt, opts.research, opts.timeout, keys, settings, Route::Auto, None);
+                    emit(&head_done(h, round, &r));
+                    r
                 })
             })
             .collect();
-        handles.into_iter().map(|h| h.join().unwrap_or(Outcome::Empty("panic".into()))).collect()
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap_or(HeadRun { outcome: Outcome::Empty("panic".into()), via: None, trial: None }))
+            .collect()
     })
+}
+
+/// The `head_done` event for one head's result.
+pub fn head_done(h: &Head, round: u32, r: &HeadRun) -> Event {
+    let o = &r.outcome;
+    Event::HeadDone {
+        head: h.id.into(),
+        round,
+        status: o.status().into(),
+        text: if let Outcome::Answered(t) = o { t.clone() } else { String::new() },
+        reason: o.reason(),
+        message: o.message(),
+        fix: o.fix(),
+        via: r.via.clone(),
+    }
+}
+
+/// Transcript label: says "your plan" when the head answered through the person's tool.
+fn label_for(h: &Head, settings: &Settings, r: &HeadRun) -> String {
+    let tool = r.via.as_deref().is_some_and(|v| v != VIA_KEY);
+    providers::label_via(h, settings, tool)
 }
 
 /// Run the council. `emit` gets every event as it happens; the transcript comes back.
 pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&Event) + Sync)) -> RunResult {
     let n = opts.heads.len();
-    let labels: Vec<String> = opts.heads.iter().map(|h| providers::label(h, settings)).collect();
+    let mut labels: Vec<String> = opts.heads.iter().map(|h| providers::label(h, settings)).collect();
     let advisory = opts.rounds <= 1;
     emit(&Event::RunStarted {
         heads: opts.heads.iter().map(|h| h.id.to_string()).collect(),
@@ -342,6 +430,8 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
     if advisory {
         let res = run_round(&base, 1, opts, keys, settings, emit);
         emit(&Event::RoundDone { round: 1 });
+        labels = opts.heads.iter().zip(&res).map(|(h, r)| label_for(h, settings, r)).collect();
+        let res: Vec<Outcome> = res.into_iter().map(|r| r.outcome).collect();
         for (label, o) in labels.iter().zip(&res) {
             if matches!(o, Outcome::Answered(_)) {
                 answered += 1;
@@ -361,6 +451,10 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
             let prompt = if r == 1 { base.clone() } else { deliberation_prompt(&base, r - 1, &prev, r) };
             let res = run_round(&prompt, r, opts, keys, settings, emit);
             emit(&Event::RoundDone { round: r });
+            if r == 1 {
+                labels = opts.heads.iter().zip(&res).map(|(h, x)| label_for(h, settings, x)).collect();
+            }
+            let res: Vec<Outcome> = res.into_iter().map(|x| x.outcome).collect();
             answered = answered.max(res.iter().filter(|o| matches!(o, Outcome::Answered(_))).count());
             prev = labels.iter().cloned().zip(res.iter().map(|o| o.body())).collect();
             say(&format!("## \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500} Round {r} \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}"));
@@ -476,8 +570,25 @@ mod tests {
         format!("http://{addr}/v1/chat/completions")
     }
 
+    /// No tool installed on the test machine may answer for a head here.
+    fn no_tools() {
+        std::env::set_var("ROUNDTABLE_TOOL_PATH", "");
+    }
+
+    #[test]
+    fn missing_says_what_to_do() {
+        let m = |h: &str, r| missing(providers::find(h).unwrap(), r).message().unwrap();
+        assert_eq!(m("claude", Route::Auto), "Add a Claude key or install Claude Code.");
+        assert_eq!(m("glm", Route::Auto), "Add a GLM key.");
+        assert_eq!(m("gemini", Route::Tool), "Gemini CLI is not on this computer.");
+        assert_eq!(m("gemini", Route::Key), "Add a Gemini key.");
+        assert_eq!(m("codex", Route::Auto), "Install Codex to seat Codex.");
+        assert_eq!(missing(providers::find("claude").unwrap(), Route::Auto).fix(), Some(Fix::AddKey));
+    }
+
     #[test]
     fn advisory_run_against_fake_provider() {
+        no_tools();
         let url = fake_server(200, r#"{"choices":[{"message":{"content":"Bake bread."}}]}"#);
         std::env::set_var("ROUNDTABLE_GLM_URL", &url);
         let store = MemoryStore::default();
@@ -512,6 +623,7 @@ mod tests {
 
     #[test]
     fn bad_key_is_a_plain_failure() {
+        no_tools();
         let url = fake_server(401, r#"{"error":"invalid key"}"#);
         std::env::set_var("ROUNDTABLE_MINIMAX_URL", &url);
         let store = MemoryStore::default();

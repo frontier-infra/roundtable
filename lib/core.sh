@@ -87,7 +87,7 @@ load_keys
 #  (date in comment = last time the id was checked / updated)
 # ══════════════════════════════════════════════════════════════════════════
 GROK_MODEL="${ROUNDTABLE_GROK_MODEL:-grok-4.3}"                     # 🤖 xAI Grok — api.x.ai seat (XAI_API_KEY; Hermes OAuth fallback)
-GROK_CLI_MODEL="${ROUNDTABLE_GROK_CLI_MODEL:-grok-composer-2.5-fast}" # 🤖 grok CLI fallback (used only if no key/token)
+GROK_CLI_MODEL="${ROUNDTABLE_GROK_CLI_MODEL:-}" # 🤖 grok CLI fallback (used only if no key/token); empty = the CLI's own default model
 OPENAI_MODEL="${ROUNDTABLE_OPENAI_MODEL:-gpt-5.5}"                  # 🧠 OpenAI — keyed seat (api.openai.com)
 GLM_MODEL="${ROUNDTABLE_GLM_MODEL:-glm-5.2}"                        # 🟣 Z.AI GLM
 MINIMAX_MODEL="${ROUNDTABLE_MINIMAX_MODEL:-MiniMax-M3}"             # 🟠 MiniMax
@@ -158,8 +158,9 @@ except Exception: pass" 2>/dev/null)"
   # Fallback: grok CLI (coding-plan composer).
   command -v grok >/dev/null 2>&1 || { echo "__MISSING__ (no XAI_API_KEY / OAuth token / grok CLI)" >"$out"; return; }
   local p; p="$(cat "$PFILE")"
-  if [[ "$RESEARCH" -eq 1 ]]; then run_to "$TIMEOUT" grok -p "$p" -m "$GROK_CLI_MODEL" --max-turns 8 >"$out" 2>"$err"
-  else run_to "$TIMEOUT" grok -p "$p" -m "$GROK_CLI_MODEL" --max-turns 6 --disable-web-search >"$out" 2>"$err"; fi
+  local gm=(); [[ -n "$GROK_CLI_MODEL" ]] && gm=(-m "$GROK_CLI_MODEL")
+  if [[ "$RESEARCH" -eq 1 ]]; then run_to "$TIMEOUT" grok -p "$p" ${gm[@]+"${gm[@]}"} --max-turns 8 --no-subagents </dev/null >"$out" 2>"$err"
+  else run_to "$TIMEOUT" grok -p "$p" ${gm[@]+"${gm[@]}"} --max-turns 6 --no-subagents --disable-web-search </dev/null >"$out" 2>"$err"; fi
   local rc=$?
   [[ $rc -eq 124 ]] && echo "__TIMEOUT__ (${TIMEOUT}s)" >"$out"
   [[ ! -s "$out" ]] && echo "__EMPTY__ (rc=$rc) $(tail -c 200 "$err" 2>/dev/null)" >"$out"
