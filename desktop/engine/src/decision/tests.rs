@@ -266,3 +266,79 @@ fn council_run_carries_the_decision_into_transcript_and_events() {
     assert_eq!(body["model"], "link21-test");
     assert_eq!(body["state"]["positions"][0]["position"], "POSITION: Bake bread.");
 }
+
+#[test]
+fn only_our_jebadiah_builds_count() {
+    for id in [
+        "frontier-infra/jebadiah-9b-v2",
+        "hf.co/frontier-infra/jebadiah-9b-v2-GGUF:Q4_K_M",
+        "huggingface.co/frontier-infra/jebadiah-27b",
+        "frontierinfra/jebadiah:9b",
+        "frontierinfra/jebadiah",
+        "jbrashearfrontierinfra/jebadiah:latest",
+        "registry.ollama.ai/frontierinfra/jebadiah:4b",
+        "Frontier-Infra/Jebadiah-4B-v2",
+    ] {
+        assert!(detect::is_ours(id), "{id} is ours");
+    }
+    for id in [
+        "hf.co/Jebadiah/jebadiah-9b-uncensored-GGUF:Q4_K_M",
+        "Jebadiah/some-adult-model",
+        "jebadiah/jebadiah-9b",
+        "jebadiah-9b",
+        "jebadiah:latest",
+        "hf.co/someone/frontier-infra-jebadiah-9b",
+        "frontier-infra/jebadiahx-9b",
+        "frontier-infra-fan/jebadiah-9b",
+    ] {
+        assert!(!detect::is_ours(id), "{id} is not ours");
+    }
+    let ids: Vec<String> = ["hf.co/Jebadiah/jebadiah-9b-x:Q4", "frontierinfra/jebadiah:4b"].iter().map(|s| s.to_string()).collect();
+    assert_eq!(detect::pick(&ids).as_deref(), Some("frontierinfra/jebadiah:4b"), "a stranger's 9b never beats our 4b");
+}
+
+#[test]
+fn detect_skips_a_strangers_jebadiah_in_ollama_and_on_a_server() {
+    // A fake Ollama list with both kinds, and a server that lists only a stranger's model.
+    let (ollama, _) = server(vec![(
+        "/api/tags",
+        200,
+        json!({"models": [{"name": "hf.co/Jebadiah/jebadiah-9b-uncensored-GGUF:Q4_K_M"}, {"name": "frontierinfra/jebadiah:9b"}, {"name": "llama3.2:3b"}]}).to_string(),
+    )]);
+    let (stranger, _) = server(vec![("/v1/models", 200, json!({"object": "list", "data": [{"id": "Jebadiah/some-adult-model"}]}).to_string())]);
+    let store = MemoryStore::default();
+    let env = |weights: String| -> BTreeMap<String, String> {
+        [("ROUNDTABLE_JEBADIAH_PROBE".to_string(), stranger.clone()), ("ROUNDTABLE_JEBADIAH_WEIGHTS".to_string(), weights)].into()
+    };
+    let k = Keys { store: &store, env: env(format!("Ollama={ollama}/api/tags")), file: BTreeMap::new() };
+    let d = detect::find_jebadiah(&k, None);
+    assert_eq!(d.found, None, "a stranger's server is not used as the decision model");
+    assert_eq!(d.looked[0], format!("{stranger}: answered, no Jebadiah model"));
+    assert_eq!(d.looked[1], "Ollama: 3 models");
+    assert_eq!(d.hint.as_deref(), Some("Ollama has Jebadiah. Run `jeb serve` (pip install jebadiah-decide) so Roundtable can ask it."));
+    assert_eq!(
+        d.note.as_deref(),
+        Some("Skipped 2 unrelated models named Jebadiah, not frontier-infra builds: Jebadiah/some-adult-model, hf.co/Jebadiah/jebadiah-9b-uncensored-GGUF:Q4_K_M.")
+    );
+    let out = serde_json::to_value(&d).unwrap();
+    assert!(out["note"].as_str().unwrap().starts_with("Skipped 2 unrelated"), "detect output carries the note");
+
+    // Ollama with only the stranger's model: no hint to run it, one-line note.
+    let (only_stranger, _) = server(vec![("/api/tags", 200, json!({"models": [{"name": "hf.co/Jebadiah/jebadiah-9b-uncensored-GGUF:Q4_K_M"}]}).to_string())]);
+    let (empty, _) = server(vec![("/v1/models", 200, json!({"object": "list", "data": []}).to_string())]);
+    let k = Keys {
+        store: &store,
+        env: [("ROUNDTABLE_JEBADIAH_PROBE".to_string(), empty.clone()), ("ROUNDTABLE_JEBADIAH_WEIGHTS".to_string(), format!("Ollama={only_stranger}/api/tags"))].into(),
+        file: BTreeMap::new(),
+    };
+    let d = detect::find_jebadiah(&k, None);
+    assert_eq!((d.found, d.hint), (None, None));
+    assert_eq!(d.note.as_deref(), Some("Skipped hf.co/Jebadiah/jebadiah-9b-uncensored-GGUF:Q4_K_M: an unrelated model named Jebadiah, not a frontier-infra build."));
+
+    // Our build behind a server is found; nothing to note.
+    let (ours, _) = server(vec![("/v1/models", 200, json!({"object": "list", "data": [{"id": "frontier-infra/jebadiah-9b-v2"}]}).to_string())]);
+    let k = Keys { store: &store, env: [("ROUNDTABLE_JEBADIAH_PROBE".to_string(), format!("{stranger},{ours}"))].into(), file: BTreeMap::new() };
+    let d = detect::find_jebadiah(&k, None);
+    assert_eq!(d.found.map(|f| f.model).as_deref(), Some("frontier-infra/jebadiah-9b-v2"));
+    assert_eq!(d.note.as_deref(), Some("Skipped Jebadiah/some-adult-model: an unrelated model named Jebadiah, not a frontier-infra build."));
+}
