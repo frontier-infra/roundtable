@@ -3453,6 +3453,7 @@ details.pack summary {
 
 .deep-suggest .actions {
   justify-content: flex-start;
+}
 
 /* Use Roundtable from your AI: other apps, snippets, Share with ChatGPT */
 .connect-done {
