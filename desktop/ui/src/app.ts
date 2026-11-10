@@ -9,6 +9,12 @@ import {
   cliHeadsOn,
   connectedHeads,
   defaultCliHeads,
+  filterHistory,
+  flagOnly,
+  pickRows,
+  roundtables,
+  runSource,
+  UNDO_MS,
   initialState,
   keyCardFromResult,
   keysFromStatus,
@@ -51,6 +57,12 @@ export class App {
   state: State = initialState();
   private updateInstall: (() => Promise<void>) | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Deletes still inside their Undo window, by token: the timer that makes them final. */
+  private pending = new Map<string, ReturnType<typeof setTimeout>>();
+  /** The roundtable to reopen if the last delete is undone. */
+  private undoReopen: string | null = null;
+  /** A history row to focus after the next render (keyboard use). */
+  focusRow: string | null = null;
 
   constructor(
     public api: Api,
@@ -94,6 +106,19 @@ export class App {
         if (this.state.clis.signingIn.length && !this.state.clis.loading) void this.refreshClis();
       });
     }
+    if (typeof window !== "undefined") {
+      // Command or Control Z undoes the last delete while Undo is offered.
+      window.addEventListener("keydown", (e) => {
+        const t = e.target as HTMLElement | null;
+        const typing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+        if (this.state.undo && !typing && (e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+          e.preventDefault();
+          void this.undoDelete();
+        }
+      });
+      // Closing the window ends the Undo window. The core finishes any delete left on the next start.
+      window.addEventListener("pagehide", () => this.purgePending());
+    }
     if (opts.view) this.state.view = opts.view;
     else this.state.view = this.state.settings.onboarded && this.state.engineReady ? "main" : "onboarding";
     if (opts.screen) this.state.step = Math.min(5, Math.max(1, opts.screen)) as Step;
@@ -123,15 +148,30 @@ export class App {
           h("button", { class: "btn small", type: "button", text: "Later", on: { click: () => this.set({ update: null }) } }),
         )
       : null;
-    const toast = s.toast ? h("div", { class: "toast", role: "status", text: s.toast }) : null;
+    const toast = s.toast
+      ? h(
+          "div",
+          { class: s.undo ? "toast has-action" : "toast", role: "status", attrs: { "aria-live": "polite" } },
+          h("span", { text: s.toast }),
+          s.undo
+            ? h("button", { class: "toast-action", type: "button", text: "Undo", attrs: { "aria-label": `Undo delete of ${roundtables(s.undo.count)}` }, on: { click: () => void this.undoDelete() } })
+            : null,
+        )
+      : null;
     this.root.replaceChildren(...[banner, view, toast].filter((x): x is HTMLElement => !!x));
+    if (this.focusRow) {
+      const id = this.focusRow;
+      [...this.root.querySelectorAll<HTMLElement>(".history li")].find((li) => li.dataset.id === id)?.focus();
+      this.focusRow = null;
+    }
   }
 
-  showToast(msg: string) {
+  showToast(msg: string, ms = 3000, undo: State["undo"] = null) {
+    this.state.undo = undo;
     this.state.toast = msg;
     this.render();
     if (this.toastTimer) clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => this.set({ toast: null }), 3000);
+    this.toastTimer = setTimeout(() => this.set({ toast: null, undo: null }), ms);
   }
 
   // ---- Walkthrough ----
@@ -501,7 +541,7 @@ export class App {
     const all = tableHeads(this.state.settings, this.state.keys, this.cliHeads());
     // A follow-up to one seat asks only that seat's AI.
     const heads = extra.onlyHeads?.length ? all.filter((h) => extra.onlyHeads!.includes(h)) : all;
-    if (!question.trim() || !heads.length) return;
+    if (flagOnly(question) || !heads.length) return;
     const ctx = context?.text ? "follow-up" : context?.path ?? null;
     const n = roundsOf(rounds);
     const plan = seats ?? (this.state.view === "onboarding" ? heads.map((h) => ({ persona: "", head: h })) : planSeats(this.state.ask, heads, this.state.personas));
@@ -547,6 +587,7 @@ export class App {
           openFirstRound: !!extra.openFirstRound,
           prior: extra.prior ?? null,
           attached: extra.attached ?? null,
+          source: runSource(this.state.view, question),
         },
         onEvent,
       );
@@ -575,7 +616,7 @@ export class App {
   /** The ask box's main button: the coach first when it is on, else straight to the table. */
   async startAsk() {
     const a = this.state.ask;
-    if (!a.question.trim()) return;
+    if (flagOnly(a.question)) return;
     if (a.coach) return this.openCoach(a.question.trim());
     return this.askTable(a.question.trim(), null);
   }
@@ -821,16 +862,118 @@ export class App {
     this.render();
   }
 
-  async deleteHistory(id: string) {
-    await this.api.historyDelete(id);
-    if (this.state.opened?.id === id) this.state.opened = null;
+  /** Delete roundtables, with Undo for a few seconds. After that the files are gone. */
+  async deleteHistory(ids: string[]) {
+    ids = [...new Set(ids)];
+    if (!ids.length) return;
+    const s = this.state;
+    // Keyboard focus moves to the row after the last one deleted.
+    const order = s.history.map((e) => e.id);
+    const last = Math.max(...ids.map((i) => order.indexOf(i)));
+    const nextId = order.slice(last + 1).find((i) => !ids.includes(i)) ?? [...order].reverse().find((i) => !ids.includes(i)) ?? null;
+    let token: string;
+    try {
+      token = await this.api.historyDelete(ids);
+    } catch (e) {
+      this.showToast(errorText(e));
+      return;
+    }
+    this.undoReopen = s.opened && ids.includes(s.opened.id) ? s.opened.id : null;
+    if (this.undoReopen) s.opened = null;
+    s.historySel = s.historySel.filter((i) => !ids.includes(i));
+    if (!s.historySel.length) s.selecting = false;
+    if (s.historyAnchor && ids.includes(s.historyAnchor)) s.historyAnchor = null;
     await this.refreshHistory();
+    this.pending.set(
+      token,
+      setTimeout(() => void this.purge(token), UNDO_MS),
+    );
+    if (document.activeElement?.closest?.(".history") && nextId) this.focusRow = nextId;
+    this.showToast(ids.length === 1 ? "Deleted." : `Deleted ${roundtables(ids.length)}.`, UNDO_MS, { token, count: ids.length });
+  }
+
+  /** Put the last delete back. */
+  async undoDelete() {
+    const u = this.state.undo;
+    if (!u) return;
+    const t = this.pending.get(u.token);
+    if (t) clearTimeout(t);
+    this.pending.delete(u.token);
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.state.undo = null;
+    this.state.toast = null;
+    try {
+      await this.api.historyRestore(u.token);
+    } catch (e) {
+      await this.refreshHistory();
+      this.showToast(errorText(e));
+      return;
+    }
+    await this.refreshHistory();
+    const reopen = this.undoReopen;
+    this.undoReopen = null;
+    if (reopen && !this.state.run) {
+      await this.openHistory(reopen);
+      return;
+    }
     this.render();
   }
 
+  private async purge(token: string) {
+    this.pending.delete(token);
+    if (this.state.undo?.token === token) this.set({ undo: null, toast: null });
+    try {
+      await this.api.historyPurge(token);
+    } catch {
+      /* the core finishes it on the next start */
+    }
+  }
+
+  /** End every Undo window now. */
+  purgePending() {
+    for (const [token, t] of this.pending) {
+      clearTimeout(t);
+      void this.purge(token);
+    }
+  }
+
+  /** A click on a row: plain opens, command or control picks, shift picks a range. */
+  clickHistory(id: string, ev: { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean }) {
+    const s = this.state;
+    const how = ev.shiftKey ? "range" : ev.metaKey || ev.ctrlKey || s.selecting ? "toggle" : null;
+    if (!how) {
+      s.historySel = [];
+      s.historyAnchor = id;
+      void this.openHistory(id);
+      return;
+    }
+    // The open roundtable counts as picked when a pick starts from it.
+    const base = !s.selecting && !s.historySel.length && s.opened && how === "toggle" && s.opened.id !== id ? [s.opened.id] : s.historySel;
+    s.historySel = pickRows(filterHistory(s.history, s.historyFilter), base, s.historyAnchor ?? s.opened?.id ?? null, id, how);
+    if (how === "toggle") s.historyAnchor = id;
+    s.selecting = s.historySel.length > 0;
+    this.focusRow = id;
+    this.render();
+  }
+
+  /** Select mode on or off. Off clears the picks. */
+  setSelecting(on: boolean) {
+    this.state.selecting = on;
+    if (!on) this.state.historySel = [];
+    this.render();
+  }
+
+  /** Settings, History: delete every roundtable. The caller confirms first. */
   async clearHistory() {
-    await this.api.historyClear();
-    this.state.opened = null;
+    for (const t of this.pending.values()) clearTimeout(t);
+    this.pending.clear();
+    try {
+      await this.api.historyClear();
+    } catch (e) {
+      this.showToast(errorText(e));
+      return;
+    }
+    Object.assign(this.state, { opened: null, historySel: [], selecting: false, historyAnchor: null });
     await this.refreshHistory();
     this.showToast("History deleted.");
   }

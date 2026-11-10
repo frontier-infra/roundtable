@@ -72,6 +72,8 @@ Ask flags:
       --out FILE        Also save the transcript to FILE
       --events          Print one JSON event per line (for the app)
       --no-history      Do not keep this run in history
+      --source NAME     Who started the run: terminal (default), app or claude.
+                        setup and test runs are never kept in history
       --decision NAME   Rate the verdict with a decision model: jev, jebadiah,
                         systemone (any other System One model, for example LINK21) or off
 
@@ -142,6 +144,8 @@ struct AskArgs {
     follow_up: Option<String>,
     attach: Vec<String>,
     attached: Option<String>,
+    /// `--help` or `--version` came with the question: print it, start no run.
+    info: Option<&'static str>,
 }
 
 fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
@@ -157,7 +161,8 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
         out: None,
         events: false,
         no_history: false,
-        source: "terminal".into(),
+        // A test harness marks its runs with ROUNDTABLE_TEST=1; they stay out of history.
+        source: if std::env::var("ROUNDTABLE_TEST").is_ok_and(|v| !v.is_empty() && v != "0") { "test".into() } else { "terminal".into() },
         decision: None,
         coach: false,
         coach_answers: Vec::new(),
@@ -169,6 +174,7 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
         follow_up: None,
         attach: Vec::new(),
         attached: None,
+        info: None,
     };
     let mut i = 0;
     let val = |i: &mut usize| -> Result<String, String> {
@@ -188,7 +194,12 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
             "--out" => a.out = Some(val(&mut i)?),
             "--events" => a.events = true,
             "--no-history" => a.no_history = true,
-            "--source" => a.source = val(&mut i)?,
+            "--source" => {
+                let v = val(&mut i)?;
+                if a.source != "test" {
+                    a.source = v;
+                }
+            }
             "--decision" => a.decision = Some(val(&mut i)?),
             "--coach" => a.coach = true,
             "--coach-answer" => {
@@ -204,6 +215,8 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
             "--follow-up" => a.follow_up = Some(val(&mut i)?),
             "--attach" => a.attach.push(val(&mut i)?),
             "--attached" => a.attached = Some(val(&mut i)?),
+            "-h" | "--help" => a.info = Some("help"),
+            "-V" | "--version" => a.info = a.info.or(Some("version")),
             other => {
                 if !a.question.is_empty() {
                     a.question.push(' ');
@@ -218,7 +231,7 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
 
 /// Keep a finished run in history unless turned off. Returns the id.
 fn record(r: &RunResult, opts: &AskOptions, source: &str, settings: &Settings) -> Option<String> {
-    if !settings.history {
+    if !settings.history || !history::worth_keeping(&opts.question, source) {
         return None;
     }
     let e = history::Entry {
@@ -246,7 +259,16 @@ fn cmd_ask(args: &[String]) -> u8 {
             return 2;
         }
     };
-    if a.question.trim().is_empty() {
+    match a.info {
+        Some("help") => {
+            println!("{USAGE}\n{CREDIT_LINE}");
+            return 0;
+        }
+        Some(_) => return cmd_version(&[]),
+        None => {}
+    }
+    // Only flags, or nothing: never a run, never a roundtable in history.
+    if history::flag_only(&a.question) {
         eprintln!("ERROR: no question. Use -q \"...\".");
         return 2;
     }

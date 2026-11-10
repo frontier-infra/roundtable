@@ -1224,13 +1224,118 @@ input[type="checkbox"]:not(.switch):checked {
 }
 
 .history li {
+  position: relative;
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  align-items: flex-start;
+  gap: 10px;
   padding: 9px 10px;
   border-radius: var(--r-sm);
   cursor: pointer;
   transition: background 0.15s;
+}
+
+.history li:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Delete on hover or focus, at the row's right edge. */
+.row-delete {
+  position: absolute;
+  top: 7px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+
+.row-delete .glyph {
+  width: 15px;
+  height: 15px;
+}
+
+.history li:hover .row-delete,
+.history li:focus-within .row-delete,
+.row-delete:focus-visible {
+  opacity: 1;
+}
+
+.row-delete:hover,
+.row-delete:focus-visible {
+  color: var(--bad);
+  background: var(--line);
+}
+
+.history li:hover .q,
+.history li:focus-within .q {
+  padding-right: 26px;
+}
+
+.row-check {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.history li.picked {
+  background: var(--surface-2);
+}
+
+.select-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 30px;
+  margin: -4px 0 -6px;
+}
+
+.select-count {
+  font: 11.5px var(--mono);
+  color: var(--faint);
+  padding-left: 2px;
+}
+
+.select-bar.on .select-count {
+  color: var(--ink);
+}
+
+.select-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.select-bar .btn.small {
+  height: 28px;
+  padding: 0 9px;
+}
+
+.btn.danger:disabled {
+  color: var(--faint);
+}
+
+.actions .push-right {
+  margin-left: auto;
 }
 
 .history li:hover {
@@ -1279,6 +1384,22 @@ input[type="checkbox"]:not(.switch):checked {
   box-shadow: var(--shadow);
   padding: 4px;
   z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 168px;
+}
+
+.menu-item {
+  text-align: left;
+}
+
+.menu-item:focus-visible {
+  outline: none;
+  background: var(--line);
+}
+
+.actions.left:has(> .btn.danger) {
+  align-items: center;
 }
 
 .menu-item {
@@ -1837,6 +1958,31 @@ details.advanced {
   z-index: 30;
   font-weight: 600;
   font-size: 13.5px;
+}
+
+.toast.has-action {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 6px 6px 18px;
+}
+
+.toast-action {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--bg);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.toast-action:hover,
+.toast-action:focus-visible {
+  background: color-mix(in srgb, var(--bg) 14%, transparent);
+  outline: none;
 }
 
 /* Scrollbars that sit back */

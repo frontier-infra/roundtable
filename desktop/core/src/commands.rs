@@ -548,17 +548,23 @@ pub fn ask_start(
     open_first_round: Option<bool>,
     prior: Option<String>,
     attached: Option<String>,
+    source: Option<String>,
 ) -> Result<u64, String> {
     if question.trim().is_empty() {
         return Err("Type a question first.".into());
     }
+    // The first-run sample is the setup check: the engine keeps it out of history.
+    let source = match source.as_deref() {
+        Some("setup") => "setup",
+        _ => "app",
+    };
     let mut slot = state.run.lock().unwrap();
     if let Some((_, mut old)) = slot.take() {
         let _ = old.kill();
     }
     let csv = heads.join(",");
     let rounds_s = rounds.clamp(1, roundtable_engine::council::MAX_ROUNDS).to_string();
-    let mut args: Vec<&str> = vec!["ask", "--events", "--source", "app", "--rounds", &rounds_s];
+    let mut args: Vec<&str> = vec!["ask", "--events", "--source", source, "--rounds", &rounds_s];
     if !csv.is_empty() {
         args.extend(["--heads", &csv]);
     }
@@ -746,14 +752,57 @@ pub fn history_get(id: String) -> Option<String> {
     history::read(&paths::history_dir(), &id)
 }
 
+/// Take roundtables out of history. They wait aside until Undo ([`history_restore`])
+/// or the end of the Undo window ([`history_purge`]). Returns the Undo token.
 #[tauri::command]
-pub fn history_delete(id: String) -> Result<(), String> {
-    history::delete(&paths::history_dir(), &id).map_err(|e| e.to_string())
+pub fn history_delete(ids: Vec<String>) -> Result<String, String> {
+    history::trash(&paths::history_dir(), &ids).map_err(|e| e.to_string())
+}
+
+/// Undo a delete: the roundtables come back exactly as they were.
+#[tauri::command]
+pub fn history_restore(token: String) -> Result<usize, String> {
+    history::restore(&paths::history_dir(), &token).map_err(|e| e.to_string())
+}
+
+/// The Undo window closed: delete the files from this computer for good.
+#[tauri::command]
+pub fn history_purge(state: State<'_, AppState>, token: String) -> Result<(), String> {
+    history::purge(&paths::history_dir(), &token).map_err(|e| e.to_string())?;
+    clear_run_inputs(&state);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn history_clear() -> Result<(), String> {
-    history::clear(&paths::history_dir()).map_err(|e| e.to_string())
+pub fn history_clear(state: State<'_, AppState>) -> Result<(), String> {
+    history::clear(&paths::history_dir()).map_err(|e| e.to_string())?;
+    clear_run_inputs(&state);
+    Ok(())
+}
+
+/// The text a run read (attached-file summaries, the brief, earlier turns) sits in
+/// tmp/ while it runs. With no run going, it goes, so a deleted roundtable leaves nothing.
+fn clear_run_inputs(state: &AppState) {
+    let alive = |c: &mut Child| matches!(c.try_wait(), Ok(None));
+    let running = state.run.lock().map(|mut r| r.as_mut().is_some_and(|(_, c)| alive(c))).unwrap_or(true)
+        || state.retries.lock().map(|mut v| v.iter_mut().any(alive)).unwrap_or(true);
+    if !running {
+        remove_run_inputs(&paths::data_dir().join("tmp"));
+    }
+}
+
+/// Remove the run inputs (`*.md`) in `dir`. Sign-in scripts stay.
+pub fn remove_run_inputs(dir: &std::path::Path) {
+    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        if e.path().extension().is_some_and(|x| x == "md") {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+}
+
+/// On launch: finish deletes whose Undo window was cut short by a quit.
+pub fn purge_history_trash() {
+    let _ = history::purge_all(&paths::history_dir());
 }
 
 #[tauri::command]

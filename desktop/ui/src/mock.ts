@@ -2,7 +2,7 @@
 // browser preview (`?mock=1`), so every screen can be seen without keys or network.
 
 import type { Api, ClaudeStatus, CliDetection, EngineEvent, Fix, HeadTest, HistoryEntry, KeysStatus, LocalProvider, ModelInfo, Pack, Persona, ProviderConfig, ProviderRow, SeatInfo, Settings } from "./api";
-import { defaultSettings, findPersona, labLabel, seatKeys, slug } from "./state";
+import { defaultSettings, findPersona, flagOnly, labLabel, seatKeys, slug } from "./state";
 import { builtinPacks, libraryOf } from "./mock-personas";
 import { LOCAL_NOTE, PRESET_NAMES, PROVIDERS, splitSeat } from "./providers";
 
@@ -121,6 +121,9 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
   let installed = !!o.onboarded;
   let history: HistoryEntry[] = [...(o.history ?? [])];
   const transcripts = new Map<string, string>(history.map((e) => [e.id, `# Round Table\n\n_Question:_ ${e.question}\n\n## Claude\n\nA saved answer.`]));
+  // Deleted roundtables waiting out the Undo window, like the engine's history/.trash.
+  const trash = new Map<string, { rows: HistoryEntry[]; texts: [string, string][] }>();
+  let trashN = 0;
   const mode = o.claude ?? "both";
   const claude: ClaudeStatus = {
     app_found: mode === "app" || mode === "both" || mode === "plugin",
@@ -390,13 +393,14 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
             confidence: req.verdict === "decision" ? "medium" : undefined,
           });
         }
-        const id = `${Math.floor(Date.now() / 1000)}-abcd`;
+        const id = `${Math.floor(Date.now() / 1000)}-${(history.length + 0xabcd).toString(16)}`;
         const transcript = `# Round Table\n\n_Question:_ ${req.question}\n`;
-        if (settings.history) {
+        const keep = settings.history && req.source !== "setup" && !flagOnly(req.question);
+        if (keep) {
           history = [{ id, ts: Math.floor(Date.now() / 1000), question: req.question, source: "app", mode: req.rounds > 1 ? "deliberation" : "advisory", heads: req.heads }, ...history];
           transcripts.set(id, transcript);
         }
-        emit({ event: "run_done", transcript, answered, consensus: req.rounds > 1 ? true : undefined, history_id: id });
+        emit({ event: "run_done", transcript, answered, consensus: req.rounds > 1 ? true : undefined, history_id: keep ? id : undefined });
         emit({ event: "process_exit" });
       };
       void run();
@@ -506,11 +510,33 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[] } {
     },
     historyList: async () => [...history],
     historyGet: async (id) => transcripts.get(id) ?? null,
-    async historyDelete(id) {
-      history = history.filter((e) => e.id !== id);
+    async historyDelete(ids) {
+      calls.push(`historyDelete:${ids.join(",")}`);
+      const token = `${Date.now()}-${(trashN++).toString(16)}`;
+      const rows = history.filter((e) => ids.includes(e.id));
+      trash.set(token, { rows, texts: ids.filter((i) => transcripts.has(i)).map((i) => [i, transcripts.get(i)!]) });
+      history = history.filter((e) => !ids.includes(e.id));
+      ids.forEach((i) => transcripts.delete(i));
+      return token;
+    },
+    async historyRestore(token) {
+      calls.push(`historyRestore:${token}`);
+      const t = trash.get(token);
+      if (!t) throw new Error("already deleted");
+      trash.delete(token);
+      history = [...history, ...t.rows].sort((a, b) => b.ts - a.ts || b.id.localeCompare(a.id));
+      t.texts.forEach(([i, x]) => transcripts.set(i, x));
+      return t.rows.length;
+    },
+    async historyPurge(token) {
+      calls.push(`historyPurge:${token}`);
+      trash.delete(token);
     },
     async historyClear() {
+      calls.push("historyClear");
       history = [];
+      transcripts.clear();
+      trash.clear();
     },
     settingsGet: async () => ({ ...settings, providers: (settings.providers ?? []).map((p) => ({ ...p, models: [...p.models] })) }),
     async settingsSet(s) {
