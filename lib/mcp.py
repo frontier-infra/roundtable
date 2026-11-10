@@ -30,6 +30,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 
 SERVER_NAME = "roundtable"
 SERVER_VERSION = "0.1.1"
@@ -144,12 +146,52 @@ TOOL = {
 
 # ── JSON-RPC framing ────────────────────────────────────────────────────────
 
+_WRITE_LOCK = threading.Lock()
+
+# Seconds between progress heartbeats while the council runs.
+HEARTBEAT_SECS = float(os.environ.get("ROUNDTABLE_MCP_HEARTBEAT", "10"))
+
+
 def _write(obj):
     """Serialize one JSON-RPC message as a single newline-delimited line on stdout."""
     # ensure_ascii=False keeps UTF-8 (spec-preferred) and is still single-line because
     # json.dumps never emits raw newlines (string newlines are escaped to \n).
-    sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    with _WRITE_LOCK:
+        sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
+
+
+class _Heartbeat(object):
+    """notifications/progress every HEARTBEAT_SECS while a run goes, when the caller
+    sent a progressToken, so clients that reset their timeout on progress keep waiting.
+    Progress always rises and never reaches 1 (the run's end)."""
+
+    def __init__(self, token):
+        self.token = token
+        self.stop = threading.Event()
+        self.started = time.time()
+        self.progress = 0.0
+        self.thread = None
+
+    def __enter__(self):
+        if self.token is not None:
+            self.thread = threading.Thread(target=self._run)
+            self.thread.daemon = True
+            self.thread.start()
+        return self
+
+    def _run(self):
+        while not self.stop.wait(HEARTBEAT_SECS):
+            self.progress += (1.0 - self.progress) * 0.1
+            secs = int(time.time() - self.started)
+            _write({"jsonrpc": "2.0", "method": "notifications/progress", "params": {
+                "progressToken": self.token, "progress": round(self.progress, 4), "total": 1,
+                "message": "The table is working (%dm %02ds)." % (secs // 60, secs % 60)}})
+
+    def __exit__(self, *_):
+        self.stop.set()
+        if self.thread is not None:
+            self.thread.join()
 
 
 def _result(req_id, result):
@@ -309,19 +351,23 @@ def handle_tools_call(req_id, params):
             _error(req_id, INVALID_PARAMS, "'rounds' must be an integer")
             return
 
-    text, is_error = run_engine(
-        question=question,
-        heads=args.get("heads"),
-        rounds=rounds,
-        research=bool(args.get("research", False)),
-        personas=args.get("personas") or None,
-        coach=bool(args.get("coach", False)),
-        coach_answers=_strings(args.get("coach_answers")),
-        verdict=args.get("verdict") or None,
-        blind=args.get("blind") if isinstance(args.get("blind"), bool) else None,
-        attach=_strings(args.get("attach")),
-        mode=args.get("mode") or None,
-    )
+    token = (params.get("_meta") or {}).get("progressToken")
+    if not isinstance(token, (str, int)) or isinstance(token, bool):
+        token = None
+    with _Heartbeat(token):
+        text, is_error = run_engine(
+            question=question,
+            heads=args.get("heads"),
+            rounds=rounds,
+            research=bool(args.get("research", False)),
+            personas=args.get("personas") or None,
+            coach=bool(args.get("coach", False)),
+            coach_answers=_strings(args.get("coach_answers")),
+            verdict=args.get("verdict") or None,
+            blind=args.get("blind") if isinstance(args.get("blind"), bool) else None,
+            attach=_strings(args.get("attach")),
+            mode=args.get("mode") or None,
+        )
     _result(req_id, {"content": [{"type": "text", "text": text}], "isError": is_error})
 
 

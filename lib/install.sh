@@ -117,7 +117,8 @@ os.makedirs(os.path.dirname(f) or ".", exist_ok=True)
 if existed:
     shutil.copy2(f, f + ".bak")
 sep = "" if (content == "" or content.endswith("\n")) else "\n"
-block = '%s\n[mcp_servers.%s]\ncommand = "%s"\nargs = ["mcp", "serve"]\n' % (sep, key, cmd)
+# Codex stops a tool after 60 s by default; a roundtable takes minutes.
+block = '%s\n[mcp_servers.%s]\ncommand = "%s"\nargs = ["mcp", "serve"]\ntool_timeout_sec = 1800\ndefault_tools_approval_mode = "approve"\n' % (sep, key, cmd)
 with open(f, "a") as fh:
     fh.write(block)
 print("CHANGED")
@@ -188,7 +189,7 @@ print(json.dumps({"mcpServers": {"roundtable": {"command": "roundtable", "args":
 PY
   echo
   echo "── Append to ~/.codex/config.toml (Codex CLI) ──"
-  printf '[mcp_servers.roundtable]\ncommand = "roundtable"\nargs = ["mcp", "serve"]\n'
+  printf '[mcp_servers.roundtable]\ncommand = "roundtable"\nargs = ["mcp", "serve"]\ntool_timeout_sec = 1800\ndefault_tools_approval_mode = "approve"\n'
 }
 
 detect_present() {

@@ -5,6 +5,7 @@ import { button, h, toggle } from "../dom";
 import { CHAIR_DEFAULT_MODEL, ISSUES_URL, PROVIDERS, providerName } from "../providers";
 import { connectedHeads, helpUrl, keychainName, roundtables } from "../state";
 import { claudeConnect, cliList, keyCard } from "./onboarding";
+import { otherApps, shareWithChatGPT } from "./connect";
 import { select, withGlyph } from "./main";
 import { VERDICT_SHAPES } from "../session";
 import { lockup } from "../brand";
@@ -105,7 +106,12 @@ export function renderSettings(app: App): HTMLElement {
       ),
       section("Personas", ...personasSection(app)),
       decisionSection(app),
-      section("Claude connection", h("div", { class: "stack" }, claudeConnect(app, true))),
+      section(
+        "Use Roundtable from your AI",
+        h("div", { class: "stack" }, claudeConnect(app, true)),
+        h("div", { class: "stack" }, otherApps(app)),
+        h("div", { class: "stack share" }, shareWithChatGPT(app)),
+      ),
       section(
         "History",
         toggle("Keep past roundtables on this computer", s.settings.history, (v) => void app.saveSettings({ history: v }), "Nothing leaves this computer."),

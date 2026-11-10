@@ -52,6 +52,44 @@ export interface ClaudeStatus {
   plugin_lines: [string, string];
 }
 
+/** Other AI apps Roundtable can connect to with one click, and snippets for the rest. */
+export interface ClientsStatus {
+  codex_found: boolean;
+  codex_connected: boolean;
+  cursor_found: boolean;
+  cursor_connected: boolean;
+  snippets: { id: string; name: string; where: string; text: string }[];
+}
+
+/** One line in the Share with ChatGPT call log, from the engine's HTTP server. */
+export interface ShareLogEntry {
+  type: "request" | "call_started" | "started" | "stopped" | string;
+  ts?: number;
+  status?: number;
+  method?: string;
+  question?: string;
+  result?: string;
+  is_error?: boolean;
+  note?: string;
+  peer?: string;
+  agent?: string;
+  ms?: number;
+}
+
+export interface ShareStatus {
+  running: boolean;
+  /** The URL to paste (it carries the token). */
+  url?: string;
+  server_url?: string;
+  token?: string;
+  started?: number;
+  log: ShareLogEntry[];
+  /** Why the last share ended on its own. */
+  ended?: string | null;
+  cloudflared?: boolean;
+  install?: string;
+}
+
 /** An AI tool found on this computer (Claude Code, Codex, Gemini CLI, ...). */
 export interface CliDetection {
   id: string;
@@ -461,6 +499,14 @@ export interface Api {
   claudeConnectCode(): Promise<ActionResult>;
   claudeDisablePlugin(): Promise<ActionResult>;
   claudeDisconnect(): Promise<ActionResult>;
+  clientsStatus(): Promise<ClientsStatus>;
+  /** "codex" or "cursor". */
+  clientConnect(id: string): Promise<ActionResult>;
+  clientDisconnect(id: string): Promise<ActionResult>;
+  shareStatus(): Promise<ShareStatus>;
+  /** Start the HTTP server and a Cloudflare quick tunnel with a fresh token. */
+  shareStart(): Promise<ShareStatus>;
+  shareStop(): Promise<ShareStatus>;
   askStart(req: AskRequest, onEvent: (e: EngineEvent) => void): Promise<void>;
   askStop(): Promise<void>;
   /** Ask one head of the current run again. Its events arrive through the run's listener. */
@@ -559,6 +605,12 @@ export async function tauriApi(): Promise<Api> {
     claudeConnectCode: () => invoke("claude_connect_code"),
     claudeDisablePlugin: () => invoke("claude_disable_plugin"),
     claudeDisconnect: () => invoke("claude_disconnect"),
+    clientsStatus: () => invoke("clients_status"),
+    clientConnect: (id) => invoke("client_connect", { id }),
+    clientDisconnect: (id) => invoke("client_disconnect", { id }),
+    shareStatus: () => invoke("share_status"),
+    shareStart: () => invoke("share_start"),
+    shareStop: () => invoke("share_stop"),
     async askStart(req, onEvent) {
       unlistenRun?.();
       unlistenRun = await listen<{ run: number; data: EngineEvent }>("rt-event", (e) => {

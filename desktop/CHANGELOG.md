@@ -23,6 +23,9 @@ Each release adds a section here. The app, the GitHub release and roundtable.sh/
 - What's new. This list, in the app after an update and from Settings.
 - A Help menu on Mac and Windows. Roundtable Help opens built-in pages that work offline: getting started, connecting your AIs, personas and rounds, Deep Think and Quick, the decision model, using Roundtable from Claude, and keyboard shortcuts. Each page has a search box and a link to the same page online. Help also has What's new, Online docs, Report a problem and About.
 - A full menu bar on a Mac (About, Check for updates, Settings, Edit, View, Window and Help), and File, View and Help on Windows.
+- Use Roundtable from your AI. Connect Codex and Cursor with one button, like Claude. Any other AI app gets a setup to copy.
+- Share with ChatGPT. One switch gives Roundtable a private web link for ChatGPT, the OpenAI API and Claude connectors. Switch it off and the link stops working. Every call is listed in the app.
+- Long roundtables report their progress to the AI app that asked, so it keeps waiting. The verdict comes first and the full transcript comes with it.
 
 ### Improved
 

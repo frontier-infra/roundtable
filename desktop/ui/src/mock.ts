@@ -1,7 +1,7 @@
 // A fake backend with the same shape as the Rust core. Used by the UI tests and by the
 // browser preview (`?mock=1`), so every screen can be seen without keys or network.
 
-import type { Api, ClaudeStatus, CliDetection, EngineEvent, Fix, HeadTest, HistoryEntry, KeysStatus, LocalProvider, ModelInfo, Pack, Persona, ProviderConfig, ProviderRow, SeatInfo, Settings } from "./api";
+import type { Api, ClaudeStatus, ClientsStatus, ShareStatus, CliDetection, EngineEvent, Fix, HeadTest, HistoryEntry, KeysStatus, LocalProvider, ModelInfo, Pack, Persona, ProviderConfig, ProviderRow, SeatInfo, Settings } from "./api";
 import { defaultSettings, findPersona, flagOnly, labLabel, seatKeys, slug } from "./state";
 import { builtinPacks, libraryOf } from "./mock-personas";
 import { LOCAL_NOTE, PRESET_NAMES, PROVIDERS, splitSeat } from "./providers";
@@ -31,6 +31,10 @@ export interface MockOptions {
   noLabPack?: boolean;
   /** The person's own personas to start with. */
   custom?: Persona[];
+  /** Other AI apps on the computer: "none", "codex", "cursor" or "both" (default). */
+  clients?: string;
+  /** cloudflared is missing, so Share with ChatGPT cannot start. */
+  noCloudflared?: boolean;
   /** The coach's questions. Default: two. [] means the question is already clear. */
   coachQuestions?: string[];
   /** The coach (the chair's seat) does not answer. */
@@ -117,7 +121,7 @@ const SAMPLE: Record<string, string> = {
   minimax: "A small herb garden, then bread with the herbs.",
 };
 
-export function mockApi(o: MockOptions = {}): Api & { calls: string[]; menu(id: string): void } {
+export function mockApi(o: MockOptions = {}): Api & { calls: string[]; menu(id: string): void; shareLog(e: ShareStatus["log"][number]): void } {
   const calls: string[] = [];
   let menuHandler: ((id: string) => void) | null = null;
   let downloaded: string | null = null;
@@ -130,6 +134,18 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[]; menu(id: 
   // Deleted roundtables waiting out the Undo window, like the engine's history/.trash.
   const trash = new Map<string, { rows: HistoryEntry[]; texts: [string, string][] }>();
   let trashN = 0;
+  const cm = o.clients ?? "both";
+  const clients: ClientsStatus = {
+    codex_found: cm === "codex" || cm === "both",
+    codex_connected: false,
+    cursor_found: cm === "cursor" || cm === "both",
+    cursor_connected: false,
+    snippets: [
+      { id: "generic", name: "Any MCP app (JSON)", where: "The app's MCP settings, under mcpServers.", text: '{\n  "mcpServers": {\n    "roundtable": { "command": "/engine/roundtable", "args": ["mcp", "serve"] }\n  }\n}' },
+      { id: "codex", name: "Codex CLI", where: "Add to ~/.codex/config.toml.", text: '[mcp_servers.roundtable]\ncommand = "/engine/roundtable"\nargs = ["mcp", "serve"]\ntool_timeout_sec = 1800' },
+    ],
+  };
+  let share: ShareStatus = { running: false, log: [], cloudflared: !o.noCloudflared, install: "Install cloudflared first: in Terminal, run brew install cloudflared." };
   const mode = o.claude ?? "both";
   const claude: ClaudeStatus = {
     app_found: mode === "app" || mode === "both" || mode === "plugin",
@@ -305,6 +321,39 @@ export function mockApi(o: MockOptions = {}): Api & { calls: string[]; menu(id: 
     async claudeDisconnect() {
       claude.app_connected = claude.code_connected = false;
       return { ok: true };
+    },
+    clientsStatus: async () => ({ ...clients, snippets: [...clients.snippets] }),
+    async clientConnect(id) {
+      calls.push(`clientConnect:${id}`);
+      await wait();
+      if (id === "codex") clients.codex_connected = true;
+      if (id === "cursor") clients.cursor_connected = true;
+      return { ok: true, message: id === "codex" ? "Done. Start a new Codex session to use it." : "Done. In Cursor, open Settings, then MCP, and turn roundtable on if it is off." };
+    },
+    async clientDisconnect(id) {
+      calls.push(`clientDisconnect:${id}`);
+      if (id === "codex") clients.codex_connected = false;
+      if (id === "cursor") clients.cursor_connected = false;
+      return { ok: true };
+    },
+    shareStatus: async () => ({ ...share, log: [...share.log] }),
+    async shareStart() {
+      calls.push("shareStart");
+      await wait();
+      if (o.noCloudflared) throw new Error(share.install);
+      const token = "f".repeat(64);
+      const base = "https://quiet-river-test.trycloudflare.com";
+      share = { running: true, url: `${base}/mcp/${token}`, server_url: `${base}/mcp`, token, started: 1, log: [...share.log, { type: "started", ts: 1, note: `Sharing at ${base}` }] };
+      return { ...share };
+    },
+    async shareStop() {
+      calls.push("shareStop");
+      share = { running: false, log: [...share.log, { type: "stopped", ts: 2, note: "Sharing stopped. That link and token no longer work." }], cloudflared: true };
+      return { ...share };
+    },
+    /** Test hook: the engine logs a call. */
+    shareLog(e: ShareStatus["log"][number]) {
+      share.log.push(e);
     },
     async askStart(req, onEvent) {
       calls.push(`askStart:${req.heads.join(",")}:${req.rounds}${req.personas ? `:${req.personas}` : ""}`);

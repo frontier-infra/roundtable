@@ -2,6 +2,8 @@
 //! the app never stores or reads one back (spec D2).
 
 use crate::claude;
+use crate::clients;
+use crate::share;
 use crate::engine_install::{self, RealProbe};
 use roundtable_engine::{clis, history, paths, personas, settings::Settings, VERSION};
 use serde::Serialize;
@@ -448,6 +450,105 @@ pub async fn claude_disconnect() -> Result<Value, String> {
         Ok(json!({"ok": true, "changed": changed}))
     })
     .await?
+}
+
+// ---- Other AI apps (Codex, Cursor, snippets) and Share with ChatGPT ----
+
+#[derive(Serialize)]
+pub struct ClientsStatus {
+    codex_found: bool,
+    codex_connected: bool,
+    cursor_found: bool,
+    cursor_connected: bool,
+    /// Copyable setup for any other MCP client.
+    snippets: Value,
+}
+
+#[tauri::command]
+pub async fn clients_status() -> Result<ClientsStatus, String> {
+    blocking(|| {
+        let eng = installed();
+        let read = |p: &PathBuf| std::fs::read_to_string(p).ok();
+        ClientsStatus {
+            codex_found: clients::codex_found(),
+            codex_connected: clients::codex_points_at(read(&clients::codex_config_path()).as_deref(), &eng),
+            cursor_found: clients::cursor_found(),
+            cursor_connected: claude::points_at(read(&clients::cursor_config_path()).as_deref(), &eng),
+            snippets: clients::snippets(&eng),
+        }
+    })
+    .await
+}
+
+fn save_config(p: &std::path::Path, text: &str, who: &str) -> Result<(), String> {
+    claude::write_with_backup(p, text).map(|_| ()).map_err(|e| format!("Could not save {who}'s settings: {e}"))
+}
+
+/// `id`: "codex" or "cursor".
+#[tauri::command]
+pub async fn client_connect(id: String) -> Result<Value, String> {
+    blocking(move || {
+        let eng = need_engine()?;
+        match id.as_str() {
+            "codex" => {
+                let p = clients::codex_config_path();
+                let text = clients::merge_codex(std::fs::read_to_string(&p).ok().as_deref(), &eng)?;
+                save_config(&p, &text, "Codex")?;
+                Ok(json!({"ok": true, "message": "Done. Start a new Codex session to use it."}))
+            }
+            "cursor" => {
+                let p = clients::cursor_config_path();
+                let text = clients::merge_cursor(std::fs::read_to_string(&p).ok().as_deref(), &eng)?;
+                save_config(&p, &text, "Cursor")?;
+                Ok(json!({"ok": true, "message": "Done. In Cursor, open Settings, then MCP, and turn roundtable on if it is off."}))
+            }
+            other => Err(format!("Unknown app: {other}")),
+        }
+    })
+    .await?
+}
+
+#[tauri::command]
+pub async fn client_disconnect(id: String) -> Result<Value, String> {
+    blocking(move || {
+        let (p, who) = match id.as_str() {
+            "codex" => (clients::codex_config_path(), "Codex"),
+            "cursor" => (clients::cursor_config_path(), "Cursor"),
+            other => return Err(format!("Unknown app: {other}")),
+        };
+        let Ok(t) = std::fs::read_to_string(&p) else { return Ok(json!({"ok": true, "changed": 0})) };
+        let (text, changed) = if id == "codex" { clients::remove_codex(&t) } else { claude::remove_server(&t).map_err(|e| e.message().to_string())? };
+        if changed {
+            save_config(&p, &text, who)?;
+        }
+        Ok(json!({"ok": true, "changed": changed as u8}))
+    })
+    .await?
+}
+
+pub fn share() -> &'static share::Share {
+    static S: std::sync::OnceLock<share::Share> = std::sync::OnceLock::new();
+    S.get_or_init(share::Share::default)
+}
+
+#[tauri::command]
+pub async fn share_status() -> Result<Value, String> {
+    blocking(|| share().status()).await
+}
+
+/// Start the HTTP server and the tunnel. Only when the person switches it on.
+#[tauri::command]
+pub async fn share_start() -> Result<Value, String> {
+    blocking(|| {
+        let eng = need_engine()?;
+        share().start(&eng)
+    })
+    .await?
+}
+
+#[tauri::command]
+pub async fn share_stop() -> Result<Value, String> {
+    blocking(|| share().stop()).await
 }
 
 // ---- The question coach, suggested seats, files and links ----

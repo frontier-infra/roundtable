@@ -48,6 +48,8 @@ fn export_ends_with_the_line_once_and_can_be_off() {
 
 #[test]
 fn mcp_tool_names_titanium() {
-    let d = mcp::tool()["description"].as_str().unwrap().to_string();
-    assert!(d.contains("free from Titanium Computing (https://titaniumcomputing.com/?utm_source=roundtable&utm_medium=mcp)"), "{d}");
+    for remote in [false, true] {
+        let d = mcp::tool(remote)["description"].as_str().unwrap().to_string();
+        assert!(d.contains("free from Titanium Computing (https://titaniumcomputing.com/?utm_source=roundtable&utm_medium=mcp)"), "{d}");
+    }
 }

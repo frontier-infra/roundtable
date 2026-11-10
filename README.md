@@ -155,6 +155,7 @@ Roundtable ships an MCP server as a subcommand of the one binary:
 
 ```bash
 roundtable mcp serve     # stdio JSON-RPC; one tool: roundtable(question, heads?, rounds?, personas?, research?, coach?, coach_answers?, verdict?, blind?, attach?)
+roundtable mcp serve --http   # Streamable HTTP for remote clients (see Use Roundtable from your AI)
 roundtable mcp config    # prints the server JSON block to paste manually
 ```
 
@@ -178,6 +179,63 @@ Wires **Claude Code** (skill + MCP), **Cursor** (`~/.cursor/mcp.json`),
 ```json
 { "command": "roundtable", "args": ["mcp", "serve"] }
 ```
+
+## Use Roundtable from your AI
+
+Any app that speaks MCP can call Roundtable: Claude, ChatGPT, Codex, Cursor, VS Code and more.
+The tool returns the chair's verdict first. The full transcript comes as a resource
+(`roundtable://run/<id>`). While a run goes, Roundtable sends progress notifications so
+clients do not time out.
+
+**In the Roundtable app:** Settings, then Use Roundtable from your AI.
+
+- Claude app, Claude Code, Codex and Cursor: one button each.
+- Any other MCP app: copy its setup from "Another AI app? Copy its setup".
+- ChatGPT: switch on **Share with ChatGPT**. It starts a private web link through a
+  Cloudflare quick tunnel (needs `cloudflared`: `brew install cloudflared`, or
+  `winget install --id Cloudflare.cloudflared`). Paste the link into ChatGPT. Switch it off and the
+  link stops working. Every call shows in the app.
+
+**ChatGPT (web, Plus, Pro, Business, Enterprise or Education):**
+
+1. Turn on Share with ChatGPT in the app and press Copy link.
+2. In ChatGPT: Settings, Security and login, turn on Developer mode.
+3. Open Plugins, press +, paste the link as the MCP server URL, choose No authentication. The
+   link itself carries the token, so share it with no one.
+4. In a chat, choose Developer mode from the + menu, pick Roundtable, and ask:
+   "Use the Roundtable app's roundtable tool to ask: ...".
+
+**OpenAI Responses API or Agents SDK:** a remote MCP tool with the server URL and the token.
+
+```json
+{"type": "mcp", "server_label": "roundtable", "server_url": "https://<your-link>.trycloudflare.com/mcp",
+ "authorization": "<token>", "require_approval": "never"}
+```
+
+**Claude API (MCP connector):** `mcp_servers: [{"type": "url", "url": "https://<your-link>/mcp", "name": "roundtable", "authorization_token": "<token>"}]`.
+**Claude custom connectors** (claude.ai): add a custom connector with the full link
+(`.../mcp/<token>`) and no OAuth.
+
+**From the command line:**
+
+```bash
+roundtable mcp serve                       # stdio, for local apps
+roundtable mcp config --client codex       # setup for claude, claude-code, codex, cursor, vscode, windsurf, generic
+roundtable mcp serve --http                # Streamable HTTP on http://127.0.0.1:8765/mcp
+ROUNDTABLE_MCP_TOKEN=$(roundtable mcp token) roundtable mcp serve --http --port 8765
+cloudflared tunnel --url http://127.0.0.1:8765   # a public https URL for remote clients
+```
+
+`--http` binds 127.0.0.1 unless you pass `--host`. Every request needs the token, as
+`Authorization: Bearer <token>` or as the last part of the URL (`/mcp/<token>`). Limits: 6
+roundtables a minute and 2 at once by default (`--calls-per-minute`, `--max-running`).
+A remote caller gets only the roundtable tool: no shell, no files on your computer. It can
+attach public web links (never a private or local address) and send documents as text in
+`files`. Each AI seat still runs in its own private space. Calls are logged to
+`mcp-remote.log` in the Roundtable data folder.
+
+Codex stops a tool after 60 seconds unless told otherwise. The app and `roundtable install`
+set `tool_timeout_sec = 1800` for Roundtable.
 
 ## Use in Claude Code
 
