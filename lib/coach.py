@@ -190,7 +190,7 @@ def estimate_line(mode, rounds):
 
 
 SHAPE_JOB = {
-    "decision": "Then **TRADE-OFFS**: one short bullet per serious option (at most three), what it costs and what it buys. Then **RISKS**: at most two short bullets, the risks that could hurt this person.",
+    "decision": "Then **TRADE-OFFS**: one short bullet per serious option (at most three), what it costs and what it buys. Then **RISKS**: at most three short bullets, the risks that could hurt this person, each with how to blunt it. Then **UNKNOWNS**: at most two short bullets, the facts that would change the pick and how to find each one out.",
     "pros-cons": "Then **PROS** and **CONS** of the pick: at most two short bullets each.",
     "plan": "Then **PLAN**: at most three more numbered steps (4 to 6), each with who and by when.",
     "vote": "Then **VOTES**: one bullet per seat, \"<seat name>: <the option it backs>\". Then \"RESULT: <option> wins <n> to <m>\", or \"RESULT: tie\".",
@@ -236,7 +236,7 @@ def verdict_prompt(shape, question, brief, open_qs, positions, material="", mode
     if mode == "deep":
         p += VERDICT_DEEP + DEEP_JOB[shape] + VERDICT_DEEP_END
     else:
-        p += SHAPE_JOB[shape] + "\nUse the seats' own numbers and add no new facts. Keep it under 200 words in all: the person reads this first, and the seat answers sit folded under it.\n"
+        p += SHAPE_JOB[shape] + "\nUse the seats' own numbers and add no new facts. Keep the decision lines under 200 words and the whole verdict under 300: the person reads this first, and the seat answers sit folded under it.\n"
     return p + VERDICT_ENDING
 
 
