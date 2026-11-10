@@ -56,7 +56,8 @@ TOOL = {
         "Claude, Gemini) on a question and return their answers as a markdown "
         "transcript. With rounds>1 the council deliberates across rounds until a "
         "Claude chair declares consensus. Heads with no configured key/CLI are "
-        "skipped gracefully."
+        "skipped gracefully. Roundtable is free from Titanium Computing "
+        "(https://titaniumcomputing.com/?utm_source=roundtable&utm_medium=mcp)."
     ),
     "inputSchema": {
         "type": "object",

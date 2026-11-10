@@ -10,7 +10,7 @@ const KNOWN: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 pub fn tool() -> Value {
     json!({
         "name": "roundtable",
-        "description": "Convene a council of frontier AI models (Grok, Codex/OpenAI, GLM, MiniMax, Claude, Gemini) on a question and return their answers as a markdown transcript. With rounds>1 the council deliberates across rounds until a Claude chair declares consensus. Heads with no configured key/CLI are skipped gracefully.",
+        "description": "Convene a council of frontier AI models (Grok, Codex/OpenAI, GLM, MiniMax, Claude, Gemini) on a question and return their answers as a markdown transcript. With rounds>1 the council deliberates across rounds until a Claude chair declares consensus. Heads with no configured key/CLI are skipped gracefully. Roundtable is free from Titanium Computing (https://titaniumcomputing.com/?utm_source=roundtable&utm_medium=mcp).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -23,7 +23,8 @@ pub fn tool() -> Value {
                 "coach_answers": {"type": "array", "items": {"type": "string"}, "description": "Optional. The answers to the coach's questions, in order."},
                 "verdict": {"type": "string", "enum": ["decision", "pros-cons", "plan", "vote"], "description": "Optional. The chair's final verdict shape: a decision with confidence, pros and cons, an action plan, or a vote. Every verdict names the minority view and who held it."},
                 "blind": {"type": "boolean", "description": "Optional. Round 1 is blind (true, the default): seats answer without seeing each other. false lets each seat in round 1 read the seats before it."},
-                "attach": {"type": "array", "items": {"type": "string"}, "description": "Optional. Paths of text or PDF files, or http(s) links, that every seat reads. Each is read once; a long one is summarized once and the summary shared."}
+                "attach": {"type": "array", "items": {"type": "string"}, "description": "Optional. Paths of text or PDF files, or http(s) links, that every seat reads. Each is read once; a long one is summarized once and the summary shared."},
+                "decision": {"type": "string", "description": "Optional. After the final round, a decision model rates the options the table argued (plus 'need more information') with calibrated probabilities: jev (TypeSafe, needs a key), jebadiah (local Jebadiah), systemone (another System One model set in Settings, for example LINK21), or off. Defaults to the saved setting (off unless chosen).", "enum": ["jev", "jebadiah", "systemone", "link21", "off"]}
             },
             "required": ["question"],
             "additionalProperties": false
@@ -45,6 +46,8 @@ pub struct Call {
     /// None: the default (blind).
     pub blind: Option<bool>,
     pub attach: Vec<String>,
+    /// Decision model for this call: jev, jebadiah, systemone, link21 or off. None: the saved setting.
+    pub decision: Option<String>,
 }
 
 /// One tool call -> (text, is_error).
@@ -129,6 +132,7 @@ pub fn dispatch(msg: &Value, run: &Runner) -> Option<Value> {
                 verdict: text_arg("verdict"),
                 blind: args.get("blind").and_then(|v| v.as_bool()),
                 attach: strings(args.get("attach")),
+                decision: text_arg("decision"),
             };
             let (text, is_error) = run(&call);
             ok(&id, json!({"content": [{"type": "text", "text": text}], "isError": is_error}))
@@ -208,7 +212,7 @@ mod tests {
         let t = tool();
         assert_eq!(t["inputSchema"]["required"], json!(["question"]));
         let props: Vec<_> = t["inputSchema"]["properties"].as_object().unwrap().keys().cloned().collect();
-        assert_eq!(props, vec!["question", "heads", "rounds", "personas", "research", "coach", "coach_answers", "verdict", "blind", "attach"]);
+        assert_eq!(props, vec!["question", "heads", "rounds", "personas", "research", "coach", "coach_answers", "verdict", "blind", "attach", "decision"]);
     }
 
     #[test]
@@ -228,7 +232,7 @@ mod tests {
             *got.lock().unwrap() = c.clone();
             (String::new(), false)
         };
-        let m = json!({"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"roundtable","arguments":{"question":"Hi","coach":true,"coach_answers":["a1","a2"],"verdict":"vote","blind":false,"attach":"/tmp/x.md"}}});
+        let m = json!({"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"roundtable","arguments":{"question":"Hi","coach":true,"coach_answers":["a1","a2"],"verdict":"vote","blind":false,"attach":"/tmp/x.md","decision":"jebadiah"}}});
         dispatch(&m, &run).unwrap();
         let c = got.lock().unwrap().clone();
         assert!(c.coach);
@@ -236,6 +240,7 @@ mod tests {
         assert_eq!(c.verdict.as_deref(), Some("vote"));
         assert_eq!(c.blind, Some(false));
         assert_eq!(c.attach, vec!["/tmp/x.md"]);
+        assert_eq!(c.decision.as_deref(), Some("jebadiah"));
         assert!(coach_reply(&["Budget?".into()]).ends_with("\n\n1. Budget?"));
     }
 

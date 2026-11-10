@@ -215,6 +215,13 @@ AI agent to install, configure, run, and wire Roundtable into its own harness.
 - **Source** — https://github.com/frontier-infra/roundtable
 - **Frontier Infra** — https://frontierinfra.org
 
+## About
+
+Roundtable is free. Made by Frontier Infra, built by Titanium Computing.
+
+- Need AI in your business? [Titanium Computing](https://titaniumcomputing.com/?utm_source=roundtable&utm_medium=readme)
+- [Built by Jason Brashear, CTO](https://titaniumcomputing.com/jason-brashear/?utm_source=roundtable&utm_medium=readme)
+
 ## Privacy, trademarks, and decision limits
 
 Roundtable runs locally and does not send prompts, credentials, or outputs to a

@@ -26,6 +26,7 @@ import {
 import { renderMarkdown } from "../markdown";
 import { glyph, headLogo, lockup, mark, tableScene, WELCOME_SEATS } from "../brand";
 import { providerName } from "../providers";
+import { setupCredit } from "../credits";
 
 const STEP_NAMES = ["Welcome", "Set up", "Your AIs", "Claude", "First question"];
 
@@ -37,7 +38,7 @@ export function renderOnboarding(app: App): HTMLElement {
     "main",
     { class: "onboarding", attrs: { "data-step": String(s.step) } },
     rail(app),
-    h("div", { class: "stage" }, h("section", { class: "screen" }, screen), footer(app)),
+    h("div", { class: "stage" }, h("section", { class: "screen" }, screen, s.step === 5 ? setupCredit(app) : null), footer(app)),
   );
 }
 

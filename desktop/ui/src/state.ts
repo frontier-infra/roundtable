@@ -2,6 +2,7 @@
 
 import type { Attachment, Brief, PanelSuggestion, VerdictShape } from "./api";
 import type { ClaudeStatus, CliDetection, EngineEvent, Fix, HeadId, HeadTest, HistoryEntry, KeySaveResult, KeysStatus, Persona, PersonaLibrary, Preset, SeatInfo, Settings } from "./api";
+import { defaultDecision, type DecisionEvent } from "./decision";
 import { HEAD_ORDER, PROVIDERS } from "./providers";
 
 export const STEPS = 5;
@@ -116,6 +117,8 @@ export interface RunView {
   transcript: string;
   answered: number;
   consensus?: boolean;
+  /** The decision model's rating of the verdict. */
+  decision?: DecisionEvent;
 }
 
 export interface ClaudeView extends Partial<ClaudeStatus> {
@@ -242,6 +245,8 @@ export function defaultSettings(): Settings {
     coach: true,
     blind_first_round: true,
     verdict_shape: "decision",
+    decision: defaultDecision(),
+    export_credit: true,
   };
 }
 
@@ -666,6 +671,9 @@ export function applyEvent(run: RunView, e: EngineEvent): RunView {
       r.done = true;
       break;
     case "round_done":
+      break;
+    case "decision":
+      r.decision = e;
       break;
   }
   return r;

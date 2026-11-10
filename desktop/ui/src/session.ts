@@ -1,6 +1,7 @@
 // The question coach, verdict shapes, shared material, follow-ups and the Markdown export.
 // Pure functions, no DOM, so they are easy to test.
 
+import { decisionMarkdown } from "./decision";
 import type { Attachment, Brief, VerdictShape } from "./api";
 import { providerName } from "./providers";
 import { cleanAnswer, splitVerdict, type RunView, type SeatPick } from "./state";
@@ -225,6 +226,7 @@ export function runMarkdown(run: RunView, opts: { title?: string; date?: Date | 
     out.push(`**Minority view:** ${minority ?? "None. Every seat backed the verdict."}`, "");
     if (minority) out.push(`**Held by:** ${heldBy ?? "Not named"}`, "");
   }
+  if (run.decision) out.push(decisionMarkdown(run.decision), "");
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
 }
 

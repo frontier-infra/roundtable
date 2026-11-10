@@ -9,6 +9,8 @@ import { select, withGlyph } from "./main";
 import { VERDICT_SHAPES } from "../session";
 import { lockup } from "../brand";
 import { personasSection } from "./personas";
+import { decisionSection } from "../decision";
+import { aboutSection } from "../credits";
 
 function section(title: string, ...body: (HTMLElement | null)[]): HTMLElement {
   return h("section", { class: "setting" }, h("h2", { text: title }), h("div", { class: "setting-body" }, body));
@@ -98,10 +100,12 @@ export function renderSettings(app: App): HTMLElement {
         ),
       ),
       section("Personas", ...personasSection(app)),
+      decisionSection(app),
       section("Claude connection", h("div", { class: "stack" }, claudeConnect(app, true))),
       section(
         "History",
         toggle("Keep past roundtables on this computer", s.settings.history, (v) => void app.saveSettings({ history: v }), "Nothing leaves this computer."),
+        toggle("Add a Roundtable credit line to exports", s.settings.export_credit !== false, (v) => void app.saveSettings({ export_credit: v }), "One line at the end of a saved or copied Markdown file."),
         h("div", { class: "actions left" }, button("Delete all history", () => {
           if (confirm("Delete every past roundtable on this computer? This cannot be undone.")) void app.clearHistory();
         }, "btn ghost danger")),
@@ -155,6 +159,7 @@ export function renderSettings(app: App): HTMLElement {
           : null,
         ),
       ),
+      section("About", ...aboutSection(app)),
       section(
         "Help",
         h(

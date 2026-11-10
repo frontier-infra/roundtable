@@ -5,7 +5,7 @@ use roundtable_engine::council::{self, AskOptions, Event, RunResult};
 use roundtable_engine::keys::{self, KeyStore, Keys};
 use roundtable_engine::settings::Settings;
 use roundtable_engine::verdict::Shape;
-use roundtable_engine::{attach, clis, coach, history, mcp, paths, personas, providers, verify, VERSION};
+use roundtable_engine::{attach, clis, coach, decision, history, mcp, paths, personas, providers, verify, CREDIT_LINE, VERSION};
 use std::io::IsTerminal;
 use serde_json::json;
 use std::io::{Read, Write};
@@ -31,6 +31,8 @@ Commands:
   coach          questions -q Q | brief (JSON on stdin) --json: the question coach
   suggest        -q Q [--brief FILE] [--heads CSV] [--json]: suggest seats for a question
   attach         FILE|URL ... [--json]: read files and links once, as a run would share them
+  decision       status | detect | test [jev|jebadiah|systemone]: the decision model
+                 that rates the verdict (off unless chosen)
   mcp            serve | selftest | config
   version        Print the version
 
@@ -62,6 +64,8 @@ Ask flags:
       --out FILE        Also save the transcript to FILE
       --events          Print one JSON event per line (for the app)
       --no-history      Do not keep this run in history
+      --decision NAME   Rate the verdict with a decision model: jev, jebadiah,
+                        systemone (any other System One model, for example LINK21) or off
 
 Docs: https://roundtable.sh";
 
@@ -71,7 +75,7 @@ fn main() -> ExitCode {
     let rest = if args.is_empty() { &args[..] } else { &args[1..] };
     let code = match cmd {
         "" | "-h" | "--help" | "help" => {
-            println!("{USAGE}");
+            println!("{USAGE}\n{CREDIT_LINE}");
             0
         }
         "version" | "--version" | "-V" => cmd_version(rest),
@@ -81,6 +85,7 @@ fn main() -> ExitCode {
         "doctor" => cmd_doctor(rest),
         "detect" => cmd_detect(rest),
         "test" => cmd_test(rest),
+        "decision" => decision::cli::run(rest),
         "personas" => cmd_personas(rest),
         "coach" => cmd_coach(rest),
         "suggest" => cmd_suggest(rest),
@@ -99,6 +104,7 @@ fn cmd_version(args: &[String]) -> u8 {
         println!("{}", json!({"version": VERSION, "build": option_env!("RT_BUILD").unwrap_or("dev"), "engine": "rust"}));
     } else {
         println!("roundtable {VERSION}");
+        println!("{CREDIT_LINE}");
     }
     0
 }
@@ -115,6 +121,7 @@ struct AskArgs {
     events: bool,
     no_history: bool,
     source: String,
+    decision: Option<String>,
     coach: bool,
     coach_answers: Vec<String>,
     coach_questions: bool,
@@ -139,6 +146,7 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
         events: false,
         no_history: false,
         source: "terminal".into(),
+        decision: None,
         coach: false,
         coach_answers: Vec::new(),
         coach_questions: false,
@@ -167,6 +175,7 @@ fn parse_ask(args: &[String]) -> Result<AskArgs, String> {
             "--events" => a.events = true,
             "--no-history" => a.no_history = true,
             "--source" => a.source = val(&mut i)?,
+            "--decision" => a.decision = Some(val(&mut i)?),
             "--coach" => a.coach = true,
             "--coach-answer" => {
                 a.coach = true;
@@ -226,7 +235,13 @@ fn cmd_ask(args: &[String]) -> u8 {
         eprintln!("ERROR: no question. Use -q \"...\".");
         return 2;
     }
-    let settings = Settings::load();
+    let settings = match decision::with_override(Settings::load(), a.decision.as_deref()) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("ERROR: {e}");
+            return 2;
+        }
+    };
     let store = keys::default_store();
     let k = Keys::load(store.as_ref());
     let heads = match &a.heads {
@@ -371,7 +386,7 @@ fn cmd_ask(args: &[String]) -> u8 {
     let r = council::run(&opts, &k, &settings, &emit);
     let id = if a.no_history { None } else { record(&r, &opts, &a.source, &settings) };
     if let Some(p) = &a.out {
-        if let Err(e) = std::fs::write(p, &r.transcript) {
+        if let Err(e) = std::fs::write(p, roundtable_engine::with_credit(&r.transcript, settings.export_credit)) {
             eprintln!("WARN: could not save --out: {e}");
         }
     }
@@ -567,6 +582,10 @@ fn cmd_mcp(args: &[String]) -> u8 {
             let settings = Settings::load();
             let store = keys::default_store();
             let run = |c: &mcp::Call| -> (String, bool) {
+                let settings = match decision::with_override(settings.clone(), c.decision.as_deref()) {
+                    Ok(s) => s,
+                    Err(e) => return (e, true),
+                };
                 let k = Keys::load(store.as_ref());
                 let hs = match c.heads.as_deref() {
                     Some(csv) => council::parse_heads(csv).0,
@@ -695,6 +714,9 @@ fn cmd_auth(args: &[String]) -> u8 {
     let json_out = has(args, "--json");
     let sub = args.first().map(String::as_str).unwrap_or("status");
     let provider_arg = args.get(1).filter(|a| !a.starts_with("--")).map(String::as_str);
+    if let Some(code) = decision::cli::auth(sub, provider_arg, store.as_ref(), json_out) {
+        return code;
+    }
     let reply = |v: serde_json::Value, code: u8| -> u8 {
         if json_out {
             println!("{v}");

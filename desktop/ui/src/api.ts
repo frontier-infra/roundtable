@@ -1,6 +1,8 @@
 // The app's backend, as the UI sees it. `tauriApi` talks to the Rust core;
 // `mock.ts` gives the same shape for tests and the browser preview.
 
+import type { DecisionEvent, DecisionSettings } from "./decision";
+
 export type HeadId = "claude" | "gemini" | "openai" | "grok" | "glm" | "minimax";
 
 export interface AppInfo {
@@ -106,6 +108,10 @@ export interface Settings {
   blind_first_round: boolean;
   /** The verdict shape the ask box starts with. */
   verdict_shape: VerdictShape;
+  /** The decision model that rates the verdict. Off when missing or provider is null. */
+  decision?: DecisionSettings;
+  /** End Markdown exports with the one Roundtable credit line. */
+  export_credit: boolean;
 }
 
 /** The chair's final verdict: a decision with confidence, pros and cons, an action plan, or a vote. */
@@ -159,6 +165,21 @@ export interface AttachResult {
   attachments?: Attachment[];
   block?: string;
   message?: string;
+}
+
+/** What the Decision model setting needs to say how to get Jebadiah. */
+export interface JebadiahLocal {
+  os: string;
+  arch: string;
+  /** Total memory in GB, or null when unknown. */
+  memory_gb: number | null;
+  /** Our build, found in Ollama or LM Studio on this computer. */
+  found: { app: string; model: string } | null;
+  /** What `roundtable decision detect` found: a Jebadiah server (jeb serve, AINode) Roundtable can ask. */
+  served: { url: string; model: string; via: string } | null;
+  /** The engine's next step when no server answered. */
+  hint?: string | null;
+  looked: string[];
 }
 
 /** A seat role: it sits on an AI seat and shapes how that seat reasons. */
@@ -238,7 +259,9 @@ export type EngineEvent =
   | { event: "run_done"; transcript: string; answered: number; consensus?: boolean; history_id?: string }
   | { event: "process_exit" }
   /** A one-head retry finished. Its transcript holds just that head. */
-  | { event: "retry_done"; head: string; transcript: string; seat?: string };
+  | { event: "retry_done"; head: string; transcript: string; seat?: string }
+  /** The decision model rated the verdict (only when one is on). */
+  | DecisionEvent;
 
 /** What to do about a head that did not answer. */
 export type Fix = "sign_in" | "add_key" | "install" | "retry";
@@ -324,6 +347,8 @@ export interface Api {
   terminalCommand(on: boolean): Promise<string>;
   diagnostics(): Promise<string>;
   openUrl(url: string): Promise<void>;
+  /** Memory, chip, and whether our decision model is already in Ollama or LM Studio. */
+  jebadiahLocal(): Promise<JebadiahLocal>;
   pickTextFile(): Promise<string | null>;
   saveTextFile(defaultName: string, text: string): Promise<boolean>;
   copyText(text: string): Promise<void>;
@@ -431,6 +456,7 @@ export async function tauriApi(): Promise<Api> {
     terminalCommand: (on) => invoke("terminal_command", { on }),
     diagnostics: () => invoke("diagnostics"),
     openUrl: (url) => opener.openUrl(url),
+    jebadiahLocal: () => invoke("jebadiah_local"),
     async pickTextFile() {
       const p = await dialog.open({
         multiple: false,
