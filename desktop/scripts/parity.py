@@ -53,7 +53,7 @@ def chair_reply(prompt):
         return "Q: What is the budget?\n2. Q: Who decides?"
     if "Rewrite the person's question into a brief" in prompt:
         answers = "; ".join(re.findall(r"^A: (.*)$", prompt, re.M)) or "no answers"
-        return f"GOAL: Pick one for the weekend.\nCONTEXT: {answers}.\nCONSTRAINTS: None given\nGOOD ANSWER: One pick and why. p:{sha8(prompt)}"
+        return f"GOAL: Pick one for the weekend.\nCONTEXT: {answers}.\nCONSTRAINTS: None given\nGOOD ANSWER: One pick and why. p:{sha8(prompt)}\nDEEP THINK: yes: Money is at stake."
     if "Pick the seats" in prompt:
         return f"SEATS: cfo, nobody, ceo\nWHY: Money and direction. p:{sha8(prompt)}"
     if "Every councilor will read your summary" in prompt:
@@ -62,7 +62,9 @@ def chair_reply(prompt):
     if "decide whether the person must answer questions first" in prompt:
         return "Q: What is the workload?\nQ: How many users?" if "database" in prompt else "NONE"
     if "Write the final verdict" in prompt:
-        return f"DECISION: Start the garden.\nCONFIDENCE: High (80%)\n**WHY**\n- p:{sha8(prompt)}\nMINORITY VIEW: Bake bread first.\nHELD BY: GLM"
+        depth = "deep" if "THE MINORITY VIEW IN FULL" in prompt else "quick"
+        depth += " asks-first" if "QUESTIONS FIRST" in prompt else ""
+        return f"DECISION: Start the garden.\nCONFIDENCE: High (80%)\n**WHY**\n- p:{sha8(prompt)} {depth}\nMINORITY VIEW: Bake bread first.\nHELD BY: GLM"
     return "VERDICT: CONTINUE\n**AGREED**\n- Both are cheap.\n\n**REMAINING DISAGREEMENTS**\n- Which first."
 
 
@@ -90,6 +92,10 @@ class Fake(http.server.BaseHTTPRequestHandler):
         text = f"{tag} answer from {body['model']}{seat}"
         if "ANSWERS SO FAR" in prompt:
             text += " (saw earlier seats)"
+        # The mode's LENGTH section closes every seat prompt: Quick about 250 words, Deep Think 800.
+        cap = re.search(r"## LENGTH\n.*?about (\d+) words", prompt, re.S)
+        if cap and prompt.rstrip("\n").endswith("."):
+            text += f" len:{cap.group(1)}"
         # The new prompt sections: both engines must send the very same prompt.
         if "COUNCIL DELIBERATION" not in prompt and any(k in prompt for k in ("## BRIEF", "## ATTACHMENTS", "EARLIER IN THIS SESSION", "ANSWERS SO FAR", "## OPEN QUESTIONS")):
             text += f" p:{sha8(prompt)}"
@@ -142,6 +148,8 @@ def rc7_cases(rust, url, base):
             ("auto seats by words, no chair", False, {}, ["--heads", "openai,glm", "--personas", "auto", "-q", "Should we raise prices? Budget and revenue matter."]),
             ("pros-cons and plan, no chair", False, {}, ["--heads", "openai,glm", "--rounds", "2", "--verdict", "plan", "-q", "Bread or garden?"]),
             ("clarify first, default verdict, 2 rounds", True, {}, ["--heads", "openai,glm", "--rounds", "2", "-q", "Which database for our app?"]),
+            ("quick: clarify alongside one round", True, {}, ["--heads", "openai,glm", "--mode", "quick", "-q", "Which database for our app?"]),
+            ("deep think: the coach always, long verdict", True, {}, ["--heads", "openai,glm", "--mode", "deep", "--rounds", "2", "-q", "Raise prices?"]),
         ]
         for name, chair, extra, args in runs:
             env = {**env_for(home, url, chair), **extra}
@@ -156,7 +164,11 @@ def rc7_cases(rust, url, base):
             elif name.startswith("auto"):
                 checks = [("CFO", "as CFO")]
             elif name.startswith("clarify"):
-                checks = [("Verdict (decision)", "p:"), ("OpenAI", "p:"), ("OpenAI", "d:"), ("Round 2", "")]
+                checks = [("Verdict (decision)", "p:"), ("OpenAI", "p:"), ("OpenAI", "d:"), ("Round 2", ""), ("OpenAI", "len:250")]
+            elif name.startswith("quick"):
+                checks = [("Verdict (decision)", "p:"), ("Verdict (decision)", " quick asks-first"), ("OpenAI", "len:250")]
+            elif name.startswith("deep"):
+                checks = [("## Brief", "Pick one for the weekend."), ("Verdict (decision)", " deep"), ("OpenAI", "len:800"), ("Round 2", "")]
             else:
                 checks = [("Verdict (action plan)", "verdict unavailable")]
             for head, want in checks:
@@ -164,6 +176,18 @@ def rc7_cases(rust, url, base):
                     ok = False
                     print(f"parity {name}: FAIL, bash has no {head!r} section with {want!r}")
                     print("  bash stderr:", a.stderr[-600:])
+            title = lambda t: next((l for l in t.splitlines() if l.startswith("# ")), "").replace("\u2014", "-")
+            if name.startswith(("quick", "deep")):
+                want = "- Deep Think" if name.startswith("deep") else "- Quick"
+                if not title(a.stdout).endswith(want) or title(a.stdout) != title(b.stdout):
+                    ok = False
+                    print(f"parity {name}: FAIL, titles {title(a.stdout)!r} and {title(b.stdout)!r} should both end {want!r}")
+                if any("DEEP THINK" in bd for h, bd in sa if h == "## Brief"):
+                    ok = False
+                    print(f"parity {name}: FAIL, the coach's Deep Think line leaked into the brief")
+            if name.startswith("quick") and any("p:" in bd for h, bd in sa if "OpenAI" in h):
+                ok = False
+                print(f"parity {name}: FAIL, a one-round Quick seat waited for the open questions")
             if name.startswith("coach") and not any("p:" in bd for h, bd in sa if "OpenAI" in h):
                 ok = False
                 print(f"parity {name}: FAIL, the seats did not read the new prompt sections")

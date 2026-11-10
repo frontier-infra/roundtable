@@ -7,6 +7,7 @@
 use crate::clis::{self, Fix};
 use crate::http::{self, ErrorClass};
 use crate::keys::Keys;
+use crate::mode::{self, Mode};
 use crate::personas::{self, Seat};
 use crate::providers::{self, Head, Kind, HEADS};
 use crate::settings::Settings;
@@ -39,6 +40,8 @@ pub struct AskOptions {
     pub rounds: u32,
     pub research: bool,
     pub timeout: Duration,
+    /// Quick (the default) or Deep Think: seat length, the verdict's length, and when the clarify check runs.
+    pub mode: Mode,
 }
 
 /// Most rounds a run may have.
@@ -135,7 +138,14 @@ impl Outcome {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
-    RunStarted { heads: Vec<String>, rounds: u32, mode: String, seats: Vec<SeatInfo> },
+    RunStarted {
+        heads: Vec<String>,
+        rounds: u32,
+        mode: String,
+        seats: Vec<SeatInfo>,
+        /// Quick or Deep Think ("quick" or "deep").
+        depth: Mode,
+    },
     HeadStarted { head: String, round: u32, seat: String },
     HeadDone {
         head: String,
@@ -536,7 +546,7 @@ fn run_round(prompt: &str, round: u32, seats: &[Seat], keys_of: &[String], opts:
                 let h = seat.head;
                 emit(&Event::HeadStarted { head: h.id.into(), round, seat: key.clone() });
                 s.spawn(move || {
-                    let p = personas::seat_prompt(seat, prompt);
+                    let p = personas::seat_prompt(seat, &mode::with_rule(prompt, opts.mode));
                     let r = ask_head(h, &p, opts.research, opts.timeout, keys, settings, Route::Auto, None);
                     emit(&head_done_at(h, key, round, &r));
                     r
@@ -559,7 +569,7 @@ fn run_open_round(base: &str, seats: &[Seat], keys_of: &[String], opts: &AskOpti
     let mut out: Vec<HeadRun> = Vec::new();
     let mut before: Vec<(String, String)> = Vec::new();
     for (seat, key) in seats.iter().zip(keys_of) {
-        let p = personas::seat_prompt(seat, &open_round_prompt(base, &before));
+        let p = personas::seat_prompt(seat, &mode::with_rule(&open_round_prompt(base, &before), opts.mode));
         let r = ask_head(seat.head, &p, opts.research, opts.timeout, keys, settings, Route::Auto, None);
         emit(&head_done_at(seat.head, key, 1, &r));
         if let Outcome::Answered(t) = &r.outcome {
@@ -608,7 +618,7 @@ fn seat_body(seat: &Seat, body: &str) -> String {
 /// The verdict, when the run asks for one: the heading and the chair's text.
 fn verdict_section(opts: &AskOptions, keys: &Keys, settings: &Settings, open: &[String], finals: &[(String, String)], emit: &(dyn Fn(&Event) + Sync)) -> Option<(String, String)> {
     let shape = opts.verdict?;
-    let text = chair(keys, settings, &verdict::prompt(shape, &opts.question, opts.brief.as_deref(), opts.attachments.as_deref(), open, finals), opts.timeout);
+    let text = chair(keys, settings, &verdict::prompt(shape, opts.mode, &opts.question, opts.brief.as_deref(), opts.attachments.as_deref(), open, finals), opts.timeout);
     let text = if text.trim().is_empty() { verdict::UNAVAILABLE.to_string() } else { text.trim().to_string() };
     emit(&Event::Verdict { shape, parts: verdict::parts(&text), text: text.clone() });
     Some((format!("## \u{1fa91} Verdict ({})\n\n{text}\n", shape.title().to_ascii_lowercase()), text))
@@ -653,22 +663,32 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
                 label: personas::seat_disclaimer(s),
             })
             .collect(),
+        depth: opts.mode,
     });
 
     let mut head = String::new();
     let unit = if seats.iter().any(|s| s.persona.is_some()) { "seats" } else { "heads" };
     let mode = if advisory { "advisory".to_string() } else { format!("deliberation (\u{2264}{rounds} rounds)") };
-    head.push_str(&format!("# \u{1fa91} Round Table - {n} {unit} - {mode}\n\n_Question:_ {}\n\n", opts.question));
+    head.push_str(&format!("# \u{1fa91} Round Table - {n} {unit} - {mode} - {}\n\n_Question:_ {}\n\n", opts.mode.title(), opts.question));
     let brief = opts.brief.as_deref().filter(|b| !b.trim().is_empty());
     if let Some(b) = brief {
         head.push_str(&format!("## Brief\n\n{}\n\n", b.trim()));
     }
     // Clarify first: only on a table, only with no brief and no earlier turns to lean on.
     let fresh = brief.is_none() && opts.prior.as_deref().is_none_or(|p| p.trim().is_empty());
-    let open: Vec<String> = if opts.clarify && n >= 2 && fresh { crate::coach::clarify(&opts.question, keys, settings, opts.timeout.min(crate::coach::CHAIR_WAIT)) } else { Vec::new() };
-    if !open.is_empty() {
-        emit(&Event::Clarify { questions: open.clone() });
-    }
+    let check = opts.clarify && n >= 2 && fresh;
+    // A one-round Quick run asks the chair alongside the seats, so nobody waits for it; then
+    // only the verdict reads the open questions. Any other run asks first and every seat reads them.
+    let alongside = check && opts.mode == Mode::Quick && advisory;
+    let clarify = || -> Vec<String> {
+        let q = crate::coach::clarify(&opts.question, keys, settings, opts.timeout.min(crate::coach::CHAIR_WAIT));
+        if !q.is_empty() {
+            emit(&Event::Clarify { questions: q.clone() });
+        }
+        q
+    };
+    let mut open: Vec<String> = if check && !alongside { clarify() } else { Vec::new() };
+    let late_open: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
     let base = prompt_with_open(&opts.question, opts.prior.as_deref(), opts.context.as_deref(), opts.attachments.as_deref(), opts.brief.as_deref(), open_questions_section(&open).as_deref());
 
     let mut out = String::new();
@@ -677,11 +697,18 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
         out.push('\n');
     };
     let first_round = |prompt: &str| {
-        if opts.open_first_round {
-            run_open_round(prompt, &seats, &seat_keys, opts, keys, settings, emit)
-        } else {
-            run_round(prompt, 1, &seats, &seat_keys, opts, keys, settings, emit)
-        }
+        std::thread::scope(|s| {
+            let asking = alongside.then(|| s.spawn(|| *late_open.lock().unwrap_or_else(|e| e.into_inner()) = clarify()));
+            let res = if opts.open_first_round {
+                run_open_round(prompt, &seats, &seat_keys, opts, keys, settings, emit)
+            } else {
+                run_round(prompt, 1, &seats, &seat_keys, opts, keys, settings, emit)
+            };
+            if let Some(h) = asking {
+                let _ = h.join();
+            }
+            res
+        })
     };
     // (label, final answer) per seat, for the verdict.
     let mut finals: Vec<(String, String)> = Vec::new();
@@ -759,6 +786,9 @@ pub fn run(opts: &AskOptions, keys: &Keys, settings: &Settings, emit: &(dyn Fn(&
             format!("_Reached the round cap ({rounds}) without full consensus. The chair's last verdict lists the remaining disagreements._")
         };
         consensus = Some(cons);
+    }
+    if alongside {
+        open = late_open.lock().unwrap_or_else(|e| e.into_inner()).clone();
     }
     let transcript = match verdict_section(opts, keys, settings, &open, &finals, emit) {
         // The verdict first; the seat answers folded under it.
@@ -899,7 +929,7 @@ mod tests {
         let r = run(&opts, &k, &Settings::default(), &|e| events.lock().unwrap().push(serde_json::to_value(e).unwrap()));
         std::env::remove_var("ROUNDTABLE_GLM_URL");
         assert_eq!(r.answered, 1);
-        assert!(r.transcript.starts_with("# \u{1fa91} Round Table - 2 heads - advisory\n"));
+        assert!(r.transcript.starts_with("# \u{1fa91} Round Table - 2 heads - advisory - Quick\n"));
         assert!(r.transcript.contains("## \u{1f7e3} GLM (glm-5.2, Z.AI)\n\nBake bread.\n"));
         assert!(r.transcript.contains("_(unavailable, skipped)_"));
         assert!(!r.transcript.contains('\u{2014}'), "no em dashes");
@@ -960,7 +990,7 @@ mod tests {
         let events = Mutex::new(Vec::new());
         let r = run(&opts, &k, &Settings::default(), &|e| events.lock().unwrap().push(serde_json::to_value(e).unwrap()));
         std::env::remove_var("ROUNDTABLE_GROK_XAI_URL");
-        assert!(r.transcript.starts_with("# \u{1fa91} Round Table - 2 seats - deliberation (\u{2264}4 rounds)\n"), "{}", r.transcript);
+        assert!(r.transcript.starts_with("# \u{1fa91} Round Table - 2 seats - deliberation (\u{2264}4 rounds) - Quick\n"), "{}", r.transcript);
         assert!(r.transcript.contains("### CFO \u{b7} \u{1f916} Grok"), "{}", r.transcript);
         assert!(r.transcript.contains("Round 4"));
         assert!(!r.transcript.contains("Round 5"));

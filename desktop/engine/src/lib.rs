@@ -13,6 +13,7 @@ pub mod history;
 pub mod http;
 pub mod keys;
 pub mod mcp;
+pub mod mode;
 pub mod paths;
 pub mod personas;
 pub mod providers;
