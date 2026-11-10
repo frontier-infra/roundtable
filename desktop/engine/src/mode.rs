@@ -36,10 +36,10 @@ impl Mode {
             Mode::Deep => "Deep Think",
         }
     }
-    /// Rounds when `--rounds` is not given: two short rounds, or up to four.
+    /// Rounds when `--rounds` is not given: one blind round, or up to four.
     pub fn default_rounds(self) -> u32 {
         match self {
-            Mode::Quick => 2,
+            Mode::Quick => 1,
             Mode::Deep => 4,
         }
     }
@@ -63,7 +63,7 @@ impl Mode {
     pub fn seat_rule(self) -> String {
         match self {
             Mode::Quick => format!(
-                "## LENGTH\nKeep your answer to about {} words. Lead with your pick and how sure you are. Then give the main trade-off, the risks that could hurt this person, and the facts you do not have that would change the pick. Include one line, CASE AGAINST: the strongest reason your pick could be wrong for this person.",
+                "## LENGTH\nKeep your answer to about {} words. Lead with your pick and how sure you are. Then give the main trade-off, the risks that could hurt this person, and the facts you do not have that would change the pick. Include CASE AGAINST: two short bullets, the strongest case that your pick is wrong for this person.",
                 self.seat_words()
             ),
             Mode::Deep => format!(
@@ -115,7 +115,7 @@ mod tests {
         assert_eq!(Mode::parse("deep_think").unwrap(), Mode::Deep);
         assert!(Mode::parse("slow").is_err());
         assert_eq!(Mode::Deep.title(), "Deep Think");
-        assert_eq!(Mode::Quick.default_rounds(), 2);
+        assert_eq!(Mode::Quick.default_rounds(), 1);
         assert!(Mode::Deep.chair_rules() && !Mode::Quick.chair_rules());
         assert_eq!(Mode::Deep.default_rounds(), 4);
         assert!(Mode::Deep.coach() && !Mode::Quick.coach());

@@ -159,7 +159,7 @@ def agreed(chair):
 
 MODES = {"": "quick", "quick": "quick", "fast": "quick", "deep": "deep", "deep-think": "deep", "deepthink": "deep", "think": "deep"}
 MODE_TITLE = {"quick": "Quick", "deep": "Deep Think"}
-MODE_ROUNDS = {"quick": 2, "deep": 4}
+MODE_ROUNDS = {"quick": 1, "deep": 4}
 SEAT_WORDS = {"quick": 250, "deep": 800}
 
 
@@ -173,7 +173,7 @@ def seat_rule(mode):
                 "costs and buys, the risks that could hurt this person, the facts you do not have and how to find them out, and the steps in order." % SEAT_WORDS[mode])
     return ("## LENGTH\nKeep your answer to about %d words. Lead with your pick and how sure you are. Then give the main trade-off, "
             "the risks that could hurt this person, and the facts you do not have that would change the pick. "
-            "Include one line, CASE AGAINST: the strongest reason your pick could be wrong for this person." % SEAT_WORDS["quick"])
+            "Include CASE AGAINST: two short bullets, the strongest case that your pick is wrong for this person." % SEAT_WORDS["quick"])
 
 
 def estimate_minutes(mode, rounds):

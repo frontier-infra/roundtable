@@ -105,7 +105,7 @@ done
 COACH_PY="$(dirname "$0")/coach.py"
 MODE="$(python3 "$COACH_PY" mode "$MODE")" || exit 2
 # The mode's rounds unless --rounds says otherwise: Quick 1, Deep Think up to 4.
-[[ -z "$ROUNDS" ]] && { if [[ "$MODE" == "deep" ]]; then ROUNDS=4; else ROUNDS=2; fi; }
+[[ -z "$ROUNDS" ]] && { if [[ "$MODE" == "deep" ]]; then ROUNDS=4; else ROUNDS=1; fi; }
 [[ "$ROUNDS" =~ ^[0-9]+$ ]] || { echo "ERROR: --rounds needs a number" >&2; exit 2; }
 [[ "$ROUNDS" -lt 1 ]] && ROUNDS=1
 [[ "$ROUNDS" -gt 4 ]] && { echo "NOTE: --rounds is at most 4. Running 4." >&2; ROUNDS=4; }

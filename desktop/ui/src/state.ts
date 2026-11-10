@@ -570,8 +570,9 @@ export function depthTitle(d: Depth | undefined): string {
 /** About how long a run takes, in whole minutes. Same numbers as the engine's `mode::estimate_minutes`. */
 export function estimateMinutes(depth: Depth, rounds = DEPTH_ROUNDS[depth]): number {
   const r = Math.min(MAX_ROUNDS, Math.max(1, Math.round(rounds) || 1));
-  const [seat, verdict, coach] = depth === "deep" ? [140, 75, 45] : [75, 30, 0];
-  const chair = r > 1 ? r * 30 : 0;
+  const [seat, verdict, coach] = depth === "deep" ? [140, 75, 45] : [50, 30, 0];
+  // Deep Think's chair rules after every round; Quick runs any extra rounds back to back.
+  const chair = r > 1 && depth === "deep" ? r * 30 : 0;
   return Math.max(1, Math.ceil((coach + r * seat + chair + verdict) / 60));
 }
 
@@ -585,7 +586,7 @@ export function depthLine(depth: Depth, rounds = DEPTH_ROUNDS[depth]): string {
 export function depthHint(depth: Depth): string {
   return depth === "deep"
     ? `${depthLine(depth)} The coach first, up to ${DEPTH_ROUNDS.deep} rounds that argue against the leading pick, and a long verdict with the reasoning, risks, unknowns and a step plan.`
-    : `${depthLine(depth)} One round of short answers and a short verdict: the pick, how sure, what would change it, and three next steps.`;
+    : `${depthLine(depth)} One round of short answers and a short verdict: the pick, how sure, what would change it, three next steps and the case against.`;
 }
 
 export type Mode = "quick" | "talk";

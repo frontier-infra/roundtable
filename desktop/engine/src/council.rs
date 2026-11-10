@@ -1269,7 +1269,7 @@ mod tests {
         let opts = AskOptions {
             question: "Which database?".into(),
             heads: parse_heads("openai,glm").0,
-            rounds: Mode::Quick.default_rounds(),
+            rounds: 2,
             timeout: Duration::from_secs(10),
             verdict: Some(Shape::Decision),
             clarify: true,
