@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en" data-type="software" data-variant="b">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Roundtable: ask all your AIs one question, at once</title>
+<meta name="description" content="Roundtable is a free, open-source app that asks Claude, ChatGPT, Gemini, Grok and more the same question and shows where they agree.">
+<meta name="page-type" content="software"><meta name="site-kind" content="software">
+<meta name="robots" content="noindex">
+<link rel="icon" href="img/roundtable-mark.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Host+Grotesk:wght@400..600&family=JetBrains+Mono:wght@400..500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+/* Variant b: Cobalt paper. A light, editorial rebrand: warm paper, cobalt ink, Host Grotesk at large size, the app window as the hero picture. */
+:root { --bg:#efe7d8;--surface:#f7f2e8;--surface-2:#e6dbc7;--line:#d3c6ad;--ink:#062b8a;--muted:#3d4f86;--accent:#062b8a;--accent-ink:#f7f2e8;--ok:#13804f;--no:#b3261e;--tile:#fffdf8;--r:10px;--r-lg:14px;--font-d:'Host Grotesk',system-ui,sans-serif;--font-b:'Host Grotesk',system-ui,sans-serif;--font-m:'JetBrains Mono',ui-monospace,monospace;--track:-0.04em;--h1:clamp(48px,7.6vw,128px);--hw:500 }
+
+.hero-ed h1{max-width:13ch}
+.hero-ed .ed-row{display:grid;grid-template-columns:7fr 5fr;gap:48px;align-items:end;margin-top:28px}
+.hero-ed .bleed{margin-top:48px}
+.hero-ed .app-frame{box-shadow:0 30px 60px -30px rgba(6,43,138,.35)}
+main>section.hero{min-height:auto;padding-bottom:0;overflow:hidden;max-height:calc(100svh - 64px);align-items:flex-start}
+@media (max-width:720px){main>section.hero{max-height:none;padding-bottom:40px}.hero-ed .app-q{flex-direction:column;gap:4px}}
+#modes,#install{background:var(--surface)}
+.sec-head h2{font-size:clamp(36px,4.4vw,64px)}
+.card{background:var(--tile)}
+.nav{background:color-mix(in srgb,var(--bg) 88%,transparent)}
+
+</style>
+</head>
+<body id="top">
+<header class="nav"><div class="wrap">
+      <a class="brand" href="#top"><svg class="mark" width="28" height="28" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="14" fill="none" stroke="#062b8a" stroke-width="3.6"/><circle cx="50.00" cy="24.00" r="2.8" fill="#e5484d"/><path d="M 44.74 22.08 A 5.6 5.6 0 0 1 55.26 22.08" fill="none" stroke="#e5484d" stroke-width="2.4" stroke-linecap="round"/><circle cx="72.52" cy="37.00" r="2.8" fill="#062b8a"/><path d="M 71.54 31.49 A 5.6 5.6 0 0 1 76.81 40.60" fill="none" stroke="#062b8a" stroke-width="2.4" stroke-linecap="round"/><circle cx="72.52" cy="63.00" r="2.8" fill="#062b8a"/><path d="M 76.81 59.40 A 5.6 5.6 0 0 1 71.54 68.51" fill="none" stroke="#062b8a" stroke-width="2.4" stroke-linecap="round"/><circle cx="50.00" cy="76.00" r="2.8" fill="#062b8a"/><path d="M 55.26 77.92 A 5.6 5.6 0 0 1 44.74 77.92" fill="none" stroke="#062b8a" stroke-width="2.4" stroke-linecap="round"/><circle cx="27.48" cy="63.00" r="2.8" fill="#062b8a"/><path d="M 28.46 68.51 A 5.6 5.6 0 0 1 23.19 59.40" fill="none" stroke="#062b8a" stroke-width="2.4" stroke-linecap="round"/><circle cx="27.48" cy="37.00" r="2.8" fill="#062b8a"/><path d="M 23.19 40.60 A 5.6 5.6 0 0 1 28.46 31.49" fill="none" stroke="#062b8a" stroke-width="2.4" stroke-linecap="round"/></svg><span>Roundtable</span></a>
+      <nav aria-label="Main"><a href="#app">Product</a><a href="#modes">Modes</a><a href="#ais">AIs</a><a href="https://roundtable.sh/docs/get-started">Docs</a><a href="https://github.com/frontier-infra/roundtable">GitHub</a></nav>
+      <a class="btn primary sm" href="#install">Download Roundtable</a>
+    </div></header>
+<main>
+<section class="hero hero-ed" aria-labelledby="hero-h"><div class="wrap">
+      <h1 id="hero-h">Ask all your AIs one question, at once</h1>
+      <div class="ed-row">
+        <p class="lede">Roundtable sends your question to Claude, ChatGPT, Gemini, Grok and more. Every answer lands side by side, and Claude, as chair, writes where they agree.</p>
+        <div><div class="actions">
+        <a class="btn primary" href="#install">Download Roundtable</a>
+        <a class="btn ghost" href="https://roundtable.sh/docs/get-started">Read the docs</a>
+      </div><p class="fact mono">Free and open source. Mac, Windows, Claude Code and the command line.</p></div>
+      </div>
+      <div class="bleed"><div class="app-frame" role="img" aria-label="The Roundtable app showing four AI answers and the chair's verdict">
+      <div class="app-bar"><i></i><i></i><i></i><span>Roundtable</span><em>Talk it through, round 2 of 4</em></div>
+      <div class="app-body">
+        <div class="app-q"><span class="mono">Question</span><p>Postgres or SQLite for a single-tenant internal tool?</p></div>
+        <div class="ans-grid"><article class="ans">
+          <header><img src="img/claude.svg" width="22" height="22" alt="" loading="lazy"><b>Claude</b><span class="st ok">Agrees</span></header>
+          <p>SQLite. One tenant, one file, no server to run. Move to Postgres when you need many writers at once.</p>
+        </article><article class="ans">
+          <header><img src="img/openai.svg" width="22" height="22" alt="" loading="lazy"><b>ChatGPT</b><span class="st ok">Agrees</span></header>
+          <p>SQLite with WAL mode on. Plan the move to Postgres once writes pass a few per second.</p>
+        </article><article class="ans">
+          <header><img src="img/gemini.svg" width="22" height="22" alt="" loading="lazy"><b>Gemini</b><span class="st ok">Agrees</span></header>
+          <p>SQLite fits this load. Keep the schema portable so a later move stays cheap.</p>
+        </article><article class="ans">
+          <header><img src="img/grok.svg" width="22" height="22" alt="" loading="lazy"><b>Grok</b><span class="st no">Disagrees</span></header>
+          <p>Postgres. Internal tools grow, and a migration later costs more than the setup now.</p>
+        </article></div>
+        <div class="verdict">
+          <div class="v-head"><img src="img/claude.svg" width="20" height="20" alt="" loading="lazy"><b>Chair verdict</b><span class="mono">CONSENSUS 3 of 4</span></div>
+          <p>Use SQLite with WAL mode. Grok still expects growth, so move to Postgres if writes pass 10 a second.</p>
+        </div>
+      </div>
+    </div></div>
+    </div></section>
+<section id="app" aria-labelledby="app-h" style="--h:1"><div class="wrap">
+      <div class="sec-head"><h2 id="app-h">Every answer in one window</h2>
+      <p>Each AI answers on its own card. The chair writes the verdict: what they agree on, and what they still dispute.</p></div>
+      <div class="facts3">
+        <div><span class="num">8</span><p>AI apps it finds signed in on your computer, such as Claude Code, Codex and Cursor</p></div>
+        <div><span class="num">4</span><p>rounds at most in Talk it through, and it stops early once they agree</p></div>
+        <div><span class="num">0</span><p>Roundtable accounts. Questions go straight to the AIs you connected</p></div>
+      </div>
+    </div></section><section id="modes" aria-labelledby="modes-h" style="--h:1"><div class="wrap">
+      <div class="sec-head"><h2 id="modes-h">2 ways to ask a question</h2>
+      <p>Pick one round for fast, independent takes, or let the AIs read each other and revise.</p></div>
+      <div class="cards2">
+        <article class="card">
+          <div class="mode-vis one"><i></i><i></i><i></i><i></i><i></i></div>
+          <span class="mono">1 round</span>
+          <h3>Quick answers</h3>
+          <p>Each AI answers once, on its own, so the takes stay independent.</p>
+        </article>
+        <article class="card">
+          <div class="mode-vis many"><i style="--r:0"></i><i style="--r:1"></i><i style="--r:2"></i><i style="--r:3"></i></div>
+          <span class="mono">Up to 4 rounds</span>
+          <h3>Talk it through</h3>
+          <p>They read each other and revise until the chair says they agree.</p>
+        </article>
+      </div>
+      <ul class="extras">
+        <li>Let them search the web</li><li>Add a file or a link they read first</li><li>Have one AI sharpen your question first</li>
+      </ul>
+    </div></section><section id="ais" aria-labelledby="ais-h" style="--h:1"><div class="wrap">
+      <div class="sec-head"><h2 id="ais-h">Works with the AI apps you already use</h2>
+      <p>Roundtable first uses the AI apps signed in on your computer, on the plans you already pay for. No app? Paste an API key.</p></div>
+      <ul class="ai-grid"><li class="ai"><span><img src="img/claude.svg" width="40" height="40" alt="" loading="lazy"></span><b>Claude</b><small>Anthropic</small></li><li class="ai"><span><img src="img/openai.svg" width="40" height="40" alt="" loading="lazy"></span><b>ChatGPT</b><small>OpenAI</small></li><li class="ai"><span><img src="img/gemini.svg" width="40" height="40" alt="" loading="lazy"></span><b>Gemini</b><small>Google</small></li><li class="ai"><span><img src="img/grok.svg" width="40" height="40" alt="" loading="lazy"></span><b>Grok</b><small>xAI</small></li><li class="ai"><span><img src="img/glm.svg" width="40" height="40" alt="" loading="lazy"></span><b>GLM</b><small>Z.AI</small></li><li class="ai"><span><img src="img/minimax-icon.svg" width="40" height="40" alt="" loading="lazy"></span><b>MiniMax</b><small>MiniMax</small></li></ul>
+      <p class="also mono">Also Claude Code, Codex, Gemini CLI, Qwen Code, Kimi, OpenCode, Cursor, OpenRouter, Ollama and LM Studio</p>
+    </div></section><section id="install" aria-labelledby="install-h" style="--h:1"><div class="wrap">
+      <div class="sec-head"><h2 id="install-h">Install Roundtable</h2>
+      <p>Download the app, or use Roundtable in Claude Code or on the command line.</p></div>
+      <div class="inst">
+        <article class="card inst-app">
+          <h3>The app for Mac and Windows</h3>
+          <div class="actions">
+            <a class="btn primary" href="https://github.com/frontier-infra/roundtable/releases/download/desktop-latest/Roundtable.dmg">Download for Mac</a>
+            <a class="btn ghost" href="https://github.com/frontier-infra/roundtable/releases/download/desktop-latest/Roundtable-Setup.exe">Download for Windows</a>
+          </div>
+          <p class="small">macOS 11 or later, Apple silicon or Intel. Windows 10 or 11, 64-bit. <a class="link" href="https://github.com/frontier-infra/roundtable/releases">See all releases</a></p>
+        </article>
+        <article class="card">
+          <h3>In Claude Code</h3>
+          <pre><code>/plugin marketplace add frontier-infra/roundtable
+/plugin install roundtable@frontier-infra</code></pre>
+          <button class="copy" type="button">Copy command</button>
+        </article>
+        <article class="card">
+          <h3>On the command line</h3>
+          <pre><code>uv tool install roundtable-sh</code></pre>
+          <button class="copy" type="button">Copy command</button>
+        </article>
+        <article class="card">
+          <h3>With the script</h3>
+          <pre><code>curl -fsSL https://roundtable.sh/install.sh | bash</code></pre>
+          <button class="copy" type="button">Copy command</button>
+        </article>
+      </div>
+    </div></section><section id="close" class="close" aria-labelledby="close-h" style="--h:1"><div class="wrap">
+      <svg class="mark" width="88" height="88" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="14" fill="none" stroke="#062b8a" stroke-width="3.6"/><circle cx="50.00" cy="24.00" r="2.8" fill="#e5484d"/><path d="M 44.74 22.08 A 5.6 5.6 0 0 1 55.26 22.08" fill="none" stroke="#e5484d" stroke-width="2.4" stroke-linecap="round"/><circle cx="72.52" cy="37.00" r="2.8" fill="#062b8a"/><path d="M 71.54 31.49 A 5.6 5.6 0 0 1 76.81 40.60" fill="none" stroke="#062b8a" stroke-width="2.4" stroke-linecap="round"/><circle cx="72.52" cy="63.00" r="2.8" fill="#062b8a"/><path d="M 76.81 59.40 A 5.6 5.6 0 0 1 71.54 68.51" fill="none" stroke="#062b8a" stroke-width="2.4" stroke-linecap="round"/><circle cx="50.00" cy="76.00" r="2.8" fill="#062b8a"/><path d="M 55.26 77.92 A 5.6 5.6 0 0 1 44.74 77.92" fill="none" stroke="#062b8a" stroke-width="2.4" stroke-linecap="round"/><circle cx="27.48" cy="63.00" r="2.8" fill="#062b8a"/><path d="M 28.46 68.51 A 5.6 5.6 0 0 1 23.19 59.40" fill="none" stroke="#062b8a" stroke-width="2.4" stroke-linecap="round"/><circle cx="27.48" cy="37.00" r="2.8" fill="#062b8a"/><path d="M 23.19 40.60 A 5.6 5.6 0 0 1 28.46 31.49" fill="none" stroke="#062b8a" stroke-width="2.4" stroke-linecap="round"/></svg>
+      <h2 id="close-h">Roundtable is free and open source</h2>
+      <p>MIT license. Runs on your own AI plans and keys. No Roundtable account.</p>
+      <div class="actions center"><a class="btn primary" href="#install">Download Roundtable</a></div>
+    </div></section>
+</main>
+<footer><div class="wrap">
+      <div class="f-brand"><svg class="mark" width="24" height="24" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="14" fill="none" stroke="#062b8a" stroke-width="3.6"/><circle cx="50.00" cy="24.00" r="2.8" fill="#e5484d"/><path d="M 44.74 22.08 A 5.6 5.6 0 0 1 55.26 22.08" fill="none" stroke="#e5484d" stroke-width="2.4" stroke-linecap="round"/><circle cx="72.52" cy="37.00" r="2.8" fill="#062b8a"/><path d="M 71.54 31.49 A 5.6 5.6 0 0 1 76.81 40.60" fill="none" stroke="#062b8a" stroke-width="2.4" stroke-linecap="round"/><circle cx="72.52" cy="63.00" r="2.8" fill="#062b8a"/><path d="M 76.81 59.40 A 5.6 5.6 0 0 1 71.54 68.51" fill="none" stroke="#062b8a" stroke-width="2.4" stroke-linecap="round"/><circle cx="50.00" cy="76.00" r="2.8" fill="#062b8a"/><path d="M 55.26 77.92 A 5.6 5.6 0 0 1 44.74 77.92" fill="none" stroke="#062b8a" stroke-width="2.4" stroke-linecap="round"/><circle cx="27.48" cy="63.00" r="2.8" fill="#062b8a"/><path d="M 28.46 68.51 A 5.6 5.6 0 0 1 23.19 59.40" fill="none" stroke="#062b8a" stroke-width="2.4" stroke-linecap="round"/><circle cx="27.48" cy="37.00" r="2.8" fill="#062b8a"/><path d="M 23.19 40.60 A 5.6 5.6 0 0 1 28.46 31.49" fill="none" stroke="#062b8a" stroke-width="2.4" stroke-linecap="round"/></svg><b>Roundtable</b><span>A Frontier Infra project, built by Titanium Computing.</span></div>
+      <div class="f-links"><a href="https://roundtable.sh/docs/get-started">Docs</a><a href="https://github.com/frontier-infra/roundtable">GitHub</a><a href="https://github.com/frontier-infra/roundtable/issues">Support</a><a href="https://frontierinfra.org">Frontier Infra</a><a href="https://titaniumcomputing.com">Titanium Computing</a></div>
+      <p class="credit">MIT License. Product names and logos are trademarks of their owners and name compatible services only. Logos: Gil Barbara, gilbarbara/logos, CC0.</p>
+    </div></footer>
+<script src="site.js" defer></script>
+</body>
+</html>
